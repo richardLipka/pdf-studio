@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { I18nProvider } from './i18n/context';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { DocumentProvider, useDocument } from './context/DocumentContext';
 import { EditorProvider, useEditor } from './context/EditorContext';
 import { Header } from './components/layout/Header';
@@ -14,6 +15,7 @@ import { AddPageModal } from './components/modals/AddPageModal';
 import { ConfirmModal } from './components/modals/ConfirmModal';
 
 const MainWorkspace: React.FC = () => {
+  const { theme } = useTheme();
   const { pages, selectedPageIds, selectedAnnotationId } = useDocument();
   const {
     setIsDeleteConfirmModalOpen,
@@ -54,7 +56,7 @@ const MainWorkspace: React.FC = () => {
   }, [selectedAnnotationId, selectedPageIds, pages.length, setDeleteTargetPageId, setDeleteMode, setIsDeleteConfirmModalOpen]);
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-950">
+    <div className={`app-root theme-${theme} flex flex-col h-screen w-screen overflow-hidden bg-slate-950 transition-colors duration-200`}>
       {/* Top Header */}
       <Header />
 
@@ -88,13 +90,15 @@ const MainWorkspace: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <I18nProvider>
-      <DocumentProvider>
-        <EditorProvider>
-          <MainWorkspace />
-        </EditorProvider>
-      </DocumentProvider>
-    </I18nProvider>
+    <ThemeProvider>
+      <I18nProvider>
+        <DocumentProvider>
+          <EditorProvider>
+            <MainWorkspace />
+          </EditorProvider>
+        </DocumentProvider>
+      </I18nProvider>
+    </ThemeProvider>
   );
 };
 

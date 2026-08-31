@@ -230,4 +230,10 @@ export interface TranslationSchema {
     invalidFile: string;
     errorLoadingPdf: string;
   };
+  theme: {
+    title: string;
+    studio: string;
+    minimal: string;
+    lcars: string;
+  };
 }

@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { useI18n } from '../../i18n/context';
+import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
 import { createSamplePdfDoc } from '../../utils/file';
@@ -13,10 +14,14 @@ import {
   Loader2,
   Sparkles,
   MessageSquare,
+  Palette,
+  Sun,
+  Rocket,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
   const { language, setLanguage, t } = useI18n();
+  const { theme, setTheme } = useTheme();
   const {
     fileName,
     pages,
@@ -169,6 +174,48 @@ export const Header: React.FC = () => {
             )}
           </button>
         )}
+
+        {/* Theme Switcher */}
+        <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700" title={t.theme.title}>
+          <button
+            onClick={() => setTheme('default')}
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+              theme === 'default'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.theme.studio}
+          >
+            <Palette className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Studio</span>
+          </button>
+
+          <button
+            onClick={() => setTheme('minimal')}
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+              theme === 'minimal'
+                ? 'bg-zinc-700 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.theme.minimal}
+          >
+            <Sun className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">Minimal</span>
+          </button>
+
+          <button
+            onClick={() => setTheme('lcars')}
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+              theme === 'lcars'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.theme.lcars}
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">LCARS</span>
+          </button>
+        </div>
 
         {/* Language Switcher */}
         <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700">

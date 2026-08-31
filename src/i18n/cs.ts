@@ -230,4 +230,10 @@ export const cs: TranslationSchema = {
     invalidFile: 'Neplatný soubor. Prosím vyberte platné PDF nebo obrázek.',
     errorLoadingPdf: 'Nepodařilo se načíst PDF dokument. Zkontrolujte, zda není poškozen.',
   },
+  theme: {
+    title: 'Vzhled rozhraní',
+    studio: 'Studio (Tmavý)',
+    minimal: 'Minimal (Světlý)',
+    lcars: 'LCARS (Star Trek TNG)',
+  },
 };

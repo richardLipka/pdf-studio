@@ -39,3 +39,252 @@
 .bg-radial-gradient {
   background: radial-gradient(circle at 50% 20%, #0c203c 0%, #030712 70%);
 }
+
+/* ==========================================================================
+   THEME 2: MINIMAL (Light, Simple, Minimalistic, Mainly White & Black)
+   ========================================================================== */
+.theme-minimal,
+[data-theme="minimal"] {
+  --bg-main: #ffffff;
+  --bg-canvas: #f4f4f5;
+  --bg-panel: #ffffff;
+  --border-main: #e4e4e7;
+  --text-main: #09090b;
+  --text-muted: #71717a;
+  
+  background-color: #ffffff !important;
+  color: #09090b !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.theme-minimal header,
+[data-theme="minimal"] header {
+  background-color: #ffffff !important;
+  border-bottom: 1px solid #e4e4e7 !important;
+  color: #09090b !important;
+}
+
+.theme-minimal aside,
+[data-theme="minimal"] aside,
+.theme-minimal footer,
+[data-theme="minimal"] footer {
+  background-color: #ffffff !important;
+  border-color: #e4e4e7 !important;
+  color: #09090b !important;
+}
+
+.theme-minimal .bg-slate-950,
+[data-theme="minimal"] .bg-slate-950 {
+  background-color: #f4f4f5 !important;
+}
+
+.theme-minimal .bg-slate-900,
+[data-theme="minimal"] .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+
+.theme-minimal .bg-slate-900\/80,
+.theme-minimal .bg-slate-900\/50,
+[data-theme="minimal"] .bg-slate-900\/80,
+[data-theme="minimal"] .bg-slate-900\/50 {
+  background-color: #f8fafc !important;
+}
+
+.theme-minimal .bg-slate-800,
+[data-theme="minimal"] .bg-slate-800 {
+  background-color: #f4f4f5 !important;
+  color: #09090b !important;
+  border-color: #e4e4e7 !important;
+}
+
+.theme-minimal .hover\:bg-slate-700:hover,
+.theme-minimal .hover\:bg-slate-800:hover,
+[data-theme="minimal"] .hover\:bg-slate-700:hover,
+[data-theme="minimal"] .hover\:bg-slate-800:hover {
+  background-color: #e4e4e7 !important;
+  color: #000000 !important;
+}
+
+.theme-minimal .border-slate-800,
+.theme-minimal .border-slate-700,
+[data-theme="minimal"] .border-slate-800,
+[data-theme="minimal"] .border-slate-700 {
+  border-color: #e4e4e7 !important;
+}
+
+.theme-minimal .text-slate-100,
+.theme-minimal .text-slate-200,
+.theme-minimal .text-slate-300,
+.theme-minimal .text-white,
+[data-theme="minimal"] .text-slate-100,
+[data-theme="minimal"] .text-slate-200,
+[data-theme="minimal"] .text-slate-300,
+[data-theme="minimal"] .text-white {
+  color: #09090b !important;
+}
+
+.theme-minimal .text-slate-400,
+.theme-minimal .text-slate-500,
+[data-theme="minimal"] .text-slate-400,
+[data-theme="minimal"] .text-slate-500 {
+  color: #71717a !important;
+}
+
+.theme-minimal input,
+.theme-minimal textarea,
+[data-theme="minimal"] input,
+[data-theme="minimal"] textarea {
+  background-color: #ffffff !important;
+  color: #09090b !important;
+  border-color: #d4d4d8 !important;
+}
+
+.theme-minimal .bg-sky-950,
+[data-theme="minimal"] .bg-sky-950 {
+  background-color: #f4f4f5 !important;
+  border-color: #e4e4e7 !important;
+  color: #18181b !important;
+}
+
+.theme-minimal .bg-gradient-to-tr,
+.theme-minimal .bg-gradient-to-r,
+[data-theme="minimal"] .bg-gradient-to-tr,
+[data-theme="minimal"] .bg-gradient-to-r {
+  background-image: none !important;
+  background-color: #18181b !important;
+  color: #ffffff !important;
+}
+
+/* ==========================================================================
+   THEME 3: LCARS (Star Trek: The Next Generation LCARS)
+   ========================================================================== */
+.theme-lcars,
+[data-theme="lcars"] {
+  --lcars-orange: #ff9900;
+  --lcars-peach: #ff9966;
+  --lcars-purple: #cc99cc;
+  --lcars-blue: #99ccff;
+  --lcars-red: #cc3333;
+  --lcars-yellow: #ffcc00;
+  --lcars-black: #000000;
+  
+  background-color: #000000 !important;
+  color: #ff9900 !important;
+  font-family: 'Antonio', 'Impact', 'Trebuchet MS', 'Arial Black', sans-serif !important;
+  letter-spacing: 0.06em;
+}
+
+.theme-lcars header,
+[data-theme="lcars"] header {
+  background-color: #000000 !important;
+  border-bottom: 3px solid #ff9900 !important;
+  color: #ff9900 !important;
+}
+
+.theme-lcars aside,
+[data-theme="lcars"] aside {
+  background-color: #000000 !important;
+  border-right: 3px solid #cc99cc !important;
+  border-left: 3px solid #99ccff !important;
+}
+
+.theme-lcars footer,
+[data-theme="lcars"] footer {
+  background-color: #000000 !important;
+  border-top: 3px solid #ff9966 !important;
+  color: #99ccff !important;
+}
+
+.theme-lcars .bg-slate-950,
+[data-theme="lcars"] .bg-slate-950 {
+  background-color: #050505 !important;
+}
+
+.theme-lcars .bg-slate-900,
+[data-theme="lcars"] .bg-slate-900 {
+  background-color: #000000 !important;
+}
+
+.theme-lcars .bg-slate-800,
+[data-theme="lcars"] .bg-slate-800 {
+  background-color: #111111 !important;
+  border-color: #ff9900 !important;
+  color: #ff9900 !important;
+}
+
+.theme-lcars button,
+[data-theme="lcars"] button {
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  border-radius: 9999px !important;
+}
+
+.theme-lcars .rounded-xl,
+.theme-lcars .rounded-lg,
+.theme-lcars .rounded-2xl,
+[data-theme="lcars"] .rounded-xl,
+[data-theme="lcars"] .rounded-lg,
+[data-theme="lcars"] .rounded-2xl {
+  border-radius: 9999px;
+}
+
+.theme-lcars .border-slate-800,
+.theme-lcars .border-slate-700,
+[data-theme="lcars"] .border-slate-800,
+[data-theme="lcars"] .border-slate-700 {
+  border-color: #ff9900 !important;
+}
+
+.theme-lcars .text-slate-100,
+.theme-lcars .text-slate-200,
+.theme-lcars .text-slate-300,
+[data-theme="lcars"] .text-slate-100,
+[data-theme="lcars"] .text-slate-200,
+[data-theme="lcars"] .text-slate-300 {
+  color: #ff9966 !important;
+}
+
+.theme-lcars .text-slate-400,
+.theme-lcars .text-slate-500,
+[data-theme="lcars"] .text-slate-400,
+[data-theme="lcars"] .text-slate-500 {
+  color: #cc99cc !important;
+}
+
+.theme-lcars .bg-sky-600,
+.theme-lcars .bg-sky-500,
+.theme-lcars .bg-gradient-to-r,
+.theme-lcars .bg-gradient-to-tr,
+[data-theme="lcars"] .bg-sky-600,
+[data-theme="lcars"] .bg-sky-500,
+[data-theme="lcars"] .bg-gradient-to-r,
+[data-theme="lcars"] .bg-gradient-to-tr {
+  background-image: none !important;
+  background-color: #ff9900 !important;
+  color: #000000 !important;
+  font-weight: 900 !important;
+}
+
+.theme-lcars .bg-amber-500,
+[data-theme="lcars"] .bg-amber-500 {
+  background-color: #ffcc00 !important;
+  color: #000000 !important;
+  font-weight: 900 !important;
+}
+
+.theme-lcars .bg-rose-600,
+[data-theme="lcars"] .bg-rose-600 {
+  background-color: #cc3333 !important;
+  color: #ffffff !important;
+}
+
+.theme-lcars input,
+.theme-lcars textarea,
+[data-theme="lcars"] input,
+[data-theme="lcars"] textarea {
+  background-color: #000000 !important;
+  color: #ff9900 !important;
+  border-color: #ff9966 !important;
+  border-radius: 8px !important;
+}

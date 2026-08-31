@@ -230,4 +230,10 @@ export const en: TranslationSchema = {
     invalidFile: 'Invalid file. Please select a valid PDF or image.',
     errorLoadingPdf: 'Failed to parse PDF document. Check if the file is corrupted.',
   },
+  theme: {
+    title: 'Interface Theme',
+    studio: 'Studio (Dark)',
+    minimal: 'Minimal (Light)',
+    lcars: 'LCARS (Star Trek TNG)',
+  },
 };
