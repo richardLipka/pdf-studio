@@ -295,4 +295,63 @@ describe('PDF Export & ISO 32000-1 Annotations Compatibility', () => {
     expect(doc.getPage(0).getRotation().angle).toBe(90);
     expect(doc.getPage(1).getRotation().angle).toBe(180);
   });
+
+  it('should store custom line widths (strokeWidth) in /BS Border dictionaries for Underlines, Strikes, and Shapes', async () => {
+    const pageModel: PdfPageModel = {
+      id: 'p-1',
+      sourceDocId: 'src-1',
+      originalPageIndex: 0,
+      pageNumber: 1,
+      width: 595,
+      height: 842,
+      rotation: 0,
+      sourceType: 'blank',
+    };
+
+    const annotations: Annotation[] = [
+      {
+        id: 'u-custom',
+        pageId: 'p-1',
+        type: 'underline',
+        x: 50,
+        y: 100,
+        width: 100,
+        height: 4,
+        strokeWidth: 4,
+        color: '#0284c7',
+        opacity: 0.9,
+        comment: 'Custom 4pt underline',
+        createdAt: 1000,
+        updatedAt: 1000,
+      } as UnderlineAnnotation,
+      {
+        id: 's-custom',
+        pageId: 'p-1',
+        type: 'strikethrough',
+        x: 50,
+        y: 150,
+        width: 100,
+        height: 5,
+        strokeWidth: 5,
+        color: '#dc2626',
+        opacity: 0.9,
+        comment: 'Custom 5pt strikethrough',
+        createdAt: 1000,
+        updatedAt: 1000,
+      } as StrikethroughAnnotation,
+    ];
+
+    const bytes = await exportEditedPdf([], [pageModel], annotations, 'custom-widths.pdf');
+    const doc = await PDFDocument.load(bytes);
+    const firstPage = doc.getPage(0);
+    const annotsArray = firstPage.node.get(PDFName.of('Annots')) as PDFArray;
+    expect(annotsArray.size()).toBe(2);
+
+    for (let i = 0; i < annotsArray.size(); i++) {
+      const dict = annotsArray.lookup(i) as PDFDict;
+      const bsDict = dict.get(PDFName.of('BS')) as PDFDict;
+      expect(bsDict).toBeDefined();
+      expect(bsDict.get(PDFName.of('W'))).toBeDefined();
+    }
+  });
 });

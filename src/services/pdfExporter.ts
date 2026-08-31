@@ -130,9 +130,13 @@ const addNativePdfAnnotation = (
     } else if (subtype === 'Underline') {
       annotDictProps.CA = opacity || 0.9;
       annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
+      annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+      annotDictProps.Border = [0, 0, strokeWidth || 2];
     } else if (subtype === 'StrikeOut') {
       annotDictProps.CA = opacity || 0.9;
       annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
+      annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+      annotDictProps.Border = [0, 0, strokeWidth || 2];
     } else if (subtype === 'Text') {
       annotDictProps.Name = 'Comment';
     } else if (subtype === 'FreeText') {
@@ -141,9 +145,11 @@ const addNativePdfAnnotation = (
     } else if (subtype === 'Ink' && inkList) {
       annotDictProps.InkList = inkList;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+      annotDictProps.Border = [0, 0, strokeWidth || 2];
     } else if (subtype === 'Square' || subtype === 'Circle') {
       annotDictProps.CA = opacity || 1.0;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+      annotDictProps.Border = [0, 0, strokeWidth || 2];
       if (interiorColorRgb) {
         annotDictProps.IC = [interiorColorRgb.red, interiorColorRgb.green, interiorColorRgb.blue];
       }
@@ -151,6 +157,7 @@ const addNativePdfAnnotation = (
       annotDictProps.CA = opacity || 1.0;
       annotDictProps.L = lineCoordinates;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+      annotDictProps.Border = [0, 0, strokeWidth || 2];
     }
 
     const annotDict = context.obj(annotDictProps);

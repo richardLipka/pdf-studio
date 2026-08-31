@@ -116,8 +116,18 @@ export const extractPdfAnnotations = async (
         const y = Math.min(pageHeight - y1, pageHeight - y2);
         const width = Math.abs(x2 - x1);
         const height = Math.abs(y2 - y1);
-        const textContent = ann.contents?.str || ann.contents || '';
-        const author = ann.title?.str || ann.title || '';
+        const textContent =
+          (typeof ann.contents === 'string' ? ann.contents : ann.contents?.str) ||
+          (typeof ann.contentsObj === 'string' ? ann.contentsObj : ann.contentsObj?.str) ||
+          (typeof ann.richText === 'string' ? ann.richText : ann.richText?.str) ||
+          (typeof ann.subject === 'string' ? ann.subject : ann.subject?.str) ||
+          '';
+        const author =
+          (typeof ann.title === 'string' ? ann.title : ann.title?.str) ||
+          (typeof ann.author === 'string' ? ann.author : ann.author?.str) ||
+          '';
+        const strokeWidth =
+          ann.borderStyle?.width ?? (ann.border && ann.border[2]) ?? ann.strokeWidth ?? 2;
 
         const id = `imported_${ann.id || Math.random().toString(36).slice(2, 8)}`;
         const now = Date.now();
@@ -164,7 +174,7 @@ export const extractPdfAnnotations = async (
             y,
             width: Math.max(10, width),
             height: 2,
-            strokeWidth: 2,
+            strokeWidth,
             color: extractColor(ann.color, '#0284c7'),
             opacity: 0.9,
             comment: textContent,
@@ -181,7 +191,7 @@ export const extractPdfAnnotations = async (
             y,
             width: Math.max(10, width),
             height: 2,
-            strokeWidth: 2,
+            strokeWidth,
             color: extractColor(ann.color, '#dc2626'),
             opacity: 0.9,
             comment: textContent,
@@ -233,7 +243,7 @@ export const extractPdfAnnotations = async (
                 height: Math.max(10, maxY - minY),
                 points,
                 color: extractColor(ann.color, '#0284c7'),
-                strokeWidth: 2,
+                strokeWidth,
                 opacity: 1.0,
                 createdAt: now,
                 updatedAt: now,
@@ -254,7 +264,7 @@ export const extractPdfAnnotations = async (
             height: Math.max(10, height),
             color: strokeColor,
             fillColor,
-            strokeWidth: ann.borderStyle?.width || 2,
+            strokeWidth,
             opacity: ann.opacity ?? 1.0,
             createdAt: now,
             updatedAt: now,
@@ -273,7 +283,7 @@ export const extractPdfAnnotations = async (
             height: Math.max(10, height),
             color: strokeColor,
             fillColor,
-            strokeWidth: ann.borderStyle?.width || 2,
+            strokeWidth,
             opacity: ann.opacity ?? 1.0,
             createdAt: now,
             updatedAt: now,
@@ -296,7 +306,7 @@ export const extractPdfAnnotations = async (
             height: Math.abs(endY - startY) || 2,
             endPoint: { x: endX, y: endY },
             color: strokeColor,
-            strokeWidth: ann.borderStyle?.width || 2,
+            strokeWidth,
             opacity: ann.opacity ?? 1.0,
             createdAt: now,
             updatedAt: now,

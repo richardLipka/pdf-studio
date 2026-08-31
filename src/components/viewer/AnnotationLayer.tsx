@@ -511,6 +511,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                       strokeWidth={1.5}
                       strokeDasharray="4 2"
                       className="pointer-events-none"
+                      filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
                     />
                   )}
                 </g>
@@ -518,6 +519,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
             case 'underline': {
               const u = ann as UnderlineAnnotation;
+              const uHeight = u.strokeWidth || 2;
               return (
                 <g key={ann.id} className="annotation-item pointer-events-auto">
                   {/* Hit-test invisible wide padding */}
@@ -527,7 +529,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                     x2={u.x + u.width}
                     y2={u.y + u.height}
                     stroke="transparent"
-                    strokeWidth={Math.max(12, (u.strokeWidth || 2) * 3)}
+                    strokeWidth={Math.max(14, uHeight * 3)}
                     className="cursor-move"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
@@ -537,20 +539,33 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                     x2={u.x + u.width}
                     y2={u.y + u.height}
                     stroke={u.color}
-                    strokeWidth={u.strokeWidth || 2}
+                    strokeWidth={uHeight}
                     strokeOpacity={u.opacity || 0.9}
                     strokeLinecap="round"
-                    className={`cursor-move ${
-                      isSelected ? 'stroke-sky-400 stroke-[3px] filter drop-shadow(0 0 3px #38bdf8)' : ''
-                    }`}
+                    className="cursor-move"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
+                  {isSelected && (
+                    <rect
+                      x={u.x - 2}
+                      y={u.y + u.height - Math.max(3, uHeight + 2)}
+                      width={u.width + 4}
+                      height={Math.max(8, uHeight * 2 + 4)}
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                      className="pointer-events-none"
+                      filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
+                    />
+                  )}
                 </g>
               );
             }
 
             case 'strikethrough': {
               const s = ann as StrikethroughAnnotation;
+              const sHeight = s.strokeWidth || 2;
               return (
                 <g key={ann.id} className="annotation-item pointer-events-auto">
                   {/* Hit-test invisible wide padding */}
@@ -560,7 +575,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                     x2={s.x + s.width}
                     y2={s.y + s.height / 2}
                     stroke="transparent"
-                    strokeWidth={Math.max(12, (s.strokeWidth || 2) * 3)}
+                    strokeWidth={Math.max(14, sHeight * 3)}
                     className="cursor-move"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
@@ -570,14 +585,26 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                     x2={s.x + s.width}
                     y2={s.y + s.height / 2}
                     stroke={s.color}
-                    strokeWidth={s.strokeWidth || 2}
+                    strokeWidth={sHeight}
                     strokeOpacity={s.opacity || 0.9}
                     strokeLinecap="round"
-                    className={`cursor-move ${
-                      isSelected ? 'stroke-sky-400 stroke-[3px] filter drop-shadow(0 0 3px #38bdf8)' : ''
-                    }`}
+                    className="cursor-move"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
+                  {isSelected && (
+                    <rect
+                      x={s.x - 2}
+                      y={s.y + s.height / 2 - Math.max(3, sHeight + 2)}
+                      width={s.width + 4}
+                      height={Math.max(8, sHeight * 2 + 4)}
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                      className="pointer-events-none"
+                      filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
+                    />
+                  )}
                 </g>
               );
             }
@@ -607,11 +634,23 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                     strokeWidth={d.strokeWidth || 2}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className={`cursor-move ${
-                      isSelected ? 'filter drop-shadow(0 0 4px #38bdf8)' : ''
-                    }`}
+                    className="cursor-move"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
+                  {isSelected && (
+                    <rect
+                      x={d.x - 4}
+                      y={d.y - 4}
+                      width={d.width + 8}
+                      height={d.height + 8}
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                      className="pointer-events-none"
+                      filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
+                    />
+                  )}
                 </g>
               );
             }
