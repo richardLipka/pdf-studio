@@ -210,7 +210,10 @@ export const exportEditedPdf = async (
     // Find all pages originating from this source
     const srcPages = pages.filter((p) => p.sourceDocId === src.id && p.sourceType === 'pdf');
     if (srcPages.length > 0) {
-      const indicesToCopy = srcPages.map((p) => p.originalPageIndex);
+      const pageCount = srcDoc.getPageCount();
+      const indicesToCopy = srcPages.map((p) =>
+        Math.min(Math.max(0, p.originalPageIndex ?? 0), Math.max(0, pageCount - 1))
+      );
       try {
         const copiedList = await outputDoc.copyPages(srcDoc, indicesToCopy);
         copiedPagesMap.set(src.id, copiedList);
@@ -261,7 +264,12 @@ export const exportEditedPdf = async (
       } else {
         const srcDoc = sourceDocsMap.get(pageModel.sourceDocId);
         if (srcDoc) {
-          const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageModel.originalPageIndex]);
+          const pageCount = srcDoc.getPageCount();
+          const pageIdx = Math.min(
+            Math.max(0, pageModel.originalPageIndex ?? 0),
+            Math.max(0, pageCount - 1)
+          );
+          const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageIdx]);
           targetPage = outputDoc.addPage(copiedPage);
         } else {
           targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
@@ -509,13 +517,19 @@ export const exportEditedPdf = async (
     const link = document.createElement('a');
     link.href = downloadUrl;
     link.download = outputFileName;
+    link.style.position = 'fixed';
+    link.style.top = '-9999px';
+    link.style.left = '-9999px';
+    link.style.opacity = '0';
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
 
     setTimeout(() => {
+      if (document.body.contains(link)) {
+        document.body.removeChild(link);
+      }
       URL.revokeObjectURL(downloadUrl);
-    }, 2000);
+    }, 1500);
   }
 
   return pdfBytes;

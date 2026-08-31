@@ -54,11 +54,20 @@ export const Header: React.FC = () => {
   };
 
   const [showSuccessToast, setShowSuccessToast] = React.useState<boolean>(false);
+  const [showErrorToast, setShowErrorToast] = React.useState<boolean>(false);
 
   const handleSaveAndDownload = async () => {
-    await saveAndDownload();
-    setShowSuccessToast(true);
-    setTimeout(() => setShowSuccessToast(false), 3500);
+    if (pages.length === 0) return;
+    const success = await saveAndDownload();
+    if (success) {
+      setShowSuccessToast(true);
+      setShowErrorToast(false);
+      setTimeout(() => setShowSuccessToast(false), 3500);
+    } else {
+      setShowErrorToast(true);
+      setShowSuccessToast(false);
+      setTimeout(() => setShowErrorToast(false), 4000);
+    }
   };
 
   const hasDoc = pages.length > 0;
@@ -398,48 +407,62 @@ export const Header: React.FC = () => {
         </div>
 
         {/* Save & Download button */}
-        {hasDoc && (
-          <div className="relative">
-            <button
-              onClick={handleSaveAndDownload}
-              disabled={isSaving}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+        <div className="relative">
+          <button
+            onClick={handleSaveAndDownload}
+            disabled={isSaving || !hasDoc}
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold active:scale-[0.98] transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
+              isMinimal
+                ? 'rounded-md bg-black hover:bg-neutral-800 text-white border border-black shadow-none'
+                : isLcars
+                ? 'rounded-full bg-[#ff9900] hover:bg-[#ffcc00] text-black uppercase font-bold border-2 border-[#ff9900]'
+                : 'rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-md shadow-sky-500/20'
+            }`}
+            title={!hasDoc ? (language === 'cs' ? 'Nejprve otevřete dokument' : 'Open a document first') : t.app.savePdf}
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-inherit" />
+                <span className="text-inherit">{t.app.saving}</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4 text-inherit" />
+                <span className="text-inherit">{t.app.savePdf}</span>
+              </>
+            )}
+          </button>
+
+          {/* Success Toast */}
+          {showSuccessToast && (
+            <div
+              className={`absolute right-0 top-11 text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap animate-in fade-in slide-in-from-top-1 duration-200 z-50 ${
                 isMinimal
-                  ? 'rounded-md bg-black hover:bg-neutral-800 text-white border border-black shadow-none'
+                  ? 'bg-black text-white border border-black shadow-md'
                   : isLcars
-                  ? 'rounded-full bg-[#ff9900] hover:bg-[#ffcc00] text-black uppercase font-bold'
-                  : 'rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-md shadow-sky-500/20'
+                  ? 'bg-black text-[#99ccff] border border-[#99ccff] shadow-lg'
+                  : 'bg-emerald-950 border border-emerald-500/50 text-emerald-300 shadow-xl'
               }`}
             >
-              {isSaving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>{t.app.saving}</span>
-                </>
-              ) : (
-                <>
-                  <Download className="w-4 h-4" />
-                  <span>{t.app.savePdf}</span>
-                </>
-              )}
-            </button>
+              ✓ {t.app.downloadSuccess}
+            </div>
+          )}
 
-            {/* Success Toast */}
-            {showSuccessToast && (
-              <div
-                className={`absolute right-0 top-11 text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap animate-in fade-in slide-in-from-top-1 duration-200 z-50 ${
-                  isMinimal
-                    ? 'bg-black text-white border border-black shadow-md'
-                    : isLcars
-                    ? 'bg-black text-[#99ccff] border border-[#99ccff] shadow-lg'
-                    : 'bg-emerald-950 border border-emerald-500/50 text-emerald-300 shadow-xl'
-                }`}
-              >
-                ✓ {t.app.downloadSuccess}
-              </div>
-            )}
-          </div>
-        )}
+          {/* Error Toast */}
+          {showErrorToast && (
+            <div
+              className={`absolute right-0 top-11 text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap animate-in fade-in slide-in-from-top-1 duration-200 z-50 ${
+                isMinimal
+                  ? 'bg-red-600 text-white border border-red-700 shadow-md'
+                  : isLcars
+                  ? 'bg-black text-[#cc3333] border border-[#cc3333] shadow-lg'
+                  : 'bg-rose-950 border border-rose-500/50 text-rose-300 shadow-xl'
+              }`}
+            >
+              ✕ {language === 'cs' ? 'Chyba při stahování souboru' : 'Failed to download PDF'}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

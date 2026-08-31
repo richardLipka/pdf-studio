@@ -4,61 +4,63 @@
 
 @layer base {
   body {
-    @apply bg-slate-950 text-slate-100 antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    @apply bg-slate-950 text-slate-100 antialiased selection:bg-sky-500/30 selection:text-sky-200;
+    overflow-x: hidden;
   }
 }
 
-/* Custom sleek scrollbars */
+/* Custom modern scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
+  background: rgba(148, 163, 184, 0.2);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 1);
+  background: rgba(148, 163, 184, 0.4);
 }
 
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
-.scrollbar-none {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* Smooth transitions */
+.transition-canvas {
+  transition: transform 0.15s ease-out;
 }
 
-.bg-radial-gradient {
-  background: radial-gradient(circle at 50% 20%, #0c203c 0%, #030712 70%);
+/* Canvas checkerboard pattern for transparent regions */
+.bg-checkerboard {
+  background-image: linear-gradient(45deg, #1e293b 25%, transparent 25%),
+    linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1e293b 75%),
+    linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
 }
 
 /* ==========================================================================
-   THEME 2: MINIMAL (Light, Simple, Minimalistic, Pure White & Black Lines)
+   THEME 2: MINIMAL (Pure White Background, Simple 1px Lines, Monochrome UI)
    ========================================================================== */
-body.theme-minimal,
 .theme-minimal,
 [data-theme="minimal"] {
-  --bg-main: #ffffff;
+  --bg-primary: #ffffff;
   --bg-canvas: #ffffff;
   --bg-panel: #ffffff;
   --border-main: #e5e7eb;
   --text-main: #000000;
   --text-muted: #6b7280;
   
-  background-color: #ffffff !important;
-  color: #000000 !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  background-color: #ffffff;
+  color: #000000;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Force all containers, main workspace, and dropzone to white */
+/* Force all containers, main workspace, and dropzone to pure white */
 .theme-minimal,
 .theme-minimal main,
 .theme-minimal aside,
@@ -94,7 +96,6 @@ body.theme-minimal,
 [data-theme="minimal"] .bg-sky-950\/60,
 [data-theme="minimal"] .bg-sky-950\/40 {
   background-image: none !important;
-  background: #ffffff !important;
   background-color: #ffffff !important;
 }
 
@@ -143,104 +144,6 @@ body.theme-minimal,
   border-color: #e5e7eb !important;
 }
 
-/* Simple UI Buttons */
-.theme-minimal button,
-[data-theme="minimal"] button {
-  font-weight: 500;
-  transition: all 0.15s ease-in-out;
-}
-
-/* Inactive button backgrounds */
-.theme-minimal .bg-slate-800,
-.theme-minimal .bg-slate-800\/80,
-.theme-minimal .bg-slate-800\/40,
-.theme-minimal .bg-sky-600\/20,
-.theme-minimal .bg-emerald-600\/20,
-.theme-minimal .bg-indigo-600\/20,
-.theme-minimal .bg-amber-500\/20,
-[data-theme="minimal"] .bg-slate-800,
-[data-theme="minimal"] .bg-slate-800\/80,
-[data-theme="minimal"] .bg-slate-800\/40,
-[data-theme="minimal"] .bg-sky-600\/20,
-[data-theme="minimal"] .bg-emerald-600\/20,
-[data-theme="minimal"] .bg-indigo-600\/20,
-[data-theme="minimal"] .bg-amber-500\/20 {
-  background-color: #f9fafb !important;
-  color: #000000 !important;
-  border: 1px solid #e5e7eb !important;
-}
-
-.theme-minimal .hover\:bg-slate-700:hover,
-.theme-minimal .hover\:bg-slate-800:hover,
-.theme-minimal button:hover,
-[data-theme="minimal"] .hover\:bg-slate-700:hover,
-[data-theme="minimal"] .hover\:bg-slate-800:hover,
-[data-theme="minimal"] button:hover {
-  background-color: #f3f4f6 !important;
-  color: #000000 !important;
-  border-color: #d1d5db !important;
-}
-
-/* Active buttons: Solid black with crisp white text */
-.theme-minimal .bg-sky-600,
-.theme-minimal .bg-gradient-to-r,
-.theme-minimal .bg-gradient-to-tr,
-.theme-minimal .bg-zinc-700,
-[data-theme="minimal"] .bg-sky-600,
-[data-theme="minimal"] .bg-gradient-to-r,
-[data-theme="minimal"] .bg-gradient-to-tr,
-[data-theme="minimal"] .bg-zinc-700 {
-  background-image: none !important;
-  background: #000000 !important;
-  background-color: #000000 !important;
-  color: #ffffff !important;
-  border-color: #000000 !important;
-  box-shadow: none !important;
-}
-
-.theme-minimal .bg-sky-600:hover,
-[data-theme="minimal"] .bg-sky-600:hover {
-  background-color: #262626 !important;
-  color: #ffffff !important;
-}
-
-/* Typography & Text */
-.theme-minimal .text-white,
-.theme-minimal .text-slate-100,
-.theme-minimal .text-slate-200,
-.theme-minimal .text-slate-300,
-.theme-minimal .text-sky-400,
-.theme-minimal .text-sky-300,
-.theme-minimal .text-indigo-400,
-.theme-minimal .text-indigo-300,
-.theme-minimal .text-emerald-400,
-.theme-minimal .text-emerald-300,
-.theme-minimal .text-amber-400,
-.theme-minimal .text-amber-300,
-[data-theme="minimal"] .text-white,
-[data-theme="minimal"] .text-slate-100,
-[data-theme="minimal"] .text-slate-200,
-[data-theme="minimal"] .text-slate-300,
-[data-theme="minimal"] .text-sky-400,
-[data-theme="minimal"] .text-sky-300,
-[data-theme="minimal"] .text-indigo-400,
-[data-theme="minimal"] .text-indigo-300,
-[data-theme="minimal"] .text-emerald-400,
-[data-theme="minimal"] .text-emerald-300,
-[data-theme="minimal"] .text-amber-400,
-[data-theme="minimal"] .text-amber-300 {
-  color: #000000 !important;
-}
-
-.theme-minimal .text-slate-400,
-.theme-minimal .text-slate-500,
-.theme-minimal .text-slate-600,
-[data-theme="minimal"] .text-slate-400,
-[data-theme="minimal"] .text-slate-500,
-[data-theme="minimal"] .text-slate-600 {
-  color: #6b7280 !important;
-}
-
 /* Selection Highlights: Solid black outline with no blue rings or glows */
 .theme-minimal .ring-2,
 .theme-minimal .ring-1,
@@ -270,7 +173,7 @@ body.theme-minimal,
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
 }
 
-/* Inputs & Textareas */
+/* Inputs & Textareas in Minimal theme */
 .theme-minimal input,
 .theme-minimal textarea,
 .theme-minimal select,
@@ -352,99 +255,50 @@ body.theme-minimal,
 [data-theme="lcars"] footer {
   background-color: #000000 !important;
   border-top: 3px solid #ff9966 !important;
-  color: #99ccff !important;
 }
 
-.theme-lcars .bg-slate-950,
-[data-theme="lcars"] .bg-slate-950 {
-  background-color: #050505 !important;
-}
-
-.theme-lcars .bg-slate-900,
-[data-theme="lcars"] .bg-slate-900 {
+.theme-lcars .toolbar-container,
+[data-theme="lcars"] .toolbar-container {
   background-color: #000000 !important;
+  border-bottom: 2px solid #cc99cc !important;
 }
 
-.theme-lcars .bg-slate-800,
-[data-theme="lcars"] .bg-slate-800 {
-  background-color: #111111 !important;
-  border-color: #ff9900 !important;
-  color: #ff9900 !important;
-}
-
+/* LCARS Pill buttons */
 .theme-lcars button,
 [data-theme="lcars"] button {
-  text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.08em;
   border-radius: 9999px !important;
+  text-transform: uppercase !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
 }
 
-.theme-lcars .rounded-xl,
-.theme-lcars .rounded-lg,
-.theme-lcars .rounded-2xl,
-[data-theme="lcars"] .rounded-xl,
-[data-theme="lcars"] .rounded-lg,
-[data-theme="lcars"] .rounded-2xl {
-  border-radius: 9999px;
-}
-
-.theme-lcars .border-slate-800,
-.theme-lcars .border-slate-700,
-[data-theme="lcars"] .border-slate-800,
-[data-theme="lcars"] .border-slate-700 {
-  border-color: #ff9900 !important;
-}
-
-.theme-lcars .text-slate-100,
-.theme-lcars .text-slate-200,
-.theme-lcars .text-slate-300,
-[data-theme="lcars"] .text-slate-100,
-[data-theme="lcars"] .text-slate-200,
-[data-theme="lcars"] .text-slate-300 {
-  color: #ff9966 !important;
-}
-
-.theme-lcars .text-slate-400,
-.theme-lcars .text-slate-500,
-[data-theme="lcars"] .text-slate-400,
-[data-theme="lcars"] .text-slate-500 {
-  color: #cc99cc !important;
-}
-
-.theme-lcars .bg-sky-600,
-.theme-lcars .bg-sky-500,
-.theme-lcars .bg-gradient-to-r,
-.theme-lcars .bg-gradient-to-tr,
-[data-theme="lcars"] .bg-sky-600,
-[data-theme="lcars"] .bg-sky-500,
-[data-theme="lcars"] .bg-gradient-to-r,
-[data-theme="lcars"] .bg-gradient-to-tr {
-  background-image: none !important;
-  background-color: #ff9900 !important;
-  color: #000000 !important;
-  font-weight: 900 !important;
-}
-
-.theme-lcars .bg-amber-500,
-[data-theme="lcars"] .bg-amber-500 {
-  background-color: #ffcc00 !important;
-  color: #000000 !important;
-  font-weight: 900 !important;
-}
-
-.theme-lcars .bg-rose-600,
-[data-theme="lcars"] .bg-rose-600 {
-  background-color: #cc3333 !important;
-  color: #ffffff !important;
-}
-
+/* LCARS Inputs */
 .theme-lcars input,
 .theme-lcars textarea,
+.theme-lcars select,
 [data-theme="lcars"] input,
-[data-theme="lcars"] textarea {
+[data-theme="lcars"] textarea,
+[data-theme="lcars"] select {
   background-color: #000000 !important;
+  border: 2px solid #ff9966 !important;
   color: #ff9900 !important;
-  border-color: #ff9966 !important;
-  border-radius: 8px !important;
+  border-radius: 9999px !important;
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+}
+
+.theme-lcars textarea,
+[data-theme="lcars"] textarea {
+  border-radius: 1rem !important;
+}
+
+/* LCARS selection indicator */
+.theme-lcars .ring-2,
+.theme-lcars .ring-1,
+.theme-lcars .ring-sky-500,
+[data-theme="lcars"] .ring-2,
+[data-theme="lcars"] .ring-1,
+[data-theme="lcars"] .ring-sky-500 {
+  box-shadow: 0 0 12px #ff9900 !important;
+  outline: 2px solid #ff9900 !important;
 }

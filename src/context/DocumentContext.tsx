@@ -64,7 +64,7 @@ interface DocumentContextType {
   undo: () => void;
   redo: () => void;
   commitHistorySnapshot: () => void;
-  saveAndDownload: (customName?: string) => Promise<void>;
+  saveAndDownload: (customName?: string) => Promise<boolean>;
 }
 
 const DocumentContext = createContext<DocumentContextType | null>(null);
@@ -454,15 +454,17 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const saveAndDownload = async (customName?: string) => {
-    if (pages.length === 0) return;
+  const saveAndDownload = async (customName?: string): Promise<boolean> => {
+    if (pages.length === 0) return false;
     setIsSaving(true);
     try {
       const baseName = customName || fileName.replace(/\.pdf$/i, '');
       const outName = baseName.endsWith('.pdf') ? baseName : `${baseName}-edited.pdf`;
-      await exportEditedPdf(sources, pages, annotations, outName);
+      const bytes = await exportEditedPdf(sources, pages, annotations, outName);
+      return Boolean(bytes && bytes.length > 0);
     } catch (e) {
       console.error('Failed to export PDF:', e);
+      return false;
     } finally {
       setIsSaving(false);
     }
