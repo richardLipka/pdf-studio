@@ -8,6 +8,7 @@ import {
   PDFString,
   PDFHexString,
   PDFArray,
+  PDFImage,
 } from 'pdf-lib';
 import { PdfPageModel, SourceDocument } from '../types/document';
 import {
@@ -118,24 +119,50 @@ export const exportEditedPdf = async (
     }
   }
 
+  // Batch copy all needed pages per source document to preserve shared fonts/images and avoid asset duplication
+  const copiedPagesMap = new Map<string, PDFPage[]>();
+  for (const src of sources) {
+    const srcDoc = sourceDocsMap.get(src.id);
+    if (!srcDoc) continue;
+
+    // Find all pages originating from this source
+    const srcPages = pages.filter((p) => p.sourceDocId === src.id && p.sourceType === 'pdf');
+    if (srcPages.length > 0) {
+      const indicesToCopy = srcPages.map((p) => p.originalPageIndex);
+      try {
+        const copiedList = await outputDoc.copyPages(srcDoc, indicesToCopy);
+        copiedPagesMap.set(src.id, copiedList);
+      } catch (err) {
+        console.warn(`Error batch copying pages from source ${src.id}:`, err);
+      }
+    }
+  }
+
   // Pre-embed standard fonts for text and notes
   const fontHelvetica = await outputDoc.embedFont(StandardFonts.Helvetica);
   const fontHelveticaBold = await outputDoc.embedFont(StandardFonts.HelveticaBold);
+
+  // Cache embedded image objects (signatures, stamps, image pages)
+  const imageEmbedCache = new Map<string, PDFImage>();
+  const srcCounter = new Map<string, number>();
 
   // Process pages in order
   for (const pageModel of pages) {
     let targetPage: PDFPage;
 
     if (pageModel.sourceType === 'image' && pageModel.imageDataUrl) {
-      let embeddedImage;
-      if (pageModel.imageDataUrl.startsWith('data:image/png')) {
-        embeddedImage = await outputDoc.embedPng(pageModel.imageDataUrl);
-      } else {
-        try {
-          embeddedImage = await outputDoc.embedJpg(pageModel.imageDataUrl);
-        } catch {
+      let embeddedImage = imageEmbedCache.get(pageModel.imageDataUrl);
+      if (!embeddedImage) {
+        if (pageModel.imageDataUrl.startsWith('data:image/png')) {
           embeddedImage = await outputDoc.embedPng(pageModel.imageDataUrl);
+        } else {
+          try {
+            embeddedImage = await outputDoc.embedJpg(pageModel.imageDataUrl);
+          } catch {
+            embeddedImage = await outputDoc.embedPng(pageModel.imageDataUrl);
+          }
         }
+        imageEmbedCache.set(pageModel.imageDataUrl, embeddedImage);
       }
 
       targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
@@ -148,12 +175,19 @@ export const exportEditedPdf = async (
     } else if (pageModel.sourceType === 'blank') {
       targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
     } else {
-      const srcDoc = sourceDocsMap.get(pageModel.sourceDocId);
-      if (srcDoc) {
-        const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageModel.originalPageIndex]);
-        targetPage = outputDoc.addPage(copiedPage);
+      const count = srcCounter.get(pageModel.sourceDocId) || 0;
+      const list = copiedPagesMap.get(pageModel.sourceDocId);
+      if (list && list[count]) {
+        targetPage = outputDoc.addPage(list[count]);
+        srcCounter.set(pageModel.sourceDocId, count + 1);
       } else {
-        targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+        const srcDoc = sourceDocsMap.get(pageModel.sourceDocId);
+        if (srcDoc) {
+          const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageModel.originalPageIndex]);
+          targetPage = outputDoc.addPage(copiedPage);
+        } else {
+          targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+        }
       }
     }
 
@@ -351,7 +385,11 @@ export const exportEditedPdf = async (
             const sig = ann as SignatureAnnotation;
             if (!sig.imageDataUrl) break;
 
-            const sigImage = await outputDoc.embedPng(sig.imageDataUrl);
+            let sigImage = imageEmbedCache.get(sig.imageDataUrl);
+            if (!sigImage) {
+              sigImage = await outputDoc.embedPng(sig.imageDataUrl);
+              imageEmbedCache.set(sig.imageDataUrl, sigImage);
+            }
             const pdfY = pageHeight - sig.y - sig.height;
 
             targetPage.drawImage(sigImage, {
@@ -411,8 +449,8 @@ export const exportEditedPdf = async (
     }
   }
 
-  // Save document as bytes
-  const pdfBytes = await outputDoc.save();
+  // Save document as bytes with PDF 1.5 Object Stream compression
+  const pdfBytes = await outputDoc.save({ useObjectStreams: true });
 
   // Create client-side download link
   const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
