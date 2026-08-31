@@ -100,4 +100,51 @@ describe('PDF Export & Download Reliability', () => {
     // Clean up mock
     delete (globalThis as any).document;
   });
+
+  it('should gracefully export when a source document is unparseable or corrupted without throwing', async () => {
+    // Malformed invalid PDF buffer
+    const invalidBuffer = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
+
+    const sources: SourceDocument[] = [
+      {
+        id: 'corrupted-doc',
+        name: 'corrupted.pdf',
+        arrayBuffer: invalidBuffer,
+      },
+    ];
+
+    const pages: PdfPageModel[] = [
+      {
+        id: 'corrupted-page-1',
+        sourceDocId: 'corrupted-doc',
+        originalPageIndex: 0,
+        pageNumber: 1,
+        width: 595.28,
+        height: 841.89,
+        rotation: 0,
+        sourceType: 'pdf',
+      },
+    ];
+
+    const annotations: Annotation[] = [];
+
+    // Mock document environment
+    const fakeLink = { href: '', download: '', style: {}, click: vi.fn() };
+    (globalThis as any).document = {
+      createElement: vi.fn().mockReturnValue(fakeLink),
+      body: { appendChild: vi.fn(), removeChild: vi.fn(), contains: vi.fn().mockReturnValue(true) },
+    };
+    globalThis.URL.createObjectURL = vi.fn().mockReturnValue('blob:http://localhost/dummy');
+    globalThis.URL.revokeObjectURL = vi.fn();
+
+    // Export should not throw
+    const pdfBytes = await exportEditedPdf(sources, pages, annotations, 'recovered.pdf');
+    expect(pdfBytes).toBeDefined();
+    expect(pdfBytes.length).toBeGreaterThan(0);
+
+    const parsed = await PDFDocument.load(pdfBytes);
+    expect(parsed.getPageCount()).toBe(1);
+
+    delete (globalThis as any).document;
+  });
 });

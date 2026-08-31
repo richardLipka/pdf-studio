@@ -21,6 +21,7 @@ import {
   TextAnnotation,
   UnderlineAnnotation,
 } from '../types/annotations';
+import { renderPdfPageToDataUrl } from './pdfLoader';
 
 /**
  * Converts Hex / RGB string to pdf-lib rgb values (0..1)
@@ -193,10 +194,16 @@ export const exportEditedPdf = async (
   for (const src of sources) {
     if (src.arrayBuffer) {
       try {
-        const doc = await PDFDocument.load(src.arrayBuffer, { ignoreEncryption: true });
+        const doc = await PDFDocument.load(src.arrayBuffer, {
+          ignoreEncryption: true,
+          throwOnInvalidObject: false,
+          updateMetadata: false,
+        });
+        // Check if pages catalog is readable
+        doc.getPageCount();
         sourceDocsMap.set(src.id, doc);
       } catch (e) {
-        console.warn(`Could not load source doc ${src.id}:`, e);
+        console.warn(`PDF-lib could not strictly load source doc ${src.id}, will use high-res rendering fallback:`, e);
       }
     }
   }
@@ -210,11 +217,11 @@ export const exportEditedPdf = async (
     // Find all pages originating from this source
     const srcPages = pages.filter((p) => p.sourceDocId === src.id && p.sourceType === 'pdf');
     if (srcPages.length > 0) {
-      const pageCount = srcDoc.getPageCount();
-      const indicesToCopy = srcPages.map((p) =>
-        Math.min(Math.max(0, p.originalPageIndex ?? 0), Math.max(0, pageCount - 1))
-      );
       try {
+        const pageCount = srcDoc.getPageCount();
+        const indicesToCopy = srcPages.map((p) =>
+          Math.min(Math.max(0, p.originalPageIndex ?? 0), Math.max(0, pageCount - 1))
+        );
         const copiedList = await outputDoc.copyPages(srcDoc, indicesToCopy);
         copiedPagesMap.set(src.id, copiedList);
       } catch (err) {
@@ -229,7 +236,7 @@ export const exportEditedPdf = async (
 
   // Process pages in order
   for (const pageModel of pages) {
-    let targetPage: PDFPage;
+    let targetPage: PDFPage | null = null;
 
     if (pageModel.sourceType === 'image' && pageModel.imageDataUrl) {
       let embeddedImage = imageEmbedCache.get(pageModel.imageDataUrl);
@@ -264,17 +271,45 @@ export const exportEditedPdf = async (
       } else {
         const srcDoc = sourceDocsMap.get(pageModel.sourceDocId);
         if (srcDoc) {
-          const pageCount = srcDoc.getPageCount();
-          const pageIdx = Math.min(
-            Math.max(0, pageModel.originalPageIndex ?? 0),
-            Math.max(0, pageCount - 1)
-          );
-          const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageIdx]);
-          targetPage = outputDoc.addPage(copiedPage);
-        } else {
+          try {
+            const pageCount = srcDoc.getPageCount();
+            const pageIdx = Math.min(
+              Math.max(0, pageModel.originalPageIndex ?? 0),
+              Math.max(0, pageCount - 1)
+            );
+            const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageIdx]);
+            targetPage = outputDoc.addPage(copiedPage);
+          } catch (copyErr) {
+            console.warn(`copyPages failed for page ${pageModel.id}, falling back to high-res render:`, copyErr);
+            targetPage = null;
+          }
+        }
+      }
+
+      // If pdf-lib direct copy was unavailable or failed for this page, use high-res rendering fallback
+      if (!targetPage) {
+        try {
+          const sourceDoc = sources.find((s) => s.id === pageModel.sourceDocId) || sources[0];
+          if (sourceDoc && sourceDoc.arrayBuffer) {
+            const highResDataUrl = await renderPdfPageToDataUrl(sourceDoc, pageModel, 2.0);
+            const embeddedImg = await outputDoc.embedPng(highResDataUrl);
+            targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+            targetPage.drawImage(embeddedImg, {
+              x: 0,
+              y: 0,
+              width: pageModel.width,
+              height: pageModel.height,
+            });
+          }
+        } catch (renderErr) {
+          console.error(`High-res render fallback failed for page ${pageModel.id}:`, renderErr);
           targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
         }
       }
+    }
+
+    if (!targetPage) {
+      targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
     }
 
     // Clear pre-existing annotations dictionary on copied page so deleted/modified annotations don't conflict

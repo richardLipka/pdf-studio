@@ -408,3 +408,16 @@ export const renderPdfPageToCanvas = async (
 
   await pdfPage.render(renderContext).promise;
 };
+
+/**
+ * Renders a PDF page to a high-resolution PNG data URL
+ */
+export const renderPdfPageToDataUrl = async (
+  sourceDoc: SourceDocument,
+  pageModel: PdfPageModel,
+  scale: number = 2.0
+): Promise<string> => {
+  const canvas = document.createElement('canvas');
+  await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
+  return canvas.toDataURL('image/png');
+};
