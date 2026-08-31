@@ -103,4 +103,5 @@ export type ToolType =
   | 'drawing'
   | 'signature'
   | 'shape'
+  | 'crop'
   | 'eraser';

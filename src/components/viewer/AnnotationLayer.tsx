@@ -15,10 +15,15 @@ import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useI18n } from '../../i18n/context';
 import { screenToPdfPoint } from '../../utils/coordinate';
+import { cropPageRegionToClipboard, CropResult } from '../../services/imageCropper';
 import {
   MessageSquare,
   Trash2,
   Check,
+  Download,
+  X,
+  Camera,
+  BookmarkPlus,
 } from 'lucide-react';
 
 interface AnnotationLayerProps {
@@ -37,10 +42,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     fontSize,
     fontFamily,
     isNotesPanelOpen,
+    addStamp,
   } = useEditor();
 
   const {
     annotations,
+    sources,
     addAnnotation,
     updateAnnotation,
     deleteAnnotation,
@@ -50,10 +57,15 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Drawing / Dragging state
+  // Drawing / Dragging / Cropping state
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [startPoint, setStartPoint] = useState<Point | null>(null);
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
+
+  // Crop / Snapshot Tool State
+  const [cropToastResult, setCropToastResult] = useState<CropResult | null>(null);
+  const [cropFlash, setCropFlash] = useState<boolean>(false);
+  const [cropStampSaved, setCropStampSaved] = useState<boolean>(false);
 
   // Repositioning / Resizing selected annotation
   const [draggingAnnId, setDraggingAnnId] = useState<string | null>(null);
@@ -145,6 +157,13 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       }
     }
 
+    if (activeTool === 'crop') {
+      setIsDrawing(true);
+      setStartPoint(pt);
+      setCurrentPoints([pt]);
+      return;
+    }
+
     if (activeTool === 'drawing') {
       setIsDrawing(true);
       setCurrentPoints([pt]);
@@ -212,7 +231,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       } else if (
         activeTool === 'highlight' ||
         activeTool === 'underline' ||
-        activeTool === 'strikethrough'
+        activeTool === 'strikethrough' ||
+        activeTool === 'crop'
       ) {
         // Immediate visual preview updating as mouse moves
         setCurrentPoints([pt]);
@@ -389,11 +409,24 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           };
           addAnnotation(newStrike);
           setSelectedAnnotationId(newStrike.id);
-          if (isNotesPanelOpen) {
-            setActiveCommentAnnId(newStrike.id);
-            setCommentDraftText('');
-          } else {
-            setActiveCommentAnnId(null);
+        } else if (activeTool === 'crop') {
+          const cropW = Math.abs(endPoint.x - startPoint.x);
+          const cropH = Math.abs(endPoint.y - startPoint.y);
+          if (cropW >= 8 && cropH >= 8) {
+            setCropFlash(true);
+            setTimeout(() => setCropFlash(false), 450);
+
+            const sourceDoc = sources.find((s) => s.id === page.sourceDocId);
+            cropPageRegionToClipboard(sourceDoc, page, { x, y, width: cropW, height: cropH }, pageAnnotations, 3.0)
+              .then((res) => {
+                if (res.success) {
+                  setCropToastResult(res);
+                  setCropStampSaved(false);
+                }
+              })
+              .catch((err) => {
+                console.error('Crop failed:', err);
+              });
           }
         }
       }
@@ -467,7 +500,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           : activeTool === 'drawing' ||
             activeTool === 'highlight' ||
             activeTool === 'underline' ||
-            activeTool === 'strikethrough'
+            activeTool === 'strikethrough' ||
+            activeTool === 'crop'
           ? 'cursor-crosshair'
           : activeTool === 'note' || activeTool === 'text'
           ? 'cursor-text'
@@ -717,6 +751,76 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             strokeLinecap="round"
           />
         )}
+
+        {/* LIVE DRAWING PREVIEW: Crop Region Selection Marquee */}
+        {isDrawing && activeTool === 'crop' && startPoint && currentPoints.length > 0 && (() => {
+          const x1 = Math.min(startPoint.x, currentPoints[0].x);
+          const y1 = Math.min(startPoint.y, currentPoints[0].y);
+          const w = Math.max(4, Math.abs(currentPoints[0].x - startPoint.x));
+          const h = Math.max(4, Math.abs(currentPoints[0].y - startPoint.y));
+          const pixelW = Math.round(w * 3);
+          const pixelH = Math.round(h * 3);
+
+          return (
+            <g className="pointer-events-none">
+              {/* Dimmed outer mask */}
+              <path
+                d={`M 0 0 L ${page.width} 0 L ${page.width} ${page.height} L 0 ${page.height} Z M ${x1} ${y1} L ${x1} ${y1 + h} L ${x1 + w} ${y1 + h} L ${x1 + w} ${y1} Z`}
+                fill="rgba(15, 23, 42, 0.45)"
+                fillRule="evenodd"
+              />
+
+              {/* Glowing cut marquee rectangle */}
+              <rect
+                x={x1}
+                y={y1}
+                width={w}
+                height={h}
+                fill="rgba(56, 189, 248, 0.08)"
+                stroke="#38bdf8"
+                strokeWidth={2}
+                strokeDasharray="6 3"
+              />
+
+              {/* Corner bracket handles */}
+              <path
+                d={`
+                  M ${x1} ${y1 + 10} L ${x1} ${y1} L ${x1 + 10} ${y1}
+                  M ${x1 + w - 10} ${y1} L ${x1 + w} ${y1} L ${x1 + w} ${y1 + 10}
+                  M ${x1 + w} ${y1 + h - 10} L ${x1 + w} ${y1 + h} L ${x1 + w - 10} ${y1 + h}
+                  M ${x1 + 10} ${y1 + h} L ${x1} ${y1 + h} L ${x1} ${y1 + h - 10}
+                `}
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth={3}
+              />
+
+              {/* Live resolution tag */}
+              <g transform={`translate(${x1 + w / 2}, ${y1 + h + 18 > page.height ? y1 - 10 : y1 + h + 16})`}>
+                <rect
+                  x={-75}
+                  y={-10}
+                  width={150}
+                  height={20}
+                  rx={5}
+                  fill="#0f172a"
+                  stroke="#38bdf8"
+                  strokeWidth={1}
+                />
+                <text
+                  textAnchor="middle"
+                  y={4}
+                  fill="#38bdf8"
+                  fontSize={10}
+                  fontFamily="sans-serif"
+                  fontWeight="bold"
+                >
+                  {pixelW} × {pixelH} px • Ultra HD
+                </text>
+              </g>
+            </g>
+          );
+        })()}
       </svg>
 
       {/* HTML Elements Layer (Signatures, Text Boxes, Sticky Notes) */}
@@ -1034,6 +1138,90 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           </div>
         );
       })}
+
+      {/* Camera Flash effect upon cropping */}
+      {cropFlash && (
+        <div className="absolute inset-0 bg-white/40 pointer-events-none animate-out fade-out duration-500 z-50 rounded-lg" />
+      )}
+
+      {/* Floating Crop Snippet Toast & Quick Actions Card */}
+      {cropToastResult && (
+        <div
+          className="fixed bottom-6 right-6 z-50 bg-slate-900/95 border border-sky-500/60 rounded-2xl shadow-2xl p-4 max-w-sm w-full backdrop-blur-xl animate-in fade-in slide-in-from-bottom-6 duration-200 text-slate-100"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                <Camera className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>{t.cropSnippet.copiedTitle}</span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-sky-500 text-slate-950">
+                    {t.cropSnippet.resBadge}
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  {cropToastResult.pixelWidth} × {cropToastResult.pixelHeight} px • {t.cropSnippet.copiedDesc}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setCropToastResult(null)}
+              className="p-1 text-slate-400 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Snippet Preview Image */}
+          <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950 mb-3 max-h-36 flex items-center justify-center p-1.5">
+            <img
+              src={cropToastResult.dataUrl}
+              alt="Snippet"
+              className="max-h-32 object-contain rounded-lg"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const a = document.createElement('a');
+                a.href = cropToastResult.dataUrl;
+                a.download = `vystrizek-${Date.now()}.png`;
+                a.click();
+              }}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-xs font-semibold transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{t.cropSnippet.downloadPng}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                addStamp({
+                  title: `Výstřižek ${new Date().toLocaleTimeString()}`,
+                  imageDataUrl: cropToastResult.dataUrl,
+                  width: Math.round(cropToastResult.pixelWidth / 3),
+                  height: Math.round(cropToastResult.pixelHeight / 3),
+                });
+                setCropStampSaved(true);
+              }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
+                cropStampSaved
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-sky-600 hover:bg-sky-500 text-white shadow-lg shadow-sky-600/30'
+              }`}
+            >
+              {cropStampSaved ? <Check className="w-3.5 h-3.5" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
+              <span>{cropStampSaved ? t.cropSnippet.stampSaved : t.cropSnippet.saveAsStamp}</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

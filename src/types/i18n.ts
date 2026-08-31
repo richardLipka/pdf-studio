@@ -42,6 +42,8 @@ export interface TranslationSchema {
     signature: string;
     signatureDesc: string;
     shapes: string;
+    crop: string;
+    cropDesc: string;
     eraser: string;
     eraserDesc: string;
     addPage: string;
@@ -78,7 +80,9 @@ export interface TranslationSchema {
     typeText: string;
     pageLabel: string;
     togglePanel: string;
+    authorLabel: string;
     deleteItem: string;
+    saveComment: string;
   };
   sidebar: {
     thumbnails: string;
@@ -100,13 +104,18 @@ export interface TranslationSchema {
     selectRangeHelp: string;
   };
   annotations: {
+    addNote: string;
+    editNote: string;
+    deleteAnnotation: string;
+    fontSize: string;
+    fontFamily: string;
+    color: string;
+    opacity: string;
     notePlaceholder: string;
     textPlaceholder: string;
-    deleteAnnotation: string;
-    editNote: string;
-    saveNote: string;
     noteBy: string;
-    justNow: string;
+    saveNote: string;
+    clickToEdit: string;
   };
   signatureModal: {
     title: string;
@@ -115,11 +124,17 @@ export interface TranslationSchema {
     tabType: string;
     tabUpload: string;
     tabSaved: string;
+    tabLibrary: string;
     clear: string;
     saveAndInsert: string;
     insert: string;
+    saveSignature: string;
+    cancel: string;
     typePlaceholder: string;
     selectFont: string;
+    fontInter: string;
+    fontCaveat: string;
+    fontDancingScript: string;
     uploadTitle: string;
     uploadDesc: string;
     removeBackground: string;
@@ -128,11 +143,26 @@ export interface TranslationSchema {
     noSavedSignatures: string;
     deleteSaved: string;
     drawInstruction: string;
+    dropImageHere: string;
+    supportsImages: string;
+    uploadInstructions: string;
+    signatureColor: string;
+    black: string;
+    blue: string;
+    red: string;
+    green: string;
+    saveToStamps: string;
     stampTitlePlaceholder: string;
     exportStampsJson: string;
     importStampsJson: string;
     importSuccess: string;
     importError: string;
+    noSavedStamps: string;
+    deleteStamp: string;
+    insertStamp: string;
+    stampsExportSuccess: string;
+    stampsImportSuccess: string;
+    stampsImportError: string;
   };
   addPageModal: {
     title: string;
@@ -182,6 +212,14 @@ export interface TranslationSchema {
     delete: string;
     pan: string;
     zoom: string;
+  };
+  cropSnippet: {
+    copiedTitle: string;
+    copiedDesc: string;
+    downloadPng: string;
+    saveAsStamp: string;
+    stampSaved: string;
+    resBadge: string;
   };
   notifications: {
     pageAdded: string;

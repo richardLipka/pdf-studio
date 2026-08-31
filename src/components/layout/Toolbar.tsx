@@ -17,6 +17,7 @@ import {
   Eraser,
   Trash2,
   MessageSquare,
+  Crop,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -199,6 +200,12 @@ export const Toolbar: React.FC = () => {
       label: t.tools.drawing,
       icon: <PenTool className="w-4 h-4" />,
       desc: t.tools.drawingDesc,
+    },
+    {
+      id: 'crop',
+      label: t.tools.crop,
+      icon: <Crop className="w-4 h-4 text-cyan-400" />,
+      desc: t.tools.cropDesc,
     },
     {
       id: 'eraser',
