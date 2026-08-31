@@ -237,7 +237,7 @@ export const Sidebar: React.FC = () => {
               }`}
             >
               {/* Header: Checkbox, Page Number, Drag Handle, Quick Up/Down */}
-              <div className="flex items-center justify-between mb-1.5 text-[11px] text-slate-400">
+              <div className="flex items-center justify-between mb-2 text-[11px] text-slate-400">
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={(e) => {
@@ -286,21 +286,23 @@ export const Sidebar: React.FC = () => {
                 </div>
               </div>
 
-              {/* Canvas Thumbnail Preview */}
+              {/* Canvas Thumbnail Preview (Unobstructed & Clean) */}
               <div className="relative flex items-center justify-center bg-white/5 rounded-lg overflow-hidden border border-slate-700/50 p-1 min-h-[140px]">
                 <canvas
                   ref={(el) => (canvasRefs.current[page.id] = el)}
                   className="rounded shadow-sm max-w-full max-h-[150px] object-contain block"
                 />
+              </div>
 
-                {/* Hover Action Overlay */}
-                <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-2">
+              {/* Bottom Card Toolbar: Dedicated buttons for rotate and delete */}
+              <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-700/60">
+                <div className="flex items-center gap-1">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       rotatePageById(page.id, -90);
                     }}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 shadow"
+                    className="p-1 rounded-md hover:bg-slate-700 text-slate-400 hover:text-sky-300 transition-colors"
                     title={t.sidebar.rotateLeft}
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
@@ -311,25 +313,25 @@ export const Sidebar: React.FC = () => {
                       e.stopPropagation();
                       rotatePageById(page.id, 90);
                     }}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 shadow"
+                    className="p-1 rounded-md hover:bg-slate-700 text-slate-400 hover:text-sky-300 transition-colors"
                     title={t.sidebar.rotateRight}
                   >
                     <RotateCw className="w-3.5 h-3.5" />
                   </button>
-
-                  {pages.length > 1 && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteSinglePage(page.id);
-                      }}
-                      className="p-1.5 rounded-lg bg-rose-900/60 hover:bg-rose-700 text-rose-200 border border-rose-600 shadow"
-                      title={t.sidebar.deletePage}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
                 </div>
+
+                {pages.length > 1 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteSinglePage(page.id);
+                    }}
+                    className="p-1 rounded-md hover:bg-rose-950/80 text-slate-500 hover:text-rose-400 transition-colors"
+                    title={t.sidebar.deletePage}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           );
