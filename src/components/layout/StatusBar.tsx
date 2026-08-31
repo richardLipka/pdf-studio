@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
+  ShieldCheck,
 } from 'lucide-react';
 
 export const StatusBar: React.FC = () => {
@@ -31,6 +32,7 @@ export const StatusBar: React.FC = () => {
     if (activePageIndex < pages.length - 1) setActivePageIndex(activePageIndex + 1);
   };
 
+  const hasPages = pages.length > 0;
   const zoomPercent = Math.round(scale * 100);
 
   const isMinimal = theme === 'minimal';
@@ -46,56 +48,73 @@ export const StatusBar: React.FC = () => {
           : 'bg-slate-900 border-slate-800 text-slate-400'
       }`}
     >
-      {/* Page Navigation */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={handlePrevPage}
-          disabled={activePageIndex === 0}
-          className={`p-1 rounded disabled:opacity-30 transition-colors ${
-            isMinimal
-              ? 'hover:bg-neutral-100 text-black'
-              : isLcars
-              ? 'hover:bg-[#222222] text-[#ff9900]'
-              : 'hover:bg-slate-800 text-slate-300'
-          }`}
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
+      {/* Left: Page Navigation when doc loaded, or Privacy badge on first page */}
+      <div className="flex items-center gap-2 min-w-[140px]">
+        {hasPages ? (
+          <>
+            <button
+              onClick={handlePrevPage}
+              disabled={activePageIndex === 0}
+              className={`p-1 rounded disabled:opacity-30 transition-colors ${
+                isMinimal
+                  ? 'hover:bg-neutral-100 text-black'
+                  : isLcars
+                  ? 'hover:bg-[#222222] text-[#ff9900]'
+                  : 'hover:bg-slate-800 text-slate-300'
+              }`}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
 
-        <span
-          className={`font-medium ${
-            isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-200'
-          }`}
-        >
-          {t.app.page}{' '}
-          <span
-            className={`font-bold ${
-              isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-sky-400'
+            <span
+              className={`font-medium ${
+                isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-200'
+              }`}
+            >
+              {t.app.page}{' '}
+              <span
+                className={`font-bold ${
+                  isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-sky-400'
+                }`}
+              >
+                {activePageIndex + 1}
+              </span>{' '}
+              {t.app.of} {pages.length}
+            </span>
+
+            <button
+              onClick={handleNextPage}
+              disabled={activePageIndex >= pages.length - 1}
+              className={`p-1 rounded disabled:opacity-30 transition-colors ${
+                isMinimal
+                  ? 'hover:bg-neutral-100 text-black'
+                  : isLcars
+                  ? 'hover:bg-[#222222] text-[#ff9900]'
+                  : 'hover:bg-slate-800 text-slate-300'
+              }`}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </>
+        ) : (
+          <div
+            className={`flex items-center gap-1.5 text-[11px] ${
+              isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#99ccff]' : 'text-slate-400'
             }`}
           >
-            {activePageIndex + 1}
-          </span>{' '}
-          {t.app.of} {pages.length}
-        </span>
-
-        <button
-          onClick={handleNextPage}
-          disabled={activePageIndex >= pages.length - 1}
-          className={`p-1 rounded disabled:opacity-30 transition-colors ${
-            isMinimal
-              ? 'hover:bg-neutral-100 text-black'
-              : isLcars
-              ? 'hover:bg-[#222222] text-[#ff9900]'
-              : 'hover:bg-slate-800 text-slate-300'
-          }`}
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
+            <ShieldCheck
+              className={`w-3.5 h-3.5 ${
+                isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-emerald-400'
+              }`}
+            />
+            <span className="hidden sm:inline font-medium">100% Client-Side Privacy</span>
+          </div>
+        )}
       </div>
 
       {/* Center: Author Copyright, Email & FAV ZČU Logo */}
       <div
-        className={`hidden sm:flex items-center gap-3 text-[11px] ${
+        className={`flex items-center gap-3 text-[11px] ${
           isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#99ccff]' : 'text-slate-400'
         }`}
       >
@@ -159,95 +178,107 @@ export const StatusBar: React.FC = () => {
         </a>
       </div>
 
-      {/* Zoom Controls */}
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
-          className={`p-1 rounded transition-colors ${
-            isMinimal
-              ? 'hover:bg-neutral-100 text-black'
-              : isLcars
-              ? 'hover:bg-[#222222] text-[#ff9900]'
-              : 'hover:bg-slate-800 text-slate-300'
-          }`}
-          title={`${t.app.zoomOut} (Ctrl + -)`}
-        >
-          <ZoomOut className="w-3.5 h-3.5" />
-        </button>
+      {/* Right: Zoom Controls when doc loaded, or subtle status on first page */}
+      <div className="flex items-center gap-1.5 min-w-[140px] justify-end">
+        {hasPages ? (
+          <>
+            <button
+              onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
+              className={`p-1 rounded transition-colors ${
+                isMinimal
+                  ? 'hover:bg-neutral-100 text-black'
+                  : isLcars
+                  ? 'hover:bg-[#222222] text-[#ff9900]'
+                  : 'hover:bg-slate-800 text-slate-300'
+              }`}
+              title={`${t.app.zoomOut} (Ctrl + -)`}
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
 
-        <span
-          className={`w-12 text-center font-mono font-medium ${
-            isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-300'
-          }`}
-        >
-          {zoomPercent}%
-        </span>
+            <span
+              className={`w-12 text-center font-mono font-medium ${
+                isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-300'
+              }`}
+            >
+              {zoomPercent}%
+            </span>
 
-        <button
-          onClick={() => setScale((s) => Math.min(3.0, Number((s + 0.15).toFixed(2))))}
-          className={`p-1 rounded transition-colors ${
-            isMinimal
-              ? 'hover:bg-neutral-100 text-black'
-              : isLcars
-              ? 'hover:bg-[#222222] text-[#ff9900]'
-              : 'hover:bg-slate-800 text-slate-300'
-          }`}
-          title={`${t.app.zoomIn} (Ctrl + +)`}
-        >
-          <ZoomIn className="w-3.5 h-3.5" />
-        </button>
+            <button
+              onClick={() => setScale((s) => Math.min(3.0, Number((s + 0.15).toFixed(2))))}
+              className={`p-1 rounded transition-colors ${
+                isMinimal
+                  ? 'hover:bg-neutral-100 text-black'
+                  : isLcars
+                  ? 'hover:bg-[#222222] text-[#ff9900]'
+                  : 'hover:bg-slate-800 text-slate-300'
+              }`}
+              title={`${t.app.zoomIn} (Ctrl + +)`}
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
 
-        <div
-          className={`h-3.5 w-px mx-1 ${
-            isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
-          }`}
-        />
+            <div
+              className={`h-3.5 w-px mx-1 ${
+                isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+              }`}
+            />
 
-        {/* Fit Width */}
-        <button
-          onClick={() => zoomToFitWidth()}
-          className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
-            isMinimal
-              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
-              : isLcars
-              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border-[#99ccff]'
-              : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-          }`}
-          title={t.app.fitWidth}
-        >
-          {t.app.fitWidth}
-        </button>
+            {/* Fit Width */}
+            <button
+              onClick={() => zoomToFitWidth()}
+              className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
+                isMinimal
+                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border-[#99ccff]'
+                  : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+              title={t.app.fitWidth}
+            >
+              {t.app.fitWidth}
+            </button>
 
-        {/* Fit Page */}
-        <button
-          onClick={() => zoomToFitPage()}
-          className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
-            isMinimal
-              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
-              : isLcars
-              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border-[#ff9966]'
-              : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-          }`}
-          title={t.app.fitPage}
-        >
-          <Maximize2 className="w-3 h-3 inline mr-1" />
-          {t.app.fitPage}
-        </button>
+            {/* Fit Page */}
+            <button
+              onClick={() => zoomToFitPage()}
+              className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
+                isMinimal
+                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border-[#ff9966]'
+                  : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+              title={t.app.fitPage}
+            >
+              <Maximize2 className="w-3 h-3 inline mr-1" />
+              {t.app.fitPage}
+            </button>
 
-        {/* Fit Selected */}
-        <button
-          onClick={() => zoomToFitPage(activePageIndex)}
-          className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
-            isMinimal
-              ? 'rounded-md bg-neutral-100 hover:bg-neutral-200 text-black border-neutral-300'
-              : isLcars
-              ? 'rounded-full bg-black hover:bg-[#111111] text-[#ffcc00] border-[#ffcc00]'
-              : 'rounded bg-sky-950/80 hover:bg-sky-900 text-sky-300 border-sky-800/80'
-          }`}
-          title={`${t.app.fitSelected} (Ctrl + 0)`}
-        >
-          {t.app.fitSelected}
-        </button>
+            {/* Fit Selected */}
+            <button
+              onClick={() => zoomToFitPage(activePageIndex)}
+              className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
+                isMinimal
+                  ? 'rounded-md bg-neutral-100 hover:bg-neutral-200 text-black border-neutral-300'
+                  : isLcars
+                  ? 'rounded-full bg-black hover:bg-[#111111] text-[#ffcc00] border-[#ffcc00]'
+                  : 'rounded bg-sky-950/80 hover:bg-sky-900 text-sky-300 border-sky-800/80'
+              }`}
+              title={`${t.app.fitSelected} (Ctrl + 0)`}
+            >
+              {t.app.fitSelected}
+            </button>
+          </>
+        ) : (
+          <span
+            className={`text-[11px] font-mono ${
+              isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#ff9966]' : 'text-slate-500'
+            }`}
+          >
+            v1.0.0
+          </span>
+        )}
       </div>
     </footer>
   );

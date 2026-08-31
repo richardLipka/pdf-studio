@@ -78,14 +78,14 @@ const MainWorkspace: React.FC = () => {
             <PdfViewer />
             <NotesPanel />
           </div>
-
-          {/* Bottom Status Bar */}
-          <StatusBar />
         </>
       ) : (
         /* Empty State Dropzone */
         <Dropzone />
       )}
+
+      {/* Bottom Status Bar (Always present on all pages including first page) */}
+      <StatusBar />
 
       {/* Modals */}
       <SignatureModal />
