@@ -60,6 +60,36 @@ export const parsePdfPages = async (
   return pages;
 };
 
+/**
+ * Safely extracts hex color from pdf.js annotation color representation
+ * Handles Array, Uint8ClampedArray, Float32Array, and normalized 0..1 values
+ */
+const extractColor = (rawColor: any, defaultColor: string): string => {
+  if (!rawColor) return defaultColor;
+  const len = rawColor.length;
+  if (typeof len !== 'number' || len < 3) return defaultColor;
+
+  let r = Number(rawColor[0]);
+  let g = Number(rawColor[1]);
+  let b = Number(rawColor[2]);
+
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return defaultColor;
+
+  // If colors are normalized in 0.0..1.0 float range, scale to 0..255
+  if (r <= 1 && g <= 1 && b <= 1 && (r > 0 || g > 0 || b > 0)) {
+    r = Math.round(r * 255);
+    g = Math.round(g * 255);
+    b = Math.round(b * 255);
+  } else {
+    r = Math.round(Math.max(0, Math.min(255, r)));
+    g = Math.round(Math.max(0, Math.min(255, g)));
+    b = Math.round(Math.max(0, Math.min(255, b)));
+  }
+
+  const toHex = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+};
+
 // Extract existing annotations & comments from PDF document
 export const extractPdfAnnotations = async (
   arrayBuffer: ArrayBuffer,
@@ -89,13 +119,6 @@ export const extractPdfAnnotations = async (
         const textContent = ann.contents?.str || ann.contents || '';
         const author = ann.title?.str || ann.title || '';
 
-        // Color extraction (rgb array 0..255 or 0..1)
-        let colorHex = '#f59e0b';
-        if (ann.color && Array.isArray(ann.color) && ann.color.length >= 3) {
-          const [r, g, b] = ann.color.map((v: number) => (v <= 1 ? Math.round(v * 255) : v));
-          colorHex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-        }
-
         const id = `imported_${ann.id || Math.random().toString(36).slice(2, 8)}`;
         const now = Date.now();
 
@@ -109,7 +132,7 @@ export const extractPdfAnnotations = async (
             y,
             width: 24,
             height: 24,
-            color: colorHex || '#f59e0b',
+            color: extractColor(ann.color, '#f59e0b'),
             opacity: 1.0,
             text: textContent,
             author,
@@ -125,7 +148,7 @@ export const extractPdfAnnotations = async (
             y,
             width: Math.max(10, width),
             height: Math.max(8, height),
-            color: colorHex || '#fde047',
+            color: extractColor(ann.color, '#fde047'),
             opacity: 0.4,
             comment: textContent,
             author,
@@ -142,7 +165,7 @@ export const extractPdfAnnotations = async (
             width: Math.max(10, width),
             height: 2,
             strokeWidth: 2,
-            color: colorHex || '#0284c7',
+            color: extractColor(ann.color, '#0284c7'),
             opacity: 0.9,
             comment: textContent,
             author,
@@ -159,7 +182,7 @@ export const extractPdfAnnotations = async (
             width: Math.max(10, width),
             height: 2,
             strokeWidth: 2,
-            color: colorHex || '#dc2626',
+            color: extractColor(ann.color, '#dc2626'),
             opacity: 0.9,
             comment: textContent,
             author,
@@ -167,19 +190,20 @@ export const extractPdfAnnotations = async (
             updatedAt: now,
           });
         } else if (ann.subtype === 'FreeText') {
+          const textVal = textContent || ann.defaultAppearanceData?.text || '';
           loadedAnnotations.push({
             id,
             pageId: pageModel.id,
             type: 'text',
             x,
             y,
-            width: Math.max(60, width),
+            width: Math.max(80, width),
             height: Math.max(20, height),
-            color: colorHex || '#0f172a',
+            color: extractColor(ann.color, '#0f172a'),
             opacity: 1.0,
-            text: textContent,
-            fontSize: 14,
-            fontFamily: 'Inter',
+            text: textVal,
+            fontSize: ann.defaultAppearanceData?.fontSize || 14,
+            fontFamily: ann.defaultAppearanceData?.fontName || 'Inter',
             createdAt: now,
             updatedAt: now,
           });
@@ -208,7 +232,7 @@ export const extractPdfAnnotations = async (
                 width: Math.max(10, maxX - minX),
                 height: Math.max(10, maxY - minY),
                 points,
-                color: colorHex || '#0284c7',
+                color: extractColor(ann.color, '#0284c7'),
                 strokeWidth: 2,
                 opacity: 1.0,
                 createdAt: now,

@@ -2,7 +2,6 @@ import {
   PDFDocument,
   rgb,
   degrees,
-  StandardFonts,
   PDFPage,
   PDFName,
   PDFString,
@@ -61,6 +60,7 @@ interface NativePdfAnnotOptions {
   colorRgb?: { red: number; green: number; blue: number };
   opacity?: number;
   strokeWidth?: number;
+  fontSize?: number;
 }
 
 /**
@@ -122,6 +122,9 @@ const addNativePdfAnnotation = (
       annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
     } else if (subtype === 'Text') {
       annotDictProps.Name = 'Comment';
+    } else if (subtype === 'FreeText') {
+      const fs = options.fontSize || 14;
+      annotDictProps.DA = PDFString.of(`/Helv ${fs} Tf ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
     } else if (subtype === 'Ink' && inkList) {
       annotDictProps.InkList = inkList;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
@@ -186,10 +189,6 @@ export const exportEditedPdf = async (
       }
     }
   }
-
-  // Pre-embed standard fonts for text and notes
-  const fontHelvetica = await outputDoc.embedFont(StandardFonts.Helvetica);
-  const fontHelveticaBold = await outputDoc.embedFont(StandardFonts.HelveticaBold);
 
   // Cache embedded image objects (signatures, stamps, image pages)
   const imageEmbedCache = new Map<string, PDFImage>();
@@ -330,45 +329,21 @@ export const exportEditedPdf = async (
 
           case 'text': {
             const t = ann as TextAnnotation;
-            const pdfColor = hexToPdfRgb(t.color || '#1e293b');
-            const fontSize = t.fontSize || 12;
-            const pdfY = pageHeight - t.y - fontSize;
-
-            if (t.backgroundColor && t.backgroundColor !== 'transparent') {
-              targetPage.drawRectangle({
-                x: t.x - 2,
-                y: pageHeight - t.y - t.height,
-                width: t.width + 4,
-                height: t.height,
-                color: hexToPdfRgb(t.backgroundColor),
-                opacity: 0.9,
-              });
-            }
-
-            // Split multiline text
-            const lines = (t.text || '').split('\n');
-            let currentLineY = pdfY;
-            for (const line of lines) {
-              if (line.trim().length > 0) {
-                targetPage.drawText(line, {
-                  x: t.x,
-                  y: currentLineY,
-                  size: fontSize,
-                  font: t.bold ? fontHelveticaBold : fontHelvetica,
-                  color: pdfColor,
-                  opacity: t.opacity || 1.0,
-                });
-              }
-              currentLineY -= fontSize * 1.25;
-            }
+            const pdfColor = hexToPdfRgb(t.color || '#0f172a');
+            const fontSize = t.fontSize || 14;
+            const x1 = t.x;
+            const y1 = pageHeight - t.y - t.height;
+            const x2 = t.x + t.width;
+            const y2 = pageHeight - t.y;
 
             addNativePdfAnnotation(outputDoc, targetPage, {
               id: t.id,
               subtype: 'FreeText',
-              rect: [t.x, pageHeight - t.y - t.height, t.x + t.width, pageHeight - t.y],
+              rect: [x1, y1, x2, y2],
               contents: t.text,
               author: t.author,
               colorRgb: pdfColor,
+              fontSize,
             });
             break;
           }

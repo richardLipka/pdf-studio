@@ -186,9 +186,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         y: pt.y,
         width: 150,
         height: fontSize * 1.5,
-        color: textColor,
+        color: textColor || '#0f172a',
         opacity: 1.0,
-        text: 'Text...',
+        text: '',
         fontSize,
         fontFamily: fontFamily || 'Inter',
         createdAt: Date.now(),
@@ -754,22 +754,27 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             >
               <input
                 type="text"
-                value={txt.text}
+                value={txt.text || ''}
                 onChange={(e) =>
                   updateAnnotation({
                     ...txt,
                     text: e.target.value,
-                    width: Math.max(80, e.target.value.length * txt.fontSize * 0.6),
+                    width: Math.max(80, e.target.value.length * (txt.fontSize || 14) * 0.65),
                   })
                 }
-                style={{
-                  fontSize: `${txt.fontSize * scale}px`,
-                  fontFamily: txt.fontFamily || 'Inter',
-                  color: txt.color,
-                  backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setSelectedAnnotationId(txt.id);
                 }}
-                className="bg-transparent border-none outline-none font-medium px-1 py-0.5 rounded shadow-none w-full"
+                style={{
+                  fontSize: `${(txt.fontSize || 14) * scale}px`,
+                  fontFamily: txt.fontFamily || 'Inter',
+                  color: txt.color || '#0f172a',
+                  backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.95)' : 'transparent',
+                }}
+                className="border-none outline-none font-medium px-1.5 py-0.5 rounded shadow-none w-full"
                 placeholder={t.annotations.textPlaceholder}
+                autoFocus={isSelected && !txt.text}
               />
 
               {isSelected && (
