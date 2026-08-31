@@ -6,7 +6,6 @@ import {
   ZoomOut,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   Maximize2,
 } from 'lucide-react';
 
@@ -58,10 +57,42 @@ export const StatusBar: React.FC = () => {
         </button>
       </div>
 
-      {/* Helper text */}
-      <div className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-400">
-        <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-        <span>{t.app.privacyBadge}</span>
+      {/* Center: Author Copyright, Email & FAV ZČU Logo */}
+      <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-400">
+        <a
+          href="https://www.fav.zcu.cz/cs/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+          title="Fakulta aplikovaných věd ZČU v Plzni (https://www.fav.zcu.cz/cs/)"
+        >
+          <img src="/fav-logo.svg" alt="FAV ZČU" className="h-5 object-contain" />
+        </a>
+
+        <span className="text-slate-700 select-none">•</span>
+
+        <span className="flex items-center gap-1">
+          <span>©</span>
+          <a
+            href="https://home.zcu.cz/~lipka/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-300 font-semibold hover:text-sky-400 hover:underline transition-colors"
+            title="Richard Lipka (https://home.zcu.cz/~lipka/)"
+          >
+            Richard Lipka
+          </a>
+        </span>
+
+        <span className="text-slate-700 select-none">•</span>
+
+        <a
+          href="mailto:lipka@fav.zcu.cz"
+          className="text-slate-400 hover:text-amber-400 transition-colors flex items-center gap-1 font-mono text-[10.5px]"
+          title="Napsat e-mail: lipka@fav.zcu.cz"
+        >
+          <span>lipka@fav.zcu.cz</span>
+        </a>
       </div>
 
       {/* Zoom Controls */}
