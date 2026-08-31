@@ -50,35 +50,84 @@ export const hexToPdfRgb = (color: string) => {
   return rgb(r / 255, g / 255, b / 255);
 };
 
+interface NativePdfAnnotOptions {
+  id?: string;
+  subtype: 'Text' | 'Highlight' | 'Underline' | 'StrikeOut' | 'FreeText' | 'Ink';
+  rect: [number, number, number, number];
+  quadPoints?: number[];
+  inkList?: number[][];
+  contents?: string;
+  author?: string;
+  colorRgb?: { red: number; green: number; blue: number };
+  opacity?: number;
+  strokeWidth?: number;
+}
+
 /**
- * Helper to embed native PDF comment annotations (ISO 32000-1) in PDF Annots structure
+ * Embeds standard ISO 32000-1 PDF annotations in target page Annots array
  */
-const addNativePdfComment = (
+const addNativePdfAnnotation = (
   pdfDoc: PDFDocument,
   targetPage: PDFPage,
-  subtype: 'Text' | 'Highlight' | 'Underline' | 'StrikeOut' | 'FreeText',
-  rect: [number, number, number, number],
-  contents: string,
-  author?: string,
-  colorRgb?: { red: number; green: number; blue: number }
+  options: NativePdfAnnotOptions
 ) => {
-  if (!contents || !contents.trim()) return;
   try {
     const context = pdfDoc.context;
-    const annotDict = context.obj({
+    const {
+      id,
+      subtype,
+      rect,
+      quadPoints,
+      inkList,
+      contents = '',
+      author = '',
+      colorRgb,
+      opacity = 1.0,
+      strokeWidth = 2,
+    } = options;
+
+    const [x1, y1, x2, y2] = rect;
+    const r = colorRgb ? colorRgb.red : 1;
+    const g = colorRgb ? colorRgb.green : 0.8;
+    const b = colorRgb ? colorRgb.blue : 0.2;
+
+    const annotDictProps: Record<string, any> = {
       Type: 'Annot',
       Subtype: subtype,
       Rect: rect,
-      Contents: PDFHexString.fromText(contents),
-      T: author ? PDFHexString.fromText(author) : PDFHexString.fromText('Reviewer'),
-      C: colorRgb
-        ? [colorRgb.red, colorRgb.green, colorRgb.blue]
-        : [1, 0.8, 0.2],
+      C: [r, g, b],
       F: 4, // Print flag
       CreationDate: PDFString.fromDate(new Date()),
       M: PDFString.fromDate(new Date()),
-    });
+    };
 
+    if (id) {
+      annotDictProps.NM = PDFHexString.fromText(id);
+    }
+    if (contents && contents.trim()) {
+      annotDictProps.Contents = PDFHexString.fromText(contents);
+    }
+    if (author && author.trim()) {
+      annotDictProps.T = PDFHexString.fromText(author);
+    }
+
+    if (subtype === 'Highlight') {
+      annotDictProps.CA = opacity || 0.4;
+      annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
+    } else if (subtype === 'Underline') {
+      annotDictProps.CA = opacity || 0.9;
+      annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
+    } else if (subtype === 'StrikeOut') {
+      annotDictProps.CA = opacity || 0.9;
+      annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
+    } else if (subtype === 'Text') {
+      annotDictProps.Name = 'Comment';
+    } else if (subtype === 'Ink' && inkList) {
+      annotDictProps.InkList = inkList;
+      annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+    }
+
+    const annotDict = context.obj(annotDictProps);
     const annotRef = context.register(annotDict);
 
     // Get or create Annots array on page node
@@ -91,7 +140,7 @@ const addNativePdfComment = (
       annots.push(annotRef);
     }
   } catch (err) {
-    console.warn('Failed to embed native PDF comment annotation:', err);
+    console.warn('Failed to embed native PDF annotation:', err);
   }
 };
 
@@ -215,81 +264,67 @@ export const exportEditedPdf = async (
             const h = ann as HighlightAnnotation;
             const pdfColor = hexToPdfRgb(h.color || '#fef08a');
             const pdfY = pageHeight - h.y - h.height;
-            targetPage.drawRectangle({
-              x: h.x,
-              y: pdfY,
-              width: Math.max(2, h.width),
-              height: Math.max(2, h.height),
-              color: pdfColor,
-              opacity: h.opacity || 0.35,
-            });
+            const x1 = h.x;
+            const y1 = pdfY;
+            const x2 = h.x + h.width;
+            const y2 = pdfY + h.height;
 
-            // If comment is attached, embed as native PDF highlight comment
-            if (h.comment && h.comment.trim()) {
-              addNativePdfComment(
-                outputDoc,
-                targetPage,
-                'Highlight',
-                [h.x, pdfY, h.x + h.width, pdfY + h.height],
-                h.comment,
-                h.author,
-                pdfColor
-              );
-            }
+            addNativePdfAnnotation(outputDoc, targetPage, {
+              id: h.id,
+              subtype: 'Highlight',
+              rect: [x1, y1, x2, y2],
+              quadPoints: [x1, y2, x2, y2, x1, y1, x2, y1],
+              contents: h.comment,
+              author: h.author,
+              colorRgb: pdfColor,
+              opacity: h.opacity || 0.4,
+            });
             break;
           }
 
           case 'underline': {
             const u = ann as UnderlineAnnotation;
-            const pdfColor = hexToPdfRgb(u.color || '#ef4444');
-            const pdfY = pageHeight - (u.y + u.height);
-            targetPage.drawLine({
-              start: { x: u.x, y: pdfY },
-              end: { x: u.x + u.width, y: pdfY },
-              thickness: u.strokeWidth || 2,
-              color: pdfColor,
-              opacity: u.opacity || 0.9,
-            });
+            const pdfColor = hexToPdfRgb(u.color || '#0284c7');
+            const pdfY = pageHeight - (u.y + (u.strokeWidth || 2));
+            const x1 = u.x;
+            const y1 = pdfY;
+            const x2 = u.x + u.width;
+            const y2 = pdfY + Math.max(4, u.strokeWidth || 2);
 
-            // If comment is attached, embed as native PDF underline comment
-            if (u.comment && u.comment.trim()) {
-              addNativePdfComment(
-                outputDoc,
-                targetPage,
-                'Underline',
-                [u.x, pdfY - 2, u.x + u.width, pdfY + 4],
-                u.comment,
-                u.author,
-                pdfColor
-              );
-            }
+            addNativePdfAnnotation(outputDoc, targetPage, {
+              id: u.id,
+              subtype: 'Underline',
+              rect: [x1, y1, x2, y2],
+              quadPoints: [x1, y2, x2, y2, x1, y1, x2, y1],
+              contents: u.comment,
+              author: u.author,
+              colorRgb: pdfColor,
+              opacity: u.opacity || 0.9,
+              strokeWidth: u.strokeWidth || 2,
+            });
             break;
           }
 
           case 'strikethrough': {
             const s = ann as StrikethroughAnnotation;
             const pdfColor = hexToPdfRgb(s.color || '#dc2626');
-            const pdfY = pageHeight - (s.y + s.height / 2);
-            targetPage.drawLine({
-              start: { x: s.x, y: pdfY },
-              end: { x: s.x + s.width, y: pdfY },
-              thickness: s.strokeWidth || 2,
-              color: pdfColor,
-              opacity: s.opacity || 0.85,
-            });
+            const pdfY = pageHeight - (s.y + (s.strokeWidth || 2));
+            const x1 = s.x;
+            const y1 = pdfY;
+            const x2 = s.x + s.width;
+            const y2 = pdfY + Math.max(4, s.strokeWidth || 2);
 
-            // If comment is attached, embed as native PDF strikethrough comment
-            if (s.comment && s.comment.trim()) {
-              addNativePdfComment(
-                outputDoc,
-                targetPage,
-                'StrikeOut',
-                [s.x, pdfY - 2, s.x + s.width, pdfY + 4],
-                s.comment,
-                s.author,
-                pdfColor
-              );
-            }
+            addNativePdfAnnotation(outputDoc, targetPage, {
+              id: s.id,
+              subtype: 'StrikeOut',
+              rect: [x1, y1, x2, y2],
+              quadPoints: [x1, y2, x2, y2, x1, y1, x2, y1],
+              contents: s.comment,
+              author: s.author,
+              colorRgb: pdfColor,
+              opacity: s.opacity || 0.9,
+              strokeWidth: s.strokeWidth || 2,
+            });
             break;
           }
 
@@ -326,45 +361,31 @@ export const exportEditedPdf = async (
               }
               currentLineY -= fontSize * 1.25;
             }
+
+            addNativePdfAnnotation(outputDoc, targetPage, {
+              id: t.id,
+              subtype: 'FreeText',
+              rect: [t.x, pageHeight - t.y - t.height, t.x + t.width, pageHeight - t.y],
+              contents: t.text,
+              author: t.author,
+              colorRgb: pdfColor,
+            });
             break;
           }
 
           case 'note': {
             const n = ann as NoteAnnotation;
-            const pdfColor = hexToPdfRgb(n.color || '#fbbf24');
+            const pdfColor = hexToPdfRgb(n.color || '#f59e0b');
             const pdfY = pageHeight - n.y - 20;
 
-            // Draw Note Sticky Icon Badge
-            targetPage.drawRectangle({
-              x: n.x,
-              y: pdfY,
-              width: 20,
-              height: 20,
-              color: pdfColor,
-              borderColor: rgb(0.7, 0.5, 0.1),
-              borderWidth: 1,
+            addNativePdfAnnotation(outputDoc, targetPage, {
+              id: n.id,
+              subtype: 'Text',
+              rect: [n.x, pdfY, n.x + 20, pdfY + 20],
+              contents: n.text,
+              author: n.author,
+              colorRgb: pdfColor,
             });
-
-            targetPage.drawText('N', {
-              x: n.x + 6,
-              y: pdfY + 4,
-              size: 11,
-              font: fontHelveticaBold,
-              color: rgb(0.2, 0.15, 0.05),
-            });
-
-            // Embed native PDF sticky note annotation (Text annotation)
-            if (n.text && n.text.trim()) {
-              addNativePdfComment(
-                outputDoc,
-                targetPage,
-                'Text',
-                [n.x, pdfY, n.x + 20, pdfY + 20],
-                n.text,
-                n.author,
-                pdfColor
-              );
-            }
             break;
           }
 
@@ -373,18 +394,20 @@ export const exportEditedPdf = async (
             if (!d.points || d.points.length < 2) break;
 
             const pdfColor = hexToPdfRgb(d.color || '#0284c7');
-            for (let i = 0; i < d.points.length - 1; i++) {
-              const pt1 = d.points[i];
-              const pt2 = d.points[i + 1];
+            const minX = Math.min(...d.points.map((p) => p.x));
+            const maxX = Math.max(...d.points.map((p) => p.x));
+            const minY = Math.min(...d.points.map((p) => pageHeight - p.y));
+            const maxY = Math.max(...d.points.map((p) => pageHeight - p.y));
+            const inkPath = d.points.flatMap((p) => [p.x, pageHeight - p.y]);
 
-              targetPage.drawLine({
-                start: { x: pt1.x, y: pageHeight - pt1.y },
-                end: { x: pt2.x, y: pageHeight - pt2.y },
-                thickness: d.strokeWidth || 2,
-                color: pdfColor,
-                opacity: d.opacity || 1.0,
-              });
-            }
+            addNativePdfAnnotation(outputDoc, targetPage, {
+              id: d.id,
+              subtype: 'Ink',
+              rect: [minX, minY, maxX, maxY],
+              inkList: [inkPath],
+              colorRgb: pdfColor,
+              strokeWidth: d.strokeWidth || 2,
+            });
             break;
           }
 
