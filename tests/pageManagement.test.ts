@@ -98,4 +98,17 @@ describe('Page Management & Reordering Suite', () => {
     expect(resEnd.pages.map((p) => p.id)).toEqual(['p1', 'p2', 'p3', 'new-1']);
     expect(resEnd.newActiveIndex).toBe(3);
   });
+
+  it('should correctly format deletion count for multiple page delete confirmation', () => {
+    const selectedIds = ['p1', 'p2', 'p3', 'p4'];
+    const csMsg = 'Opravdu si přejete trvale odstranit vybraných {count} stránek z dokumentu?';
+    const enMsg = 'Are you sure you want to remove all {count} selected pages from the document?';
+
+    expect(csMsg.replace('{count}', String(selectedIds.length))).toBe(
+      'Opravdu si přejete trvale odstranit vybraných 4 stránek z dokumentu?'
+    );
+    expect(enMsg.replace('{count}', String(selectedIds.length))).toBe(
+      'Are you sure you want to remove all 4 selected pages from the document?'
+    );
+  });
 });

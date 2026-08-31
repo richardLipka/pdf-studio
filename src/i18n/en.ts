@@ -192,7 +192,7 @@ export const en: TranslationSchema = {
     deletePageTitle: 'Delete Page',
     deletePageMsg: 'Are you sure you want to remove this page from the document? You can undo this action anytime.',
     deleteMultipleTitle: 'Delete Selected Pages',
-    deleteMultipleMsg: 'Are you sure you want to remove all selected pages from the document?',
+    deleteMultipleMsg: 'Are you sure you want to remove all {count} selected pages from the document?',
     clearDocTitle: 'Close Document',
     clearDocMsg: 'You have unsaved edits. Are you sure you want to open a new file and discard changes?',
     confirm: 'Confirm Delete',

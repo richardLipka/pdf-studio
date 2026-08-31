@@ -8,6 +8,7 @@ import {
   PDFHexString,
   PDFArray,
   PDFImage,
+  PDFDict,
   ParseSpeeds,
 } from 'pdf-lib';
 import { PdfPageModel, SourceDocument } from '../types/document';
@@ -23,6 +24,78 @@ import {
   UnderlineAnnotation,
 } from '../types/annotations';
 import { renderPdfPageToDataUrl } from './pdfLoader';
+
+/**
+ * Safely repairs broken or indirect catalog /Pages pointers in third-party PDFs
+ */
+const repairPdfDocCatalog = (doc: PDFDocument) => {
+  try {
+    const catalog = doc.catalog as any;
+    let pagesObj: any;
+    try {
+      pagesObj = catalog?.dict ? catalog.dict.lookup(PDFName.of('Pages')) : null;
+    } catch {
+      pagesObj = null;
+    }
+
+    if (!pagesObj && catalog?.dict) {
+      // Find the root page tree object (/Type /Pages with no /Parent)
+      const indirectObjects = doc.context.enumerateIndirectObjects();
+      let rootPageTreeRef: any = null;
+
+      for (const [ref, obj] of indirectObjects) {
+        if (
+          obj instanceof PDFDict &&
+          obj.lookup(PDFName.of('Type')) === PDFName.of('Pages') &&
+          !obj.lookup(PDFName.of('Parent'))
+        ) {
+          rootPageTreeRef = ref;
+          break;
+        }
+      }
+
+      if (!rootPageTreeRef) {
+        for (const [ref, obj] of indirectObjects) {
+          if (obj instanceof PDFDict && obj.lookup(PDFName.of('Type')) === PDFName.of('Pages')) {
+            rootPageTreeRef = ref;
+            break;
+          }
+        }
+      }
+
+      if (rootPageTreeRef) {
+        catalog.dict.set(PDFName.of('Pages'), rootPageTreeRef);
+      }
+    }
+  } catch (e) {
+    console.warn('Could not repair PDF catalog:', e);
+  }
+};
+
+/**
+ * Robustly loads a source PDF document with multi-stage options and catalog repair
+ */
+const loadSourcePdfDoc = async (arrayBuffer: ArrayBuffer): Promise<PDFDocument | null> => {
+  const attempts = [
+    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true },
+    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true },
+    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, capNumbers: true },
+    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false },
+  ];
+
+  for (const opt of attempts) {
+    try {
+      const copyBuf = arrayBuffer.slice(0);
+      const doc = await PDFDocument.load(copyBuf, opt);
+      repairPdfDocCatalog(doc);
+      doc.getPageCount();
+      return doc;
+    } catch {
+      // Try next option
+    }
+  }
+  return null;
+};
 
 /**
  * Converts Hex / RGB string to pdf-lib rgb values (0..1)
@@ -190,35 +263,15 @@ export const exportEditedPdf = async (
 ): Promise<Uint8Array> => {
   const outputDoc = await PDFDocument.create();
 
-  // Pre-load source PDF documents into memory map using full object stream parsing
+  // Pre-load source PDF documents into memory map with automatic catalog repair
   const sourceDocsMap = new Map<string, PDFDocument>();
   for (const src of sources) {
     if (src.arrayBuffer) {
-      const copyBuf = src.arrayBuffer.slice(0);
-      let doc: PDFDocument | null = null;
-      try {
-        doc = await PDFDocument.load(copyBuf, {
-          ignoreEncryption: true,
-          throwOnInvalidObject: false,
-          updateMetadata: false,
-          parseSpeed: ParseSpeeds.Slow,
-        });
-        doc.getPageCount();
-      } catch {
-        try {
-          doc = await PDFDocument.load(copyBuf, {
-            ignoreEncryption: true,
-            throwOnInvalidObject: false,
-            updateMetadata: false,
-          });
-          doc.getPageCount();
-        } catch (e) {
-          doc = null;
-          console.warn(`PDF-lib could not strictly load source doc ${src.id}, will use high-res rendering fallback:`, e);
-        }
-      }
+      const doc = await loadSourcePdfDoc(src.arrayBuffer);
       if (doc) {
         sourceDocsMap.set(src.id, doc);
+      } else {
+        console.warn(`PDF-lib could not strictly parse source doc ${src.id}, will use high-res rendering fallback.`);
       }
     }
   }

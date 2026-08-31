@@ -192,7 +192,7 @@ export const cs: TranslationSchema = {
     deletePageTitle: 'Smazat stránku',
     deletePageMsg: 'Opravdu si přejete trvale odstranit tuto stránku z dokumentu?',
     deleteMultipleTitle: 'Smazat vybrané stránky',
-    deleteMultipleMsg: 'Opravdu si přejete trvale odstranit všechny vybrané stránky?',
+    deleteMultipleMsg: 'Opravdu si přejete trvale odstranit vybraných {count} stránek z dokumentu?',
     clearDocTitle: 'Zavřít dokument',
     clearDocMsg: 'Máte neuložené změny. Opravdu chcete otevřít nový dokument a zahodit úpravy?',
     confirm: 'Smazat',

@@ -87,7 +87,7 @@ export const ConfirmModal: React.FC = () => {
               }`}
             >
               {isMultiple
-                ? t.confirmModal.deleteMultipleTitle
+                ? `${t.confirmModal.deleteMultipleTitle} (${selectedPageIds.length})`
                 : t.confirmModal.deletePageTitle}
             </h3>
           </div>
@@ -128,7 +128,11 @@ export const ConfirmModal: React.FC = () => {
             }`}
           >
             <Trash2 className="w-4 h-4" />
-            <span>{t.confirmModal.confirm}</span>
+            <span>
+              {isMultiple
+                ? `${t.confirmModal.confirm} (${selectedPageIds.length})`
+                : t.confirmModal.confirm}
+            </span>
           </button>
         </div>
       </div>
