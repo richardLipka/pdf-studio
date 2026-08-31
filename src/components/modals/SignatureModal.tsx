@@ -78,6 +78,25 @@ export const SignatureModal: React.FC = () => {
     };
   }, [isSignatureModalOpen, activeTab]);
 
+  useEffect(() => {
+    if (!isSignatureModalOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsSignatureModalOpen(false);
+      } else if (e.key === 'Enter') {
+        if (activeTab === 'draw' || activeTab === 'type' || activeTab === 'upload') {
+          e.preventDefault();
+          handleConfirmInsert(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSignatureModalOpen, activeTab, typedText, uploadedDataUrl, stampTitle]);
+
   if (!isSignatureModalOpen) return null;
 
   const handleClearDraw = () => {

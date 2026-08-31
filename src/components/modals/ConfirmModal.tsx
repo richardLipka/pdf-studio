@@ -16,6 +16,23 @@ export const ConfirmModal: React.FC = () => {
 
   const { deletePageById, deleteSelectedPages, selectedPageIds } = useDocument();
 
+  React.useEffect(() => {
+    if (!isDeleteConfirmModalOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleConfirm();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleCancel();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDeleteConfirmModalOpen, deleteMode, selectedPageIds, deleteTargetPageId]);
+
   if (!isDeleteConfirmModalOpen) return null;
 
   const isMultiple = deleteMode === 'multiple' && selectedPageIds.length > 1;

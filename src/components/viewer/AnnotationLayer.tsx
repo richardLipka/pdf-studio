@@ -909,6 +909,13 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                   e.stopPropagation();
                   setSelectedAnnotationId(txt.id);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === 'Escape') {
+                    e.preventDefault();
+                    (e.target as HTMLInputElement).blur();
+                    setSelectedAnnotationId(null);
+                  }
+                }}
                 style={{
                   fontSize: `${(txt.fontSize || 14) * scale}px`,
                   fontFamily: txt.fontFamily || 'Inter',
@@ -981,6 +988,15 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                   <textarea
                     value={noteEditText}
                     onChange={(e) => setNoteEditText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSaveNote(note.id);
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setActiveNoteId(null);
+                      }
+                    }}
                     placeholder={t.annotations.notePlaceholder}
                     rows={3}
                     className="w-full text-xs bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-200 placeholder-slate-500 outline-none focus:border-amber-500 resize-none"
@@ -1096,6 +1112,19 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 <textarea
                   value={commentDraftText}
                   onChange={(e) => setCommentDraftText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      updateAnnotation(
+                        { ...ann, comment: commentDraftText.trim() || undefined, updatedAt: Date.now() },
+                        true
+                      );
+                      setActiveCommentAnnId(null);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setActiveCommentAnnId(null);
+                    }
+                  }}
                   onMouseDown={(e) => e.stopPropagation()}
                   onMouseUp={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}

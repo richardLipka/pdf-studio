@@ -302,6 +302,15 @@ export const NotesPanel: React.FC = () => {
                     <textarea
                       value={commentDraft}
                       onChange={(e) => setCommentDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSaveComment(ann);
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setEditingCommentId(null);
+                        }
+                      }}
                       placeholder={t.notesPanel.commentPlaceholder}
                       rows={3}
                       className="w-full text-xs bg-slate-900 border border-amber-500/60 rounded-lg p-2 text-slate-100 placeholder-slate-500 outline-none resize-none"

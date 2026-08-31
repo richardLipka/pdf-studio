@@ -42,6 +42,26 @@ export const AddPageModal: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  React.useEffect(() => {
+    if (!isAddPageModalOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setIsAddPageModalOpen(false);
+        setSelectedFile(null);
+      } else if (e.key === 'Enter') {
+        if (activeTab === 'blank' || selectedFile) {
+          e.preventDefault();
+          handleConfirmInsert();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isAddPageModalOpen, activeTab, selectedFile, orientation, position]);
+
   if (!isAddPageModalOpen) return null;
 
   const processFile = async (file: File) => {
