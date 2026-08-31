@@ -240,6 +240,67 @@ export const extractPdfAnnotations = async (
               });
             }
           }
+        } else if (ann.subtype === 'Square') {
+          const strokeColor = extractColor(ann.color, '#0284c7');
+          const fillColor = ann.interiorColor ? extractColor(ann.interiorColor, 'transparent') : 'transparent';
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'shape',
+            shapeType: 'rectangle',
+            x,
+            y,
+            width: Math.max(10, width),
+            height: Math.max(10, height),
+            color: strokeColor,
+            fillColor,
+            strokeWidth: ann.borderStyle?.width || 2,
+            opacity: ann.opacity ?? 1.0,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else if (ann.subtype === 'Circle') {
+          const strokeColor = extractColor(ann.color, '#0284c7');
+          const fillColor = ann.interiorColor ? extractColor(ann.interiorColor, 'transparent') : 'transparent';
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'shape',
+            shapeType: 'ellipse',
+            x,
+            y,
+            width: Math.max(10, width),
+            height: Math.max(10, height),
+            color: strokeColor,
+            fillColor,
+            strokeWidth: ann.borderStyle?.width || 2,
+            opacity: ann.opacity ?? 1.0,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else if (ann.subtype === 'Line' && ann.lineCoordinates && ann.lineCoordinates.length >= 4) {
+          const [lx1, ly1, lx2, ly2] = ann.lineCoordinates;
+          const startX = lx1;
+          const startY = pageHeight - ly1;
+          const endX = lx2;
+          const endY = pageHeight - ly2;
+          const strokeColor = extractColor(ann.color, '#0284c7');
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'shape',
+            shapeType: 'line',
+            x: startX,
+            y: startY,
+            width: Math.abs(endX - startX) || 2,
+            height: Math.abs(endY - startY) || 2,
+            endPoint: { x: endX, y: endY },
+            color: strokeColor,
+            strokeWidth: ann.borderStyle?.width || 2,
+            opacity: ann.opacity ?? 1.0,
+            createdAt: now,
+            updatedAt: now,
+          });
         }
       }
     }

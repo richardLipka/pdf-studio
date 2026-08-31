@@ -51,13 +51,24 @@ export const hexToPdfRgb = (color: string) => {
 
 interface NativePdfAnnotOptions {
   id?: string;
-  subtype: 'Text' | 'Highlight' | 'Underline' | 'StrikeOut' | 'FreeText' | 'Ink';
+  subtype:
+    | 'Text'
+    | 'Highlight'
+    | 'Underline'
+    | 'StrikeOut'
+    | 'FreeText'
+    | 'Ink'
+    | 'Square'
+    | 'Circle'
+    | 'Line';
   rect: [number, number, number, number];
   quadPoints?: number[];
   inkList?: number[][];
+  lineCoordinates?: [number, number, number, number];
   contents?: string;
   author?: string;
   colorRgb?: { red: number; green: number; blue: number };
+  interiorColorRgb?: { red: number; green: number; blue: number };
   opacity?: number;
   strokeWidth?: number;
   fontSize?: number;
@@ -79,9 +90,11 @@ const addNativePdfAnnotation = (
       rect,
       quadPoints,
       inkList,
+      lineCoordinates,
       contents = '',
       author = '',
       colorRgb,
+      interiorColorRgb,
       opacity = 1.0,
       strokeWidth = 2,
     } = options;
@@ -127,6 +140,16 @@ const addNativePdfAnnotation = (
       annotDictProps.DA = PDFString.of(`/Helv ${fs} Tf ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
     } else if (subtype === 'Ink' && inkList) {
       annotDictProps.InkList = inkList;
+      annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+    } else if (subtype === 'Square' || subtype === 'Circle') {
+      annotDictProps.CA = opacity || 1.0;
+      annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
+      if (interiorColorRgb) {
+        annotDictProps.IC = [interiorColorRgb.red, interiorColorRgb.green, interiorColorRgb.blue];
+      }
+    } else if (subtype === 'Line' && lineCoordinates) {
+      annotDictProps.CA = opacity || 1.0;
+      annotDictProps.L = lineCoordinates;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
     }
 
@@ -409,36 +432,51 @@ export const exportEditedPdf = async (
           case 'shape': {
             const sh = ann as ShapeAnnotation;
             const strokeColor = hexToPdfRgb(sh.color || '#0284c7');
+            const hasFill = sh.fillColor && sh.fillColor !== 'transparent';
+            const interiorColor = hasFill ? hexToPdfRgb(sh.fillColor!) : undefined;
             const pdfY = pageHeight - sh.y - sh.height;
+            const x1 = sh.x;
+            const y1 = pdfY;
+            const x2 = sh.x + sh.width;
+            const y2 = pdfY + sh.height;
 
             if (sh.shapeType === 'rectangle') {
-              targetPage.drawRectangle({
-                x: sh.x,
-                y: pdfY,
-                width: sh.width,
-                height: sh.height,
-                borderColor: strokeColor,
-                borderWidth: sh.strokeWidth || 2,
-                color: sh.fillColor && sh.fillColor !== 'transparent' ? hexToPdfRgb(sh.fillColor) : undefined,
+              addNativePdfAnnotation(outputDoc, targetPage, {
+                id: sh.id,
+                subtype: 'Square',
+                rect: [x1, y1, x2, y2],
+                colorRgb: strokeColor,
+                interiorColorRgb: interiorColor,
+                strokeWidth: sh.strokeWidth || 2,
                 opacity: sh.opacity || 1.0,
               });
             } else if (sh.shapeType === 'ellipse') {
-              targetPage.drawEllipse({
-                x: sh.x + sh.width / 2,
-                y: pdfY + sh.height / 2,
-                xScale: sh.width / 2,
-                yScale: sh.height / 2,
-                borderColor: strokeColor,
-                borderWidth: sh.strokeWidth || 2,
-                color: sh.fillColor && sh.fillColor !== 'transparent' ? hexToPdfRgb(sh.fillColor) : undefined,
+              addNativePdfAnnotation(outputDoc, targetPage, {
+                id: sh.id,
+                subtype: 'Circle',
+                rect: [x1, y1, x2, y2],
+                colorRgb: strokeColor,
+                interiorColorRgb: interiorColor,
+                strokeWidth: sh.strokeWidth || 2,
                 opacity: sh.opacity || 1.0,
               });
             } else if (sh.shapeType === 'line' && sh.endPoint) {
-              targetPage.drawLine({
-                start: { x: sh.x, y: pageHeight - sh.y },
-                end: { x: sh.endPoint.x, y: pageHeight - sh.endPoint.y },
-                thickness: sh.strokeWidth || 2,
-                color: strokeColor,
+              const startX = sh.x;
+              const startY = pageHeight - sh.y;
+              const endX = sh.endPoint.x;
+              const endY = pageHeight - sh.endPoint.y;
+              const minLx = Math.min(startX, endX);
+              const maxLx = Math.max(startX, endX);
+              const minLy = Math.min(startY, endY);
+              const maxLy = Math.max(startY, endY);
+
+              addNativePdfAnnotation(outputDoc, targetPage, {
+                id: sh.id,
+                subtype: 'Line',
+                rect: [minLx, minLy, maxLx, maxLy],
+                lineCoordinates: [startX, startY, endX, endY],
+                colorRgb: strokeColor,
+                strokeWidth: sh.strokeWidth || 2,
                 opacity: sh.opacity || 1.0,
               });
             }
