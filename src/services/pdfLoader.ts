@@ -15,6 +15,7 @@ try {
 
 // In-memory cache of loaded pdf documents
 const docCache = new Map<string, pdfjsLib.PDFDocumentProxy>();
+const activeRenderTasks = new WeakMap<HTMLCanvasElement, any>();
 
 export const getCachedPdfDocument = async (
   sourceId: string,
@@ -382,6 +383,17 @@ export const renderPdfPageToCanvas = async (
     return;
   }
 
+  // If another render is running on this canvas, cancel it first
+  const existingTask = activeRenderTasks.get(canvas);
+  if (existingTask) {
+    try {
+      existingTask.cancel();
+    } catch {
+      // Ignore cancellation error
+    }
+    activeRenderTasks.delete(canvas);
+  }
+
   // PDF Page Rendering (Disable static annotation baking so extracted annotations remain 100% interactive)
   const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
   const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
@@ -406,18 +418,32 @@ export const renderPdfPageToCanvas = async (
     annotationMode: 0, // 0 = AnnotationMode.DISABLE
   };
 
-  await pdfPage.render(renderContext).promise;
+  const renderTask = pdfPage.render(renderContext);
+  activeRenderTasks.set(canvas, renderTask);
+
+  try {
+    await renderTask.promise;
+  } catch (err: any) {
+    if (err?.name === 'RenderingCancelledException') {
+      return; // Normal cancellation when zooming / navigating
+    }
+    throw err;
+  } finally {
+    if (activeRenderTasks.get(canvas) === renderTask) {
+      activeRenderTasks.delete(canvas);
+    }
+  }
 };
 
 /**
- * Renders a PDF page to a high-resolution PNG data URL
+ * Renders a PDF page to a compressed image data URL (fallback only)
  */
 export const renderPdfPageToDataUrl = async (
   sourceDoc: SourceDocument,
   pageModel: PdfPageModel,
-  scale: number = 2.0
+  scale: number = 1.5
 ): Promise<string> => {
   const canvas = document.createElement('canvas');
   await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
-  return canvas.toDataURL('image/png');
+  return canvas.toDataURL('image/jpeg', 0.88);
 };

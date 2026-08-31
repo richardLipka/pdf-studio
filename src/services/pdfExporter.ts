@@ -8,6 +8,7 @@ import {
   PDFHexString,
   PDFArray,
   PDFImage,
+  ParseSpeeds,
 } from 'pdf-lib';
 import { PdfPageModel, SourceDocument } from '../types/document';
 import {
@@ -189,21 +190,35 @@ export const exportEditedPdf = async (
 ): Promise<Uint8Array> => {
   const outputDoc = await PDFDocument.create();
 
-  // Pre-load source PDF documents into memory map
+  // Pre-load source PDF documents into memory map using full object stream parsing
   const sourceDocsMap = new Map<string, PDFDocument>();
   for (const src of sources) {
     if (src.arrayBuffer) {
+      const copyBuf = src.arrayBuffer.slice(0);
+      let doc: PDFDocument | null = null;
       try {
-        const doc = await PDFDocument.load(src.arrayBuffer, {
+        doc = await PDFDocument.load(copyBuf, {
           ignoreEncryption: true,
           throwOnInvalidObject: false,
           updateMetadata: false,
+          parseSpeed: ParseSpeeds.Slow,
         });
-        // Check if pages catalog is readable
         doc.getPageCount();
+      } catch {
+        try {
+          doc = await PDFDocument.load(copyBuf, {
+            ignoreEncryption: true,
+            throwOnInvalidObject: false,
+            updateMetadata: false,
+          });
+          doc.getPageCount();
+        } catch (e) {
+          doc = null;
+          console.warn(`PDF-lib could not strictly load source doc ${src.id}, will use high-res rendering fallback:`, e);
+        }
+      }
+      if (doc) {
         sourceDocsMap.set(src.id, doc);
-      } catch (e) {
-        console.warn(`PDF-lib could not strictly load source doc ${src.id}, will use high-res rendering fallback:`, e);
       }
     }
   }
