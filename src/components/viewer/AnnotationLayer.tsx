@@ -87,11 +87,55 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // If clicking an existing element in select mode, let its own handler handle it
-    if ((e.target as HTMLElement).closest('.annotation-item')) {
+    const targetEl = e.target as Element | null;
+    if (targetEl && targetEl.closest?.('.annotation-item')) {
       return;
     }
 
     const pt = getPdfCoords(e);
+
+    // Hit test to see if user clicked within the bounds of any existing annotation on this page
+    const hitAnnotation = pageAnnotations.find((ann) => {
+      const pad = 8;
+      if (
+        ann.type === 'highlight' ||
+        ann.type === 'underline' ||
+        ann.type === 'strikethrough' ||
+        ann.type === 'text' ||
+        ann.type === 'drawing'
+      ) {
+        return (
+          pt.x >= ann.x - pad &&
+          pt.x <= ann.x + ann.width + pad &&
+          pt.y >= ann.y - pad &&
+          pt.y <= ann.y + ann.height + pad
+        );
+      }
+      if (ann.type === 'note') {
+        return (
+          pt.x >= ann.x - pad &&
+          pt.x <= ann.x + 28 + pad &&
+          pt.y >= ann.y - pad &&
+          pt.y <= ann.y + 28 + pad
+        );
+      }
+      return false;
+    });
+
+    if (hitAnnotation) {
+      setSelectedAnnotationId(hitAnnotation.id);
+      if (activeTool === 'note') {
+        // DO NOT add new element! Open comment/note on this existing element!
+        if (hitAnnotation.type === 'note') {
+          setActiveNoteId(hitAnnotation.id);
+          setNoteEditText((hitAnnotation as NoteAnnotation).text || '');
+        } else {
+          setActiveCommentAnnId(hitAnnotation.id);
+          setCommentDraftText(hitAnnotation.comment || '');
+        }
+        return;
+      }
+    }
 
     if (activeTool === 'drawing') {
       setIsDrawing(true);
@@ -105,7 +149,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       setStartPoint(pt);
       setCurrentPoints([pt]);
     } else if (activeTool === 'note') {
-      // Place a new note
+      // Place a new standalone sticky note ONLY if clicked on empty canvas
       const newNote: NoteAnnotation = {
         id: `note_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         pageId: page.id,
@@ -147,6 +191,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     } else if (activeTool === 'select') {
       setSelectedAnnotationId(null);
       setActiveNoteId(null);
+      setActiveCommentAnnId(null);
     }
   };
 
@@ -288,6 +333,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           };
           addAnnotation(newHighlight);
           setSelectedAnnotationId(newHighlight.id);
+          setActiveCommentAnnId(newHighlight.id);
+          setCommentDraftText('');
         } else if (activeTool === 'underline') {
           const newUnderline: UnderlineAnnotation = {
             id: `ul_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -305,6 +352,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           };
           addAnnotation(newUnderline);
           setSelectedAnnotationId(newUnderline.id);
+          setActiveCommentAnnId(newUnderline.id);
+          setCommentDraftText('');
         } else if (activeTool === 'strikethrough') {
           const newStrike: StrikethroughAnnotation = {
             id: `st_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -322,6 +371,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           };
           addAnnotation(newStrike);
           setSelectedAnnotationId(newStrike.id);
+          setActiveCommentAnnId(newStrike.id);
+          setCommentDraftText('');
         }
       }
 
@@ -337,8 +388,22 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       deleteAnnotation(ann.id);
       return;
     }
-    const pt = getPdfCoords(e);
+
     setSelectedAnnotationId(ann.id);
+
+    if (activeTool === 'note') {
+      // User clicked existing markup with note tool -> open comment editing on THIS element!
+      if (ann.type === 'note') {
+        setActiveNoteId(ann.id);
+        setNoteEditText((ann as NoteAnnotation).text || '');
+      } else {
+        setActiveCommentAnnId(ann.id);
+        setCommentDraftText(ann.comment || '');
+      }
+      return;
+    }
+
+    const pt = getPdfCoords(e);
     setDraggingAnnId(ann.id);
     setDragStartMouse(pt);
     setDragStartAnnPos({ x: ann.x, y: ann.y });

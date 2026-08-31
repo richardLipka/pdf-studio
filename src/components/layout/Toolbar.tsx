@@ -16,6 +16,7 @@ import {
   FilePlus2,
   Eraser,
   Trash2,
+  MessageSquare,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -52,6 +53,7 @@ export const Toolbar: React.FC = () => {
     setFontFamily,
     setIsSignatureModalOpen,
     setIsAddPageModalOpen,
+    setIsNotesPanelOpen,
   } = useEditor();
 
   const {
@@ -397,6 +399,18 @@ export const Toolbar: React.FC = () => {
               />
             ))}
           </div>
+        )}
+
+        {/* Comment on Selected Item */}
+        {selectedAnn && (
+          <button
+            onClick={() => setIsNotesPanelOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 text-xs font-medium transition-colors"
+            title={selectedAnn.comment ? t.notesPanel.title : t.notesPanel.addComment}
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+            <span>{selectedAnn.comment ? selectedAnn.comment : `+ ${t.notesPanel.addComment}`}</span>
+          </button>
         )}
 
         {/* Delete Selected Item button */}

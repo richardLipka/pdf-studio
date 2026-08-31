@@ -89,6 +89,15 @@ export const NotesPanel: React.FC = () => {
   };
 
   const handleAddNewStickyNote = () => {
+    // If an annotation is already selected, attach or edit the comment on that annotation
+    if (selectedAnnotationId) {
+      const selectedAnn = annotations.find((a) => a.id === selectedAnnotationId);
+      if (selectedAnn) {
+        handleStartEditComment(selectedAnn);
+        return;
+      }
+    }
+
     const activePage = pages[activePageIndex] || pages[0];
     if (!activePage) return;
 
