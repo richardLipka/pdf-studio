@@ -495,19 +495,21 @@ export const exportEditedPdf = async (
   // Save document as bytes with PDF 1.5 Object Stream compression
   const pdfBytes = await outputDoc.save({ useObjectStreams: true });
 
-  // Create client-side download link
-  const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-  const downloadUrl = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = downloadUrl;
-  link.download = outputFileName;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  // Create client-side download link if in browser environment
+  if (typeof document !== 'undefined') {
+    const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = outputFileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 
-  setTimeout(() => {
-    URL.revokeObjectURL(downloadUrl);
-  }, 2000);
+    setTimeout(() => {
+      URL.revokeObjectURL(downloadUrl);
+    }, 2000);
+  }
 
   return pdfBytes;
 };
