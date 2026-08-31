@@ -23,17 +23,20 @@ import {
   Upload,
   Check,
   Loader2,
+  Layers,
 } from 'lucide-react';
 
 export const AddPageModal: React.FC = () => {
   const { t } = useI18n();
   const { isAddPageModalOpen, setIsAddPageModalOpen } = useEditor();
-  const { insertPages } = useDocument();
+  const { insertPages, activePageIndex, pages } = useDocument();
 
   const [activeTab, setActiveTab] = useState<'pdf' | 'image' | 'blank'>('pdf');
   const [position, setPosition] = useState<InsertPosition>('after_current');
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [detectedPageCount, setDetectedPageCount] = useState<number | null>(null);
+  const [isCountingPages, setIsCountingPages] = useState<boolean>(false);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -41,10 +44,30 @@ export const AddPageModal: React.FC = () => {
 
   if (!isAddPageModalOpen) return null;
 
+  const processFile = async (file: File) => {
+    setSelectedFile(file);
+    setDetectedPageCount(null);
+
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      setIsCountingPages(true);
+      try {
+        const buffer = await file.arrayBuffer();
+        const parsed = await parsePdfPages(buffer, 'inspect');
+        setDetectedPageCount(parsed.length);
+      } catch (err) {
+        console.warn('Could not inspect PDF page count:', err);
+      } finally {
+        setIsCountingPages(false);
+      }
+    } else if (file.type.startsWith('image/')) {
+      setDetectedPageCount(1);
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setSelectedFile(file);
+      processFile(file);
     }
   };
 
@@ -68,15 +91,15 @@ export const AddPageModal: React.FC = () => {
     const file = e.dataTransfer.files?.[0];
     if (file) {
       if (activeTab === 'pdf' && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
-        setSelectedFile(file);
+        processFile(file);
       } else if (activeTab === 'image' && file.type.startsWith('image/')) {
-        setSelectedFile(file);
+        processFile(file);
       } else if (file.type === 'application/pdf') {
         setActiveTab('pdf');
-        setSelectedFile(file);
+        processFile(file);
       } else if (file.type.startsWith('image/')) {
         setActiveTab('image');
-        setSelectedFile(file);
+        processFile(file);
       }
     }
   };
@@ -106,12 +129,16 @@ export const AddPageModal: React.FC = () => {
 
       setIsAddPageModalOpen(false);
       setSelectedFile(null);
+      setDetectedPageCount(null);
     } catch (e) {
       console.error('Failed to insert page(s):', e);
     } finally {
       setIsLoading(false);
     }
   };
+
+  const currentPageNum = activePageIndex + 1;
+  const totalPages = pages.length;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -139,6 +166,7 @@ export const AddPageModal: React.FC = () => {
             onClick={() => {
               setActiveTab('pdf');
               setSelectedFile(null);
+              setDetectedPageCount(null);
             }}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all ${
               activeTab === 'pdf'
@@ -154,6 +182,7 @@ export const AddPageModal: React.FC = () => {
             onClick={() => {
               setActiveTab('image');
               setSelectedFile(null);
+              setDetectedPageCount(null);
             }}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all ${
               activeTab === 'image'
@@ -169,6 +198,7 @@ export const AddPageModal: React.FC = () => {
             onClick={() => {
               setActiveTab('blank');
               setSelectedFile(null);
+              setDetectedPageCount(null);
             }}
             className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all ${
               activeTab === 'blank'
@@ -218,18 +248,41 @@ export const AddPageModal: React.FC = () => {
                 </div>
               ) : (
                 <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800 border border-slate-700">
-                  <div className="flex items-center gap-2.5 truncate">
-                    <FileText className="w-5 h-5 text-indigo-400 flex-shrink-0" />
+                  <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                    {activeTab === 'pdf' ? (
+                      <FileText className="w-5 h-5 text-indigo-400 flex-shrink-0" />
+                    ) : (
+                      <ImageIcon className="w-5 h-5 text-indigo-400 flex-shrink-0" />
+                    )}
                     <span className="text-xs font-medium text-slate-200 truncate">
                       {selectedFile.name}
                     </span>
+
+                    {/* Detected Page Count Badge */}
+                    {isCountingPages ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-indigo-300 bg-indigo-950/80 border border-indigo-700/60 px-2 py-0.5 rounded-full flex-shrink-0">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>{t.addPageModal.loadingPages}</span>
+                      </span>
+                    ) : detectedPageCount !== null ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-300 bg-indigo-950/90 border border-indigo-500/70 px-2.5 py-0.5 rounded-full shadow-sm flex-shrink-0">
+                        <Layers className="w-3 h-3 text-indigo-400" />
+                        <span>
+                          {detectedPageCount === 1
+                            ? t.addPageModal.pageCountSingle
+                            : t.addPageModal.pageCountBadge.replace('{count}', String(detectedPageCount))}
+                        </span>
+                      </span>
+                    ) : null}
                   </div>
+
                   <button
                     onClick={() => {
                       setSelectedFile(null);
+                      setDetectedPageCount(null);
                       if (fileInputRef.current) fileInputRef.current.value = '';
                     }}
-                    className="p-1 text-slate-400 hover:text-rose-400"
+                    className="p-1 text-slate-400 hover:text-rose-400 flex-shrink-0"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -280,35 +333,42 @@ export const AddPageModal: React.FC = () => {
             <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => setPosition('beginning')}
-                className={`py-2 px-2.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                className={`py-2 px-2 rounded-xl border text-xs font-medium text-center transition-all ${
                   position === 'beginning'
-                    ? 'bg-indigo-950/40 border-indigo-500 text-indigo-300 ring-1 ring-indigo-500'
+                    ? 'bg-indigo-950/50 border-indigo-500 text-indigo-200 ring-1 ring-indigo-500 shadow-md shadow-indigo-950/30'
                     : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                 }`}
               >
-                {t.addPageModal.atBeginning}
+                <span className="block font-semibold">{t.addPageModal.atBeginning}</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">(1)</span>
               </button>
 
               <button
                 onClick={() => setPosition('after_current')}
-                className={`py-2 px-2.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                className={`py-2 px-2 rounded-xl border text-xs font-medium text-center transition-all ${
                   position === 'after_current'
-                    ? 'bg-indigo-950/40 border-indigo-500 text-indigo-300 ring-1 ring-indigo-500'
+                    ? 'bg-indigo-950/50 border-indigo-500 text-indigo-200 ring-1 ring-indigo-500 shadow-md shadow-indigo-950/30'
                     : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                 }`}
               >
-                {t.addPageModal.afterCurrent}
+                <span className="block font-semibold">
+                  {t.addPageModal.afterCurrentWithPage.replace('{page}', String(currentPageNum))}
+                </span>
+                <span className="text-[10px] text-indigo-400/80 block mt-0.5">
+                  ({currentPageNum} / {totalPages})
+                </span>
               </button>
 
               <button
                 onClick={() => setPosition('end')}
-                className={`py-2 px-2.5 rounded-lg border text-xs font-medium text-center transition-all ${
+                className={`py-2 px-2 rounded-xl border text-xs font-medium text-center transition-all ${
                   position === 'end'
-                    ? 'bg-indigo-950/40 border-indigo-500 text-indigo-300 ring-1 ring-indigo-500'
+                    ? 'bg-indigo-950/50 border-indigo-500 text-indigo-200 ring-1 ring-indigo-500 shadow-md shadow-indigo-950/30'
                     : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-800'
                 }`}
               >
-                {t.addPageModal.atEnd}
+                <span className="block font-semibold">{t.addPageModal.atEnd}</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">({totalPages})</span>
               </button>
             </div>
           </div>

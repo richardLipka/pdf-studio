@@ -149,10 +149,14 @@ export interface TranslationSchema {
     insertPosition: string;
     atBeginning: string;
     afterCurrent: string;
+    afterCurrentWithPage: string;
     atEnd: string;
     insertButton: string;
     cancel: string;
     dragDropHere: string;
+    pageCountBadge: string;
+    pageCountSingle: string;
+    loadingPages: string;
   };
   confirmModal: {
     deletePageTitle: string;
