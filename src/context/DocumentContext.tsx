@@ -80,7 +80,6 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [pages, setPages] = useState<PdfPageModel[]>([]);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
   const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
-  const [lastSelectedPageId, setLastSelectedPageId] = useState<string | null>(null);
   const rangeAnchorIndexRef = useRef<number>(0);
   
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -134,7 +133,6 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setActivePageIndex(0);
       rangeAnchorIndexRef.current = 0;
       setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
-      setLastSelectedPageId(parsedPages.length > 0 ? parsedPages[0].id : null);
       setAnnotations(loadedAnnotations);
       setSelectedAnnotationId(null);
 
@@ -167,7 +165,6 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setActivePageIndex(0);
     rangeAnchorIndexRef.current = 0;
     setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
-    setLastSelectedPageId(parsedPages.length > 0 ? parsedPages[0].id : null);
     setAnnotations(loadedAnnotations);
     setSelectedAnnotationId(null);
 
@@ -208,32 +205,38 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setActivePageIndex(targetIdx);
   };
 
-  // Multi-Page Selection Logic
+  // Multi-Page Selection Logic (Anchor-based Range Selection)
   const togglePageSelection = (pageId: string, isMulti: boolean, isRange: boolean) => {
     const clickedIdx = pages.findIndex((p) => p.id === pageId);
     if (clickedIdx === -1) return;
 
     setActivePageIndex(clickedIdx);
 
-    if (isRange && lastSelectedPageId) {
-      const lastIdx = pages.findIndex((p) => p.id === lastSelectedPageId);
-      if (lastIdx !== -1) {
-        const start = Math.min(clickedIdx, lastIdx);
-        const end = Math.max(clickedIdx, lastIdx);
-        const rangeIds = pages.slice(start, end + 1).map((p) => p.id);
-        
-        if (isMulti) {
-          const union = Array.from(new Set([...selectedPageIds, ...rangeIds]));
-          setSelectedPageIds(union);
-        } else {
-          setSelectedPageIds(rangeIds);
-        }
-        return;
+    if (isRange) {
+      // Shift + Click: Select block from anchor to clickedIdx
+      const anchorIdx =
+        rangeAnchorIndexRef.current >= 0 && rangeAnchorIndexRef.current < pages.length
+          ? rangeAnchorIndexRef.current
+          : 0;
+
+      const start = Math.min(clickedIdx, anchorIdx);
+      const end = Math.max(clickedIdx, anchorIdx);
+      const rangeIds = pages.slice(start, end + 1).map((p) => p.id);
+
+      if (isMulti) {
+        // Ctrl + Shift + Click: Union of existing selection and new range
+        const union = Array.from(new Set([...selectedPageIds, ...rangeIds]));
+        setSelectedPageIds(union);
+      } else {
+        // Pure Shift + Click: Exact block from anchor to clickedIdx
+        setSelectedPageIds(rangeIds);
       }
+      // Keep anchorIdx fixed so subsequent Shift+clicks adjust the range from the original anchor
+      return;
     }
 
     if (isMulti) {
-      // Toggle individual page in selection
+      // Ctrl + Click: Toggle individual page
       if (selectedPageIds.includes(pageId)) {
         if (selectedPageIds.length > 1) {
           setSelectedPageIds(selectedPageIds.filter((id) => id !== pageId));
@@ -241,17 +244,15 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } else {
         setSelectedPageIds([...selectedPageIds, pageId]);
       }
-      setLastSelectedPageId(pageId);
       rangeAnchorIndexRef.current = clickedIdx;
     } else {
-      // Single selection
+      // Normal Click: Single selection and reset anchor
       setSelectedPageIds([pageId]);
-      setLastSelectedPageId(pageId);
       rangeAnchorIndexRef.current = clickedIdx;
     }
   };
 
-  // Keyboard Arrow Navigation
+  // Keyboard Arrow Navigation (with Shift + Arrow Block Selection)
   const navigatePage = (delta: number, isShift: boolean) => {
     if (pages.length === 0) return;
     const nextIndex = Math.max(0, Math.min(pages.length - 1, activePageIndex + delta));
@@ -260,16 +261,21 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setActivePageIndex(nextIndex);
 
     if (isShift) {
-      const anchor = rangeAnchorIndexRef.current;
+      // Shift + Arrow: Select block from anchor to nextIndex
+      const anchor =
+        rangeAnchorIndexRef.current >= 0 && rangeAnchorIndexRef.current < pages.length
+          ? rangeAnchorIndexRef.current
+          : activePageIndex;
+
       const start = Math.min(anchor, nextIndex);
       const end = Math.max(anchor, nextIndex);
       const rangeIds = pages.slice(start, end + 1).map((p) => p.id);
       setSelectedPageIds(rangeIds);
-      setLastSelectedPageId(pages[nextIndex].id);
+      // Anchor stays fixed so repeated Shift+Arrows expand/shrink block seamlessly
     } else {
+      // Plain Arrow: Move active page and reset anchor
       rangeAnchorIndexRef.current = nextIndex;
       setSelectedPageIds([pages[nextIndex].id]);
-      setLastSelectedPageId(pages[nextIndex].id);
     }
   };
 

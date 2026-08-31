@@ -11,7 +11,9 @@ export const PdfViewer: React.FC = () => {
     scale,
     activePageIndex,
     setActivePageIndex,
+    selectedPageIds,
     setSelectedPageIds,
+    togglePageSelection,
   } = useDocument();
   const { activeTool } = useEditor();
 
@@ -20,6 +22,7 @@ export const PdfViewer: React.FC = () => {
 
   // Flag to distinguish between user scrolling with mousewheel vs programmatic scroll
   const isUserScrollingRef = useRef<boolean>(false);
+  const isProgrammaticScrollRef = useRef<boolean>(false);
   const scrollTimeoutRef = useRef<number | null>(null);
 
   // Pan dragging state
@@ -36,7 +39,12 @@ export const PdfViewer: React.FC = () => {
     if (activePage) {
       const el = pageContainerRefs.current[activePage.id];
       if (el) {
+        isProgrammaticScrollRef.current = true;
         el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        const timer = window.setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+        }, 400);
+        return () => window.clearTimeout(timer);
       }
     }
   }, [activePageIndex, pages]);
@@ -44,6 +52,7 @@ export const PdfViewer: React.FC = () => {
   // Track viewport scroll position and update active page + sidebar thumbnail on mousewheel
   const handleScroll = useCallback(() => {
     if (!containerRef.current || pages.length === 0) return;
+    if (isProgrammaticScrollRef.current) return; // Skip programmatic scroll events!
 
     isUserScrollingRef.current = true;
     if (scrollTimeoutRef.current) {
@@ -74,9 +83,12 @@ export const PdfViewer: React.FC = () => {
 
     if (closestIndex !== activePageIndex) {
       setActivePageIndex(closestIndex);
-      setSelectedPageIds([pages[closestIndex].id]);
+      // Preserve multi-page selections when scrolling with mousewheel!
+      if (selectedPageIds.length <= 1) {
+        setSelectedPageIds([pages[closestIndex].id]);
+      }
     }
-  }, [pages, activePageIndex, setActivePageIndex, setSelectedPageIds]);
+  }, [pages, activePageIndex, setActivePageIndex, selectedPageIds, setSelectedPageIds]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // Only pan if tool is pan or middle mouse button is pressed
@@ -127,8 +139,12 @@ export const PdfViewer: React.FC = () => {
             <div
               key={page.id}
               ref={(el) => (pageContainerRefs.current[page.id] = el)}
-              onClick={() => setActivePageIndex(index)}
-              className={`relative transition-all duration-300 ${
+              onClick={(e) => {
+                const isMulti = e.ctrlKey || e.metaKey;
+                const isRange = e.shiftKey;
+                togglePageSelection(page.id, isMulti, isRange);
+              }}
+              className={`relative transition-all duration-300 cursor-pointer ${
                 isCurrent
                   ? 'ring-2 ring-sky-500/80 shadow-2xl shadow-sky-950/50 scale-[1.002]'
                   : 'shadow-xl hover:ring-1 hover:ring-slate-700'
