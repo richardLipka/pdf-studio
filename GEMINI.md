@@ -9,8 +9,8 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 ## 🚀 Key Features
 
 1. **Page Management & Multi-Selection**:
-   - **Multi-Selection**: Select pages via Click, `Ctrl + Click`, `Shift + Click`, `Shift + PageUp/PageDown`, or Arrow keys (`↑`/`↓`/`←`/`→` + `Shift`).
-   - **Batch Operations**: Delete and rotate multiple selected pages simultaneously.
+   - **Multi-Selection**: Select pages via Click, `Ctrl + Click`, `Shift + Click`, `Shift + PageUp/PageDown`, `Shift + Home/End`, or Arrow keys (`↑`/`↓`/`←`/`→` + `Shift`), or `Ctrl + A`.
+   - **Batch Operations**: Delete and rotate multiple selected pages simultaneously with confirmation dialog displaying exact page count.
    - **Add Pages**: Insert pages from other PDF documents or images (PNG, JPEG, WebP) with full drag-and-drop.
    - **Blank Pages**: Insert blank A4 sheets in Portrait or Landscape orientation.
    - **Reordering**: Drag-and-drop thumbnail grid reordering.
@@ -23,6 +23,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Text Markups**: Highlight, Underline, Strikethrough (Crossing text).
    - **Text Insertion & Typography**: Add custom text boxes with immediate font family selection (Inter, Caveat, Dancing Script, Courier, Times New Roman, Georgia, Arial), custom font sizes, and instant color changes.
    - **Freehand Drawing & Pen**: Pen tool with color palette and stroke width adjustment.
+   - **High-Resolution Image Cropper**: Crop rectangular regions directly from pages to the system clipboard in high quality.
    - **Eraser**: Delete individual annotations.
 
 3. **Digital Signatures & Stamp Library**:
@@ -32,18 +33,24 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Named Stamp Library**: Save multiple reusable stamps in browser `localStorage`.
    - **JSON Portability**: Download and restore full stamp collections as JSON packages containing Base64-encoded bitmap images.
 
-4. **Flicker-Free 100-Step Undo/Redo**:
+4. **Switchable URL-Encoded Themes**:
+   - **Studio (Dark)**: Modern dark glassmorphic interface (`?theme=default`).
+   - **Minimal (Light)**: Pure white background, clean black lines, monochrome aesthetic (`?theme=minimal`).
+   - **LCARS (Star Trek: TNG)**: 24th-century LCARS interface with amber, lilac, cyan palette and pill buttons (`?theme=lcars`).
+
+5. **Flicker-Free 100-Step Undo/Redo**:
    - Deep-cloned immutable history stack (100 snapshots) tracking all page modifications, markups, rotations, and annotations.
    - Memoized canvas rendering without full-screen blinking during history steps.
    - Atomic history snapshots captured on mouse release (`onMouseUp`).
 
-5. **Smart Zoom & Viewport Synchronization**:
+6. **Smart Zoom & Viewport Synchronization**:
    - **Zoom to Selected Page** (`Ctrl + 0` / *"Na vybranou"* button).
    - **Fit Width** and **Fit Page** auto-scaling.
    - Automatic smooth scrolling to centered active page in main viewer and sidebar.
 
-6. **100% Client-Side Privacy**:
+7. **100% Client-Side Privacy & Native Page Preservation**:
    - Zero file upload to servers. All operations happen in-memory via Web Workers and Web APIs.
+   - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
 ---
 
@@ -52,12 +59,13 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
 | **Build & Bundler** | [Vite](https://vitejs.dev/) + React 18 + TypeScript | Fast development, strong type safety, and component ecosystem |
-| **PDF Manipulation** | [`pdf-lib`](https://pdf-lib.js.org/) | Merging, splitting, modifying pages, drawing annotations & signatures onto PDF |
+| **PDF Manipulation** | [`pdf-lib`](https://pdf-lib.js.org/) | Merging, splitting, modifying pages, PageTree repair, drawing annotations & signatures onto PDF |
 | **PDF Rendering** | [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) | Fast canvas rendering of pages, viewport calculation |
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
-| **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic design |
+| **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (31 tests) |
 
 ---
 
@@ -72,12 +80,13 @@ pdf-editor/
 │   ├── assets/             # Static assets & sample files
 │   ├── components/
 │   │   ├── common/         # Dropzone, Toast, Icons
-│   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar
+│   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel
 │   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal
 │   │   └── viewer/         # PdfViewer, PageCanvas, AnnotationLayer
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom
-│   │   └── EditorContext.tsx    # Active tool, stroke color, font size, stamps library
+│   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library
+│   │   └── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
 │   ├── i18n/
 │   │   ├── cs.ts           # Czech translations
 │   │   ├── en.ts           # English translations
@@ -97,6 +106,7 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
+├── tests/                  # Automated Vitest test suite
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
@@ -116,6 +126,17 @@ npm install
 # Start development server
 npm run dev
 
+# Run automated tests
+npm run test
+
 # Build for production
 npm run build
 ```
+
+---
+
+## 👤 Author & Acknowledgments
+
+- **Author**: [Richard Lipka](https://home.zcu.cz/~lipka/) ([lipka@fav.zcu.cz](mailto:lipka@fav.zcu.cz))
+- **Institution**: [Faculty of Applied Sciences (FAV), University of West Bohemia](https://www.fav.zcu.cz/cs/)
+
