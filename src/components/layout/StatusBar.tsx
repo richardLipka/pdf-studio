@@ -1,5 +1,6 @@
 import React from 'react';
 import { useI18n } from '../../i18n/context';
+import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
 import {
   ZoomIn,
@@ -11,6 +12,7 @@ import {
 
 export const StatusBar: React.FC = () => {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const {
     pages,
     activePageIndex,
@@ -31,34 +33,72 @@ export const StatusBar: React.FC = () => {
 
   const zoomPercent = Math.round(scale * 100);
 
+  const isMinimal = theme === 'minimal';
+  const isLcars = theme === 'lcars';
+
   return (
-    <footer className="h-10 bg-slate-900 border-t border-slate-800 px-4 flex items-center justify-between text-xs text-slate-400 select-none z-20">
+    <footer
+      className={`h-10 border-t px-4 flex items-center justify-between text-xs select-none z-20 transition-colors ${
+        isMinimal
+          ? 'bg-white border-neutral-200 text-neutral-600'
+          : isLcars
+          ? 'bg-black border-[#ff9966] text-[#99ccff]'
+          : 'bg-slate-900 border-slate-800 text-slate-400'
+      }`}
+    >
       {/* Page Navigation */}
       <div className="flex items-center gap-2">
         <button
           onClick={handlePrevPage}
           disabled={activePageIndex === 0}
-          className="p-1 rounded hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:hover:bg-transparent"
+          className={`p-1 rounded disabled:opacity-30 transition-colors ${
+            isMinimal
+              ? 'hover:bg-neutral-100 text-black'
+              : isLcars
+              ? 'hover:bg-[#222222] text-[#ff9900]'
+              : 'hover:bg-slate-800 text-slate-300'
+          }`}
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
 
-        <span className="font-medium text-slate-200">
-          {t.app.page} <span className="text-sky-400 font-bold">{activePageIndex + 1}</span> {t.app.of}{' '}
-          {pages.length}
+        <span
+          className={`font-medium ${
+            isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-200'
+          }`}
+        >
+          {t.app.page}{' '}
+          <span
+            className={`font-bold ${
+              isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-sky-400'
+            }`}
+          >
+            {activePageIndex + 1}
+          </span>{' '}
+          {t.app.of} {pages.length}
         </span>
 
         <button
           onClick={handleNextPage}
           disabled={activePageIndex >= pages.length - 1}
-          className="p-1 rounded hover:bg-slate-800 text-slate-300 disabled:opacity-30 disabled:hover:bg-transparent"
+          className={`p-1 rounded disabled:opacity-30 transition-colors ${
+            isMinimal
+              ? 'hover:bg-neutral-100 text-black'
+              : isLcars
+              ? 'hover:bg-[#222222] text-[#ff9900]'
+              : 'hover:bg-slate-800 text-slate-300'
+          }`}
         >
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 
       {/* Center: Author Copyright, Email & FAV ZČU Logo */}
-      <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-400">
+      <div
+        className={`hidden sm:flex items-center gap-3 text-[11px] ${
+          isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#99ccff]' : 'text-slate-400'
+        }`}
+      >
         <a
           href="https://www.fav.zcu.cz/cs/"
           target="_blank"
@@ -69,7 +109,13 @@ export const StatusBar: React.FC = () => {
           <img src="/fav-logo.svg" alt="FAV ZČU" className="h-5 object-contain" />
         </a>
 
-        <span className="text-slate-700 select-none">•</span>
+        <span
+          className={`select-none ${
+            isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
+          }`}
+        >
+          •
+        </span>
 
         <span className="flex items-center gap-1">
           <span>©</span>
@@ -77,18 +123,36 @@ export const StatusBar: React.FC = () => {
             href="https://home.zcu.cz/~lipka/"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-slate-300 font-semibold hover:text-sky-400 hover:underline transition-colors"
+            className={`font-semibold hover:underline transition-colors ${
+              isMinimal
+                ? 'text-black hover:text-neutral-600'
+                : isLcars
+                ? 'text-[#ff9966] hover:text-[#ff9900]'
+                : 'text-slate-300 hover:text-sky-400'
+            }`}
             title="Richard Lipka (https://home.zcu.cz/~lipka/)"
           >
             Richard Lipka
           </a>
         </span>
 
-        <span className="text-slate-700 select-none">•</span>
+        <span
+          className={`select-none ${
+            isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
+          }`}
+        >
+          •
+        </span>
 
         <a
           href="mailto:lipka@fav.zcu.cz"
-          className="text-slate-400 hover:text-amber-400 transition-colors flex items-center gap-1 font-mono text-[10.5px]"
+          className={`transition-colors flex items-center gap-1 font-mono text-[10.5px] ${
+            isMinimal
+              ? 'text-neutral-700 hover:text-black'
+              : isLcars
+              ? 'text-[#cc99cc] hover:text-[#ff9900]'
+              : 'text-slate-400 hover:text-amber-400'
+          }`}
           title="Napsat e-mail: lipka@fav.zcu.cz"
         >
           <span>lipka@fav.zcu.cz</span>
@@ -99,50 +163,90 @@ export const StatusBar: React.FC = () => {
       <div className="flex items-center gap-1.5">
         <button
           onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
-          className="p-1 rounded hover:bg-slate-800 text-slate-300"
+          className={`p-1 rounded transition-colors ${
+            isMinimal
+              ? 'hover:bg-neutral-100 text-black'
+              : isLcars
+              ? 'hover:bg-[#222222] text-[#ff9900]'
+              : 'hover:bg-slate-800 text-slate-300'
+          }`}
           title={`${t.app.zoomOut} (Ctrl + -)`}
         >
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
 
-        <span className="w-12 text-center font-mono font-medium text-slate-300">
+        <span
+          className={`w-12 text-center font-mono font-medium ${
+            isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-300'
+          }`}
+        >
           {zoomPercent}%
         </span>
 
         <button
           onClick={() => setScale((s) => Math.min(3.0, Number((s + 0.15).toFixed(2))))}
-          className="p-1 rounded hover:bg-slate-800 text-slate-300"
+          className={`p-1 rounded transition-colors ${
+            isMinimal
+              ? 'hover:bg-neutral-100 text-black'
+              : isLcars
+              ? 'hover:bg-[#222222] text-[#ff9900]'
+              : 'hover:bg-slate-800 text-slate-300'
+          }`}
           title={`${t.app.zoomIn} (Ctrl + +)`}
         >
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
 
-        <div className="h-3.5 w-px bg-slate-700 mx-1" />
+        <div
+          className={`h-3.5 w-px mx-1 ${
+            isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+          }`}
+        />
 
-        {/* Dynamic Zoom to Selected Page */}
-        <button
-          onClick={() => zoomToFitPage(activePageIndex)}
-          className="px-2 py-0.5 rounded hover:bg-slate-800 text-sky-400 hover:text-sky-300 text-[11px] font-medium flex items-center gap-1 bg-sky-950/40 border border-sky-800/40"
-          title={`${t.app.fitSelected} (Ctrl + 0)`}
-        >
-          <Maximize2 className="w-3 h-3" />
-          <span>{t.app.fitSelected}</span>
-        </button>
-
-        <button
-          onClick={() => zoomToFitPage()}
-          className="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 text-[11px]"
-          title={t.app.fitPage}
-        >
-          {t.app.fitPage}
-        </button>
-
+        {/* Fit Width */}
         <button
           onClick={() => zoomToFitWidth()}
-          className="px-2 py-0.5 rounded hover:bg-slate-800 text-slate-300 text-[11px]"
+          className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
+            isMinimal
+              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+              : isLcars
+              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border-[#99ccff]'
+              : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+          }`}
           title={t.app.fitWidth}
         >
           {t.app.fitWidth}
+        </button>
+
+        {/* Fit Page */}
+        <button
+          onClick={() => zoomToFitPage()}
+          className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
+            isMinimal
+              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+              : isLcars
+              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border-[#ff9966]'
+              : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+          }`}
+          title={t.app.fitPage}
+        >
+          <Maximize2 className="w-3 h-3 inline mr-1" />
+          {t.app.fitPage}
+        </button>
+
+        {/* Fit Selected */}
+        <button
+          onClick={() => zoomToFitPage(activePageIndex)}
+          className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
+            isMinimal
+              ? 'rounded-md bg-neutral-100 hover:bg-neutral-200 text-black border-neutral-300'
+              : isLcars
+              ? 'rounded-full bg-black hover:bg-[#111111] text-[#ffcc00] border-[#ffcc00]'
+              : 'rounded bg-sky-950/80 hover:bg-sky-900 text-sky-300 border-sky-800/80'
+          }`}
+          title={`${t.app.fitSelected} (Ctrl + 0)`}
+        >
+          {t.app.fitSelected}
         </button>
       </div>
     </footer>

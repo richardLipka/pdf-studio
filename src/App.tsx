@@ -55,8 +55,15 @@ const MainWorkspace: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedAnnotationId, selectedPageIds, pages.length, setDeleteTargetPageId, setDeleteMode, setIsDeleteConfirmModalOpen]);
 
+  const bgClass =
+    theme === 'minimal'
+      ? 'bg-white text-black'
+      : theme === 'lcars'
+      ? 'bg-black text-amber-500'
+      : 'bg-slate-950 text-slate-100';
+
   return (
-    <div className={`app-root theme-${theme} flex flex-col h-screen w-screen overflow-hidden bg-slate-950 transition-colors duration-200`}>
+    <div className={`app-root theme-${theme} flex flex-col h-screen w-screen overflow-hidden ${bgClass} transition-colors duration-150`}>
       {/* Top Header */}
       <Header />
 

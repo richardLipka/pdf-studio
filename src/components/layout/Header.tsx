@@ -66,26 +66,65 @@ export const Header: React.FC = () => {
     (a) => a.type === 'note' || a.type === 'text' || a.comment
   ).length;
 
+  const isMinimal = theme === 'minimal';
+  const isLcars = theme === 'lcars';
+
   return (
-    <header className="h-16 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between select-none z-30">
+    <header
+      className={`h-16 border-b px-4 flex items-center justify-between select-none z-30 transition-colors ${
+        isMinimal
+          ? 'bg-white border-neutral-200 text-black'
+          : isLcars
+          ? 'bg-black border-[#ff9900] text-[#ff9900]'
+          : 'bg-slate-900 border-slate-800 text-white'
+      }`}
+    >
       {/* Brand & Document Name */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-sky-500/20 text-white font-bold text-lg">
-            <FileText className="w-5 h-5 text-white" />
+          <div
+            className={`w-9 h-9 flex items-center justify-center font-bold text-lg ${
+              isMinimal
+                ? 'rounded-md bg-black text-white'
+                : isLcars
+                ? 'rounded-full bg-[#ff9900] text-black'
+                : 'rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-500 shadow-lg shadow-sky-500/20 text-white'
+            }`}
+          >
+            <FileText className={`w-5 h-5 ${isLcars ? 'text-black' : 'text-white'}`} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-base tracking-tight text-white">
+              <span
+                className={`font-bold text-base tracking-tight ${
+                  isMinimal ? 'text-black font-semibold' : isLcars ? 'text-[#ff9900] uppercase' : 'text-white'
+                }`}
+              >
                 {t.app.title}
               </span>
-              <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-sky-950 text-sky-400 border border-sky-800/60">
-                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span
+                className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 ${
+                  isMinimal
+                    ? 'rounded-md bg-neutral-100 text-neutral-800 border border-neutral-300'
+                    : isLcars
+                    ? 'rounded-full bg-black text-[#99ccff] border border-[#99ccff] uppercase'
+                    : 'rounded-full bg-sky-950 text-sky-400 border border-sky-800/60'
+                }`}
+              >
+                <ShieldCheck
+                  className={`w-3 h-3 ${
+                    isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-emerald-400'
+                  }`}
+                />
                 {t.app.privacyBadge}
               </span>
             </div>
             {hasDoc && (
-              <p className="text-xs text-slate-400 truncate max-w-[160px] md:max-w-xs">
+              <p
+                className={`text-xs truncate max-w-[160px] md:max-w-xs ${
+                  isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#cc99cc]' : 'text-slate-400'
+                }`}
+              >
                 {fileName}
               </p>
             )}
@@ -105,31 +144,63 @@ export const Header: React.FC = () => {
 
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-sm"
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+            isMinimal
+              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
+              : isLcars
+              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border border-[#ff9900]'
+              : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-sm'
+          }`}
           title={t.app.openFileDesc}
         >
-          <FileUp className="w-4 h-4 text-sky-400" />
+          <FileUp
+            className={`w-4 h-4 ${
+              isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-sky-400'
+            }`}
+          />
           <span className="hidden md:inline">{t.app.openFile}</span>
         </button>
 
         <button
           onClick={handleLoadSample}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+            isMinimal
+              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300'
+              : isLcars
+              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+              : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+          }`}
           title={t.app.samplePdf}
         >
-          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <Sparkles
+            className={`w-3.5 h-3.5 ${
+              isMinimal ? 'text-black' : isLcars ? 'text-[#ff9966]' : 'text-amber-400'
+            }`}
+          />
           <span className="hidden lg:inline">{t.app.samplePdf}</span>
         </button>
 
         {hasDoc && (
-          <div className="flex items-center gap-1 border-l border-slate-800 pl-2">
+          <div
+            className={`flex items-center gap-1 border-l pl-2 ${
+              isMinimal ? 'border-neutral-200' : isLcars ? 'border-[#333333]' : 'border-slate-800'
+            }`}
+          >
             <button
               onClick={undo}
               disabled={!canUndo}
-              className={`p-1.5 rounded-lg border transition-colors ${
-                canUndo
-                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                  : 'text-slate-600 border-transparent cursor-not-allowed'
+              className={`p-1.5 border transition-colors ${
+                isMinimal
+                  ? canUndo
+                    ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                    : 'rounded-md text-neutral-300 border-transparent cursor-not-allowed'
+                  : isLcars
+                  ? canUndo
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
+                    : 'rounded-full text-[#444444] border-transparent cursor-not-allowed'
+                  : canUndo
+                  ? 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  : 'rounded-lg text-slate-600 border-transparent cursor-not-allowed'
               }`}
               title={t.app.undo}
             >
@@ -139,10 +210,18 @@ export const Header: React.FC = () => {
             <button
               onClick={redo}
               disabled={!canRedo}
-              className={`p-1.5 rounded-lg border transition-colors ${
-                canRedo
-                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-                  : 'text-slate-600 border-transparent cursor-not-allowed'
+              className={`p-1.5 border transition-colors ${
+                isMinimal
+                  ? canRedo
+                    ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                    : 'rounded-md text-neutral-300 border-transparent cursor-not-allowed'
+                  : isLcars
+                  ? canRedo
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
+                    : 'rounded-full text-[#444444] border-transparent cursor-not-allowed'
+                  : canRedo
+                  ? 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  : 'rounded-lg text-slate-600 border-transparent cursor-not-allowed'
               }`}
               title={t.app.redo}
             >
@@ -152,23 +231,47 @@ export const Header: React.FC = () => {
         )}
       </div>
 
-      {/* Right Side: Notes Panel Toggle, Language switcher & Save/Download button */}
+      {/* Right Side: Notes Panel Toggle, Theme Switcher, Language switcher & Save/Download button */}
       <div className="flex items-center gap-2 sm:gap-2.5">
         {/* Notes & Reviews Panel Toggle */}
         {hasDoc && (
           <button
             onClick={toggleNotesPanel}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
-              isNotesPanelOpen
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border transition-all ${
+              isMinimal
+                ? isNotesPanelOpen
+                  ? 'rounded-md bg-black text-white border-black'
+                  : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                : isLcars
+                ? isNotesPanelOpen
+                  ? 'rounded-full bg-[#ff9900] text-black border-[#ff9900]'
+                  : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
+                : isNotesPanelOpen
+                ? 'rounded-lg bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
             }`}
             title={t.notesPanel.togglePanel}
           >
-            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+            <MessageSquare
+              className={`w-3.5 h-3.5 ${
+                isMinimal
+                  ? isNotesPanelOpen ? 'text-white' : 'text-black'
+                  : isLcars
+                  ? isNotesPanelOpen ? 'text-black' : 'text-[#ff9900]'
+                  : 'text-amber-400'
+              }`}
+            />
             <span className="hidden md:inline">{t.notesPanel.title}</span>
             {notesCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/30 text-amber-300 font-bold border border-amber-500/40">
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  isMinimal
+                    ? isNotesPanelOpen ? 'bg-white text-black' : 'bg-neutral-200 text-black'
+                    : isLcars
+                    ? 'bg-black text-[#ff9900] border border-[#ff9900]'
+                    : 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                }`}
+              >
                 {notesCount}
               </span>
             )}
@@ -176,13 +279,28 @@ export const Header: React.FC = () => {
         )}
 
         {/* Theme Switcher */}
-        <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700" title={t.theme.title}>
+        <div
+          className={`flex items-center p-0.5 border ${
+            isMinimal
+              ? 'rounded-md bg-neutral-100 border-neutral-300'
+              : isLcars
+              ? 'rounded-full bg-black border-[#ff9900]'
+              : 'rounded-lg bg-slate-800 border-slate-700'
+          }`}
+          title={t.theme.title}
+        >
           <button
             onClick={() => setTheme('default')}
-            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold transition-all ${
               theme === 'default'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? isMinimal
+                  ? 'rounded bg-black text-white'
+                  : 'rounded-md bg-sky-600 text-white shadow-sm'
+                : isMinimal
+                ? 'rounded text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'rounded-full text-[#777777] hover:text-[#ff9900]'
+                : 'rounded-md text-slate-400 hover:text-slate-200'
             }`}
             title={t.theme.studio}
           >
@@ -192,10 +310,16 @@ export const Header: React.FC = () => {
 
           <button
             onClick={() => setTheme('minimal')}
-            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold transition-all ${
               theme === 'minimal'
-                ? 'bg-zinc-700 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? isMinimal
+                  ? 'rounded bg-black text-white shadow-sm'
+                  : 'rounded-md bg-zinc-700 text-white shadow-sm'
+                : isMinimal
+                ? 'rounded text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'rounded-full text-[#777777] hover:text-[#ff9900]'
+                : 'rounded-md text-slate-400 hover:text-slate-200'
             }`}
             title={t.theme.minimal}
           >
@@ -205,10 +329,16 @@ export const Header: React.FC = () => {
 
           <button
             onClick={() => setTheme('lcars')}
-            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold transition-all ${
               theme === 'lcars'
-                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? isLcars
+                  ? 'rounded-full bg-[#ff9900] text-black font-bold shadow-sm'
+                  : 'rounded-md bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : isMinimal
+                ? 'rounded text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'rounded-full text-[#777777] hover:text-[#ff9900]'
+                : 'rounded-md text-slate-400 hover:text-slate-200'
             }`}
             title={t.theme.lcars}
           >
@@ -218,13 +348,29 @@ export const Header: React.FC = () => {
         </div>
 
         {/* Language Switcher */}
-        <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700">
+        <div
+          className={`flex items-center p-0.5 border ${
+            isMinimal
+              ? 'rounded-md bg-neutral-100 border-neutral-300'
+              : isLcars
+              ? 'rounded-full bg-black border-[#ff9900]'
+              : 'rounded-lg bg-slate-800 border-slate-700'
+          }`}
+        >
           <button
             onClick={() => setLanguage('cs')}
-            className={`px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+            className={`px-2 py-1 text-xs font-semibold transition-all ${
               language === 'cs'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? isMinimal
+                  ? 'rounded bg-black text-white shadow-sm'
+                  : isLcars
+                  ? 'rounded-full bg-[#ff9900] text-black font-bold'
+                  : 'rounded-md bg-sky-600 text-white shadow-sm'
+                : isMinimal
+                ? 'rounded text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'rounded-full text-[#777777] hover:text-[#ff9900]'
+                : 'rounded-md text-slate-400 hover:text-slate-200'
             }`}
             title="Čeština"
           >
@@ -232,10 +378,18 @@ export const Header: React.FC = () => {
           </button>
           <button
             onClick={() => setLanguage('en')}
-            className={`px-2 py-1 text-xs font-semibold rounded-md transition-all ${
+            className={`px-2 py-1 text-xs font-semibold transition-all ${
               language === 'en'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
+                ? isMinimal
+                  ? 'rounded bg-black text-white shadow-sm'
+                  : isLcars
+                  ? 'rounded-full bg-[#ff9900] text-black font-bold'
+                  : 'rounded-md bg-sky-600 text-white shadow-sm'
+                : isMinimal
+                ? 'rounded text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'rounded-full text-[#777777] hover:text-[#ff9900]'
+                : 'rounded-md text-slate-400 hover:text-slate-200'
             }`}
             title="English"
           >
@@ -249,7 +403,13 @@ export const Header: React.FC = () => {
             <button
               onClick={handleSaveAndDownload}
               disabled={isSaving}
-              className="inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-md shadow-sky-500/20 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                isMinimal
+                  ? 'rounded-md bg-black hover:bg-neutral-800 text-white border border-black shadow-none'
+                  : isLcars
+                  ? 'rounded-full bg-[#ff9900] hover:bg-[#ffcc00] text-black uppercase font-bold'
+                  : 'rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-md shadow-sky-500/20'
+              }`}
             >
               {isSaving ? (
                 <>
@@ -266,7 +426,15 @@ export const Header: React.FC = () => {
 
             {/* Success Toast */}
             {showSuccessToast && (
-              <div className="absolute right-0 top-11 bg-emerald-950 border border-emerald-500/50 text-emerald-300 text-[11px] font-medium px-3 py-1.5 rounded-lg shadow-xl whitespace-nowrap animate-in fade-in slide-in-from-top-1 duration-200 z-50">
+              <div
+                className={`absolute right-0 top-11 text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap animate-in fade-in slide-in-from-top-1 duration-200 z-50 ${
+                  isMinimal
+                    ? 'bg-black text-white border border-black shadow-md'
+                    : isLcars
+                    ? 'bg-black text-[#99ccff] border border-[#99ccff] shadow-lg'
+                    : 'bg-emerald-950 border border-emerald-500/50 text-emerald-300 shadow-xl'
+                }`}
+              >
                 ✓ {t.app.downloadSuccess}
               </div>
             )}

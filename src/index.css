@@ -41,118 +41,278 @@
 }
 
 /* ==========================================================================
-   THEME 2: MINIMAL (Light, Simple, Minimalistic, Mainly White & Black)
+   THEME 2: MINIMAL (Light, Simple, Minimalistic, Pure White & Black Lines)
    ========================================================================== */
+body.theme-minimal,
 .theme-minimal,
 [data-theme="minimal"] {
   --bg-main: #ffffff;
-  --bg-canvas: #f4f4f5;
+  --bg-canvas: #ffffff;
   --bg-panel: #ffffff;
-  --border-main: #e4e4e7;
-  --text-main: #09090b;
-  --text-muted: #71717a;
+  --border-main: #e5e7eb;
+  --text-main: #000000;
+  --text-muted: #6b7280;
   
   background-color: #ffffff !important;
-  color: #09090b !important;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: #000000 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
 }
 
+/* Force all containers, main workspace, and dropzone to white */
+.theme-minimal,
+.theme-minimal main,
+.theme-minimal aside,
+.theme-minimal header,
+.theme-minimal footer,
+.theme-minimal .bg-radial-gradient,
+.theme-minimal .bg-slate-950,
+.theme-minimal .bg-slate-900,
+.theme-minimal .bg-slate-900\/95,
+.theme-minimal .bg-slate-900\/80,
+.theme-minimal .bg-slate-900\/60,
+.theme-minimal .bg-slate-900\/50,
+.theme-minimal .bg-slate-900\/40,
+.theme-minimal .bg-sky-950,
+.theme-minimal .bg-sky-950\/80,
+.theme-minimal .bg-sky-950\/60,
+.theme-minimal .bg-sky-950\/40,
+[data-theme="minimal"],
+[data-theme="minimal"] main,
+[data-theme="minimal"] aside,
+[data-theme="minimal"] header,
+[data-theme="minimal"] footer,
+[data-theme="minimal"] .bg-radial-gradient,
+[data-theme="minimal"] .bg-slate-950,
+[data-theme="minimal"] .bg-slate-900,
+[data-theme="minimal"] .bg-slate-900\/95,
+[data-theme="minimal"] .bg-slate-900\/80,
+[data-theme="minimal"] .bg-slate-900\/60,
+[data-theme="minimal"] .bg-slate-900\/50,
+[data-theme="minimal"] .bg-slate-900\/40,
+[data-theme="minimal"] .bg-sky-950,
+[data-theme="minimal"] .bg-sky-950\/80,
+[data-theme="minimal"] .bg-sky-950\/60,
+[data-theme="minimal"] .bg-sky-950\/40 {
+  background-image: none !important;
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+}
+
+/* Clean 1px gray borders */
 .theme-minimal header,
 [data-theme="minimal"] header {
-  background-color: #ffffff !important;
-  border-bottom: 1px solid #e4e4e7 !important;
-  color: #09090b !important;
+  border-bottom: 1px solid #e5e7eb !important;
 }
 
 .theme-minimal aside,
-[data-theme="minimal"] aside,
+[data-theme="minimal"] aside {
+  border-right: 1px solid #e5e7eb !important;
+  border-left: 1px solid #e5e7eb !important;
+}
+
 .theme-minimal footer,
 [data-theme="minimal"] footer {
-  background-color: #ffffff !important;
-  border-color: #e4e4e7 !important;
-  color: #09090b !important;
+  border-top: 1px solid #e5e7eb !important;
 }
 
-.theme-minimal .bg-slate-950,
-[data-theme="minimal"] .bg-slate-950 {
-  background-color: #f4f4f5 !important;
+/* Secondary bars and panels */
+.theme-minimal .border-b,
+.theme-minimal .border-t,
+.theme-minimal .border-r,
+.theme-minimal .border-l,
+.theme-minimal .border-slate-800,
+.theme-minimal .border-slate-700,
+.theme-minimal .border-slate-600,
+.theme-minimal .border-sky-800,
+.theme-minimal .border-sky-700,
+.theme-minimal .border-sky-500,
+.theme-minimal .border-emerald-500,
+.theme-minimal .border-indigo-500,
+[data-theme="minimal"] .border-b,
+[data-theme="minimal"] .border-t,
+[data-theme="minimal"] .border-r,
+[data-theme="minimal"] .border-l,
+[data-theme="minimal"] .border-slate-800,
+[data-theme="minimal"] .border-slate-700,
+[data-theme="minimal"] .border-slate-600,
+[data-theme="minimal"] .border-sky-800,
+[data-theme="minimal"] .border-sky-700,
+[data-theme="minimal"] .border-sky-500,
+[data-theme="minimal"] .border-emerald-500,
+[data-theme="minimal"] .border-indigo-500 {
+  border-color: #e5e7eb !important;
 }
 
-.theme-minimal .bg-slate-900,
-[data-theme="minimal"] .bg-slate-900 {
-  background-color: #ffffff !important;
+/* Simple UI Buttons */
+.theme-minimal button,
+[data-theme="minimal"] button {
+  font-weight: 500;
+  transition: all 0.15s ease-in-out;
 }
 
-.theme-minimal .bg-slate-900\/80,
-.theme-minimal .bg-slate-900\/50,
-[data-theme="minimal"] .bg-slate-900\/80,
-[data-theme="minimal"] .bg-slate-900\/50 {
-  background-color: #f8fafc !important;
-}
-
+/* Inactive button backgrounds */
 .theme-minimal .bg-slate-800,
-[data-theme="minimal"] .bg-slate-800 {
-  background-color: #f4f4f5 !important;
-  color: #09090b !important;
-  border-color: #e4e4e7 !important;
+.theme-minimal .bg-slate-800\/80,
+.theme-minimal .bg-slate-800\/40,
+.theme-minimal .bg-sky-600\/20,
+.theme-minimal .bg-emerald-600\/20,
+.theme-minimal .bg-indigo-600\/20,
+.theme-minimal .bg-amber-500\/20,
+[data-theme="minimal"] .bg-slate-800,
+[data-theme="minimal"] .bg-slate-800\/80,
+[data-theme="minimal"] .bg-slate-800\/40,
+[data-theme="minimal"] .bg-sky-600\/20,
+[data-theme="minimal"] .bg-emerald-600\/20,
+[data-theme="minimal"] .bg-indigo-600\/20,
+[data-theme="minimal"] .bg-amber-500\/20 {
+  background-color: #f9fafb !important;
+  color: #000000 !important;
+  border: 1px solid #e5e7eb !important;
 }
 
 .theme-minimal .hover\:bg-slate-700:hover,
 .theme-minimal .hover\:bg-slate-800:hover,
+.theme-minimal button:hover,
 [data-theme="minimal"] .hover\:bg-slate-700:hover,
-[data-theme="minimal"] .hover\:bg-slate-800:hover {
-  background-color: #e4e4e7 !important;
+[data-theme="minimal"] .hover\:bg-slate-800:hover,
+[data-theme="minimal"] button:hover {
+  background-color: #f3f4f6 !important;
   color: #000000 !important;
+  border-color: #d1d5db !important;
 }
 
-.theme-minimal .border-slate-800,
-.theme-minimal .border-slate-700,
-[data-theme="minimal"] .border-slate-800,
-[data-theme="minimal"] .border-slate-700 {
-  border-color: #e4e4e7 !important;
+/* Active buttons: Solid black with crisp white text */
+.theme-minimal .bg-sky-600,
+.theme-minimal .bg-gradient-to-r,
+.theme-minimal .bg-gradient-to-tr,
+.theme-minimal .bg-zinc-700,
+[data-theme="minimal"] .bg-sky-600,
+[data-theme="minimal"] .bg-gradient-to-r,
+[data-theme="minimal"] .bg-gradient-to-tr,
+[data-theme="minimal"] .bg-zinc-700 {
+  background-image: none !important;
+  background: #000000 !important;
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+  box-shadow: none !important;
 }
 
+.theme-minimal .bg-sky-600:hover,
+[data-theme="minimal"] .bg-sky-600:hover {
+  background-color: #262626 !important;
+  color: #ffffff !important;
+}
+
+/* Typography & Text */
+.theme-minimal .text-white,
 .theme-minimal .text-slate-100,
 .theme-minimal .text-slate-200,
 .theme-minimal .text-slate-300,
-.theme-minimal .text-white,
+.theme-minimal .text-sky-400,
+.theme-minimal .text-sky-300,
+.theme-minimal .text-indigo-400,
+.theme-minimal .text-indigo-300,
+.theme-minimal .text-emerald-400,
+.theme-minimal .text-emerald-300,
+.theme-minimal .text-amber-400,
+.theme-minimal .text-amber-300,
+[data-theme="minimal"] .text-white,
 [data-theme="minimal"] .text-slate-100,
 [data-theme="minimal"] .text-slate-200,
 [data-theme="minimal"] .text-slate-300,
-[data-theme="minimal"] .text-white {
-  color: #09090b !important;
+[data-theme="minimal"] .text-sky-400,
+[data-theme="minimal"] .text-sky-300,
+[data-theme="minimal"] .text-indigo-400,
+[data-theme="minimal"] .text-indigo-300,
+[data-theme="minimal"] .text-emerald-400,
+[data-theme="minimal"] .text-emerald-300,
+[data-theme="minimal"] .text-amber-400,
+[data-theme="minimal"] .text-amber-300 {
+  color: #000000 !important;
 }
 
 .theme-minimal .text-slate-400,
 .theme-minimal .text-slate-500,
+.theme-minimal .text-slate-600,
 [data-theme="minimal"] .text-slate-400,
-[data-theme="minimal"] .text-slate-500 {
-  color: #71717a !important;
+[data-theme="minimal"] .text-slate-500,
+[data-theme="minimal"] .text-slate-600 {
+  color: #6b7280 !important;
 }
 
+/* Selection Highlights: Solid black outline with no blue rings or glows */
+.theme-minimal .ring-2,
+.theme-minimal .ring-1,
+.theme-minimal .ring-sky-500,
+.theme-minimal .ring-sky-500\/80,
+.theme-minimal .ring-sky-400,
+[data-theme="minimal"] .ring-2,
+[data-theme="minimal"] .ring-1,
+[data-theme="minimal"] .ring-sky-500,
+[data-theme="minimal"] .ring-sky-500\/80,
+[data-theme="minimal"] .ring-sky-400 {
+  box-shadow: none !important;
+  outline: 2px solid #000000 !important;
+  outline-offset: 1px !important;
+}
+
+.theme-minimal .shadow-2xl,
+.theme-minimal .shadow-xl,
+.theme-minimal .shadow-lg,
+.theme-minimal .shadow-md,
+.theme-minimal .shadow-sm,
+[data-theme="minimal"] .shadow-2xl,
+[data-theme="minimal"] .shadow-xl,
+[data-theme="minimal"] .shadow-lg,
+[data-theme="minimal"] .shadow-md,
+[data-theme="minimal"] .shadow-sm {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Inputs & Textareas */
 .theme-minimal input,
 .theme-minimal textarea,
+.theme-minimal select,
 [data-theme="minimal"] input,
-[data-theme="minimal"] textarea {
+[data-theme="minimal"] textarea,
+[data-theme="minimal"] select {
   background-color: #ffffff !important;
-  color: #09090b !important;
-  border-color: #d4d4d8 !important;
+  color: #000000 !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 6px !important;
 }
 
-.theme-minimal .bg-sky-950,
-[data-theme="minimal"] .bg-sky-950 {
-  background-color: #f4f4f5 !important;
-  border-color: #e4e4e7 !important;
-  color: #18181b !important;
+/* Dropzone styling in Minimal theme */
+.theme-minimal .border-dashed,
+[data-theme="minimal"] .border-dashed {
+  border-color: #d1d5db !important;
+  background-color: #ffffff !important;
 }
 
-.theme-minimal .bg-gradient-to-tr,
-.theme-minimal .bg-gradient-to-r,
-[data-theme="minimal"] .bg-gradient-to-tr,
-[data-theme="minimal"] .bg-gradient-to-r {
-  background-image: none !important;
-  background-color: #18181b !important;
-  color: #ffffff !important;
+.theme-minimal .border-dashed:hover,
+[data-theme="minimal"] .border-dashed:hover {
+  border-color: #000000 !important;
+  background-color: #f9fafb !important;
+}
+
+/* Modals & Dialogs in Minimal theme */
+.theme-minimal .bg-black\/75,
+.theme-minimal .bg-black\/60,
+[data-theme="minimal"] .bg-black\/75,
+[data-theme="minimal"] .bg-black\/60 {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+}
+
+.theme-minimal .rounded-2xl.bg-slate-900,
+.theme-minimal .rounded-xl.bg-slate-900,
+.theme-minimal .bg-slate-900.border,
+[data-theme="minimal"] .rounded-2xl.bg-slate-900,
+[data-theme="minimal"] .rounded-xl.bg-slate-900,
+[data-theme="minimal"] .bg-slate-900.border {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+  color: #000000 !important;
 }
 
 /* ==========================================================================

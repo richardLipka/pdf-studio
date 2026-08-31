@@ -1,10 +1,12 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
+import { useTheme } from '../../context/ThemeContext';
 import { PageCanvas } from './PageCanvas';
 import { AnnotationLayer } from './AnnotationLayer';
 
 export const PdfViewer: React.FC = () => {
+  const { theme } = useTheme();
   const {
     pages,
     sources,
@@ -117,6 +119,9 @@ export const PdfViewer: React.FC = () => {
     setIsPanning(false);
   };
 
+  const isMinimal = theme === 'minimal';
+  const isLcars = theme === 'lcars';
+
   return (
     <main
       ref={containerRef}
@@ -126,14 +131,19 @@ export const PdfViewer: React.FC = () => {
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       tabIndex={0}
-      className={`flex-1 bg-slate-950 overflow-auto p-6 md:p-10 flex flex-col items-center select-none outline-none ${
-        activeTool === 'pan' || isPanning ? 'cursor-grab active:cursor-grabbing' : ''
-      }`}
+      className={`flex-1 overflow-auto p-6 md:p-10 flex flex-col items-center select-none outline-none ${
+        isMinimal
+          ? 'bg-[#ffffff] text-black'
+          : isLcars
+          ? 'bg-[#000000] text-amber-500'
+          : 'bg-slate-950 text-slate-100'
+      } ${activeTool === 'pan' || isPanning ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       <div className="flex flex-col items-center gap-8 pb-20">
         {pages.map((page, index) => {
           const sourceDoc = sources.find((s) => s.id === page.sourceDocId) || sources[0];
           const isCurrent = index === activePageIndex;
+          const isSelected = selectedPageIds.includes(page.id);
 
           return (
             <div
@@ -144,8 +154,16 @@ export const PdfViewer: React.FC = () => {
                 const isRange = e.shiftKey;
                 togglePageSelection(page.id, isMulti, isRange);
               }}
-              className={`relative transition-all duration-300 cursor-pointer ${
-                isCurrent
+              className={`relative transition-all duration-200 cursor-pointer ${
+                isMinimal
+                  ? isCurrent || isSelected
+                    ? 'border-2 border-black shadow-md'
+                    : 'border border-neutral-300 shadow-sm hover:border-black'
+                  : isLcars
+                  ? isCurrent || isSelected
+                    ? 'border-2 border-[#ff9900] shadow-[0_0_15px_rgba(255,153,0,0.4)]'
+                    : 'border border-[#333333] hover:border-[#ff9966]'
+                  : isCurrent
                   ? 'ring-2 ring-sky-500/80 shadow-2xl shadow-sky-950/50 scale-[1.002]'
                   : 'shadow-xl hover:ring-1 hover:ring-slate-700'
               }`}

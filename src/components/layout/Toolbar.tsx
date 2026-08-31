@@ -1,5 +1,6 @@
 import React from 'react';
 import { useI18n } from '../../i18n/context';
+import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
 import { ToolType, TextAnnotation } from '../../types/annotations';
@@ -37,6 +38,7 @@ const FONT_FAMILIES = [
 
 export const Toolbar: React.FC = () => {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const {
     activeTool,
     setActiveTool,
@@ -65,6 +67,9 @@ export const Toolbar: React.FC = () => {
   } = useDocument();
 
   const selectedAnn = annotations.find((a) => a.id === selectedAnnotationId);
+
+  const isMinimal = theme === 'minimal';
+  const isLcars = theme === 'lcars';
 
   // Determine what style controls to show based on selected item or active tool
   const showHighlightStyles =
@@ -107,15 +112,13 @@ export const Toolbar: React.FC = () => {
 
   const handleStrokeWidthChange = (w: number) => {
     setStrokeWidth(w);
-    if (selectedAnn) {
-      if (selectedAnn.type === 'drawing') {
-        updateAnnotation({ ...selectedAnn, strokeWidth: w, updatedAt: Date.now() }, true);
-      } else if (selectedAnn.type === 'underline' || selectedAnn.type === 'strikethrough') {
-        updateAnnotation(
-          { ...selectedAnn, strokeWidth: w, height: w, updatedAt: Date.now() },
-          true
-        );
-      }
+    if (
+      selectedAnn &&
+      (selectedAnn.type === 'drawing' ||
+        selectedAnn.type === 'underline' ||
+        selectedAnn.type === 'strikethrough')
+    ) {
+      updateAnnotation({ ...selectedAnn, strokeWidth: w, updatedAt: Date.now() }, true);
     }
   };
 
@@ -130,7 +133,7 @@ export const Toolbar: React.FC = () => {
     setFontSize(s);
     if (selectedAnn && selectedAnn.type === 'text') {
       updateAnnotation(
-        { ...selectedAnn, fontSize: s, height: s * 1.5, updatedAt: Date.now() },
+        { ...selectedAnn, fontSize: s, updatedAt: Date.now() },
         true
       );
     }
@@ -164,6 +167,12 @@ export const Toolbar: React.FC = () => {
       label: t.tools.pan,
       icon: <Hand className="w-4 h-4" />,
       desc: t.tools.panDesc,
+    },
+    {
+      id: 'crop',
+      label: t.tools.crop,
+      icon: <Crop className="w-4 h-4" />,
+      desc: t.tools.cropDesc,
     },
     {
       id: 'highlight',
@@ -202,12 +211,6 @@ export const Toolbar: React.FC = () => {
       desc: t.tools.drawingDesc,
     },
     {
-      id: 'crop',
-      label: t.tools.crop,
-      icon: <Crop className="w-4 h-4 text-cyan-400" />,
-      desc: t.tools.cropDesc,
-    },
-    {
       id: 'eraser',
       label: t.tools.eraser,
       icon: <Eraser className="w-4 h-4" />,
@@ -216,7 +219,15 @@ export const Toolbar: React.FC = () => {
   ];
 
   return (
-    <div className="bg-slate-900 border-b border-slate-800 px-4 py-2 flex flex-wrap items-center justify-between gap-3 select-none z-20">
+    <div
+      className={`border-b px-4 py-2 flex flex-wrap items-center justify-between gap-3 select-none z-20 transition-colors ${
+        isMinimal
+          ? 'bg-white border-neutral-200 text-black'
+          : isLcars
+          ? 'bg-black border-[#ff9900] text-[#ff9900]'
+          : 'bg-slate-900 border-slate-800 text-white'
+      }`}
+    >
       {/* Primary Tool Buttons */}
       <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
         {tools.map((tool) => {
@@ -225,10 +236,18 @@ export const Toolbar: React.FC = () => {
             <button
               key={tool.id}
               onClick={() => setActiveTool(tool.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                isActive
-                  ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
-                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                isMinimal
+                  ? isActive
+                    ? 'rounded-md bg-black text-white border border-black shadow-none'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                  : isLcars
+                  ? isActive
+                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900]'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                  : isActive
+                  ? 'rounded-lg bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
               }`}
               title={tool.desc}
             >
@@ -238,25 +257,49 @@ export const Toolbar: React.FC = () => {
           );
         })}
 
-        <div className="h-6 w-px bg-slate-800 mx-1" />
+        <div
+          className={`h-6 w-px mx-1 ${
+            isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
+          }`}
+        />
 
         {/* Signature Action Button */}
         <button
           onClick={() => setIsSignatureModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50 transition-all"
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+            isMinimal
+              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
+              : isLcars
+              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
+              : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
+          }`}
           title={t.tools.signatureDesc}
         >
-          <FileSignature className="w-4 h-4 text-emerald-400" />
+          <FileSignature
+            className={`w-4 h-4 ${
+              isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-emerald-400'
+            }`}
+          />
           <span>{t.tools.signature}</span>
         </button>
 
         {/* Add Page Action Button */}
         <button
           onClick={() => setIsAddPageModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50 transition-all"
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+            isMinimal
+              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
+              : isLcars
+              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border border-[#99ccff] uppercase'
+              : 'rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50'
+          }`}
           title={t.tools.addPageDesc}
         >
-          <FilePlus2 className="w-4 h-4 text-indigo-400" />
+          <FilePlus2
+            className={`w-4 h-4 ${
+              isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-indigo-400'
+            }`}
+          />
           <span>{t.tools.addPage}</span>
         </button>
       </div>
@@ -265,8 +308,22 @@ export const Toolbar: React.FC = () => {
       <div className="flex items-center gap-3">
         {/* Highlight Color Pickers */}
         {showHighlightStyles && (
-          <div className="flex items-center gap-1.5 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700 animate-in fade-in duration-150">
-            <span className="text-[11px] text-slate-400 font-medium mr-1">{t.styles.color}:</span>
+          <div
+            className={`flex items-center gap-1.5 px-2 py-1 border animate-in fade-in duration-150 ${
+              isMinimal
+                ? 'rounded-md bg-neutral-50 border-neutral-200'
+                : isLcars
+                ? 'rounded-full bg-[#111111] border-[#ff9900]'
+                : 'rounded-lg bg-slate-800 border-slate-700'
+            }`}
+          >
+            <span
+              className={`text-[11px] font-medium mr-1 ${
+                isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+              }`}
+            >
+              {t.styles.color}:
+            </span>
             {HIGHLIGHT_COLORS.map((c) => {
               const isCurrColor = (selectedAnn && selectedAnn.color === c) || highlightColor === c;
               return (
@@ -275,7 +332,11 @@ export const Toolbar: React.FC = () => {
                   onClick={() => handleHighlightColorChange(c)}
                   style={{ backgroundColor: c }}
                   className={`w-4 h-4 rounded-full transition-transform ${
-                    isCurrColor ? 'scale-125 ring-2 ring-sky-400' : 'hover:scale-110 opacity-80'
+                    isCurrColor
+                      ? isMinimal
+                        ? 'scale-125 ring-2 ring-black'
+                        : 'scale-125 ring-2 ring-sky-400'
+                      : 'hover:scale-110 opacity-80'
                   }`}
                 />
               );
@@ -285,9 +346,23 @@ export const Toolbar: React.FC = () => {
 
         {/* Drawing & Underline / Strike Color & Stroke */}
         {showStrokeStyles && (
-          <div className="flex items-center gap-3 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 animate-in fade-in duration-150">
+          <div
+            className={`flex items-center gap-3 px-2.5 py-1 border animate-in fade-in duration-150 ${
+              isMinimal
+                ? 'rounded-md bg-neutral-50 border-neutral-200'
+                : isLcars
+                ? 'rounded-full bg-[#111111] border-[#ff9900]'
+                : 'rounded-lg bg-slate-800 border-slate-700'
+            }`}
+          >
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-slate-400 font-medium mr-1">{t.styles.color}:</span>
+              <span
+                className={`text-[11px] font-medium mr-1 ${
+                  isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                }`}
+              >
+                {t.styles.color}:
+              </span>
               {STROKE_COLORS.map((c) => {
                 const isCurrColor = (selectedAnn && selectedAnn.color === c) || strokeColor === c;
                 return (
@@ -295,18 +370,34 @@ export const Toolbar: React.FC = () => {
                     key={c}
                     onClick={() => handleStrokeColorChange(c)}
                     style={{ backgroundColor: c }}
-                    className={`w-4 h-4 rounded-full border border-slate-600 transition-transform ${
-                      isCurrColor ? 'scale-125 ring-2 ring-sky-400' : 'hover:scale-110'
+                    className={`w-4 h-4 rounded-full border transition-transform ${
+                      isMinimal ? 'border-neutral-300' : 'border-slate-600'
+                    } ${
+                      isCurrColor
+                        ? isMinimal
+                          ? 'scale-125 ring-2 ring-black'
+                          : 'scale-125 ring-2 ring-sky-400'
+                        : 'hover:scale-110'
                     }`}
                   />
                 );
               })}
             </div>
 
-            <div className="h-4 w-px bg-slate-700" />
+            <div
+              className={`h-4 w-px ${
+                isMinimal ? 'bg-neutral-300' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+              }`}
+            />
 
             <div className="flex items-center gap-1">
-              <span className="text-[11px] text-slate-400 font-medium mr-1">{t.styles.strokeWidth}:</span>
+              <span
+                className={`text-[11px] font-medium mr-1 ${
+                  isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                }`}
+              >
+                {t.styles.strokeWidth}:
+              </span>
               {[2, 4, 7].map((w) => {
                 const isCurrWidth =
                   (selectedAnn && (selectedAnn as any).strokeWidth === w) || strokeWidth === w;
@@ -315,7 +406,15 @@ export const Toolbar: React.FC = () => {
                     key={w}
                     onClick={() => handleStrokeWidthChange(w)}
                     className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${
-                      isCurrWidth ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
+                      isCurrWidth
+                        ? isMinimal
+                          ? 'bg-black text-white'
+                          : isLcars
+                          ? 'bg-[#ff9900] text-black font-bold'
+                          : 'bg-sky-600 text-white'
+                        : isMinimal
+                        ? 'text-neutral-600 hover:text-black'
+                        : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     {w === 2 ? 'S' : w === 4 ? 'M' : 'L'}
@@ -328,7 +427,15 @@ export const Toolbar: React.FC = () => {
 
         {/* Text Tool Styles (Font Family, Font Size, Text Color) */}
         {showTextStyles && (
-          <div className="flex items-center gap-2.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 animate-in fade-in duration-150">
+          <div
+            className={`flex items-center gap-2.5 px-2.5 py-1 border animate-in fade-in duration-150 ${
+              isMinimal
+                ? 'rounded-md bg-neutral-50 border-neutral-200'
+                : isLcars
+                ? 'rounded-full bg-[#111111] border-[#ff9900]'
+                : 'rounded-lg bg-slate-800 border-slate-700'
+            }`}
+          >
             {/* Font Family Dropdown */}
             <div className="flex items-center gap-1">
               <select
@@ -338,7 +445,13 @@ export const Toolbar: React.FC = () => {
                     : fontFamily
                 }
                 onChange={(e) => handleFontFamilyChange(e.target.value)}
-                className="bg-slate-900 border border-slate-700 rounded-md px-2 py-0.5 text-xs text-slate-200 outline-none focus:border-sky-500 cursor-pointer"
+                className={`px-2 py-0.5 text-xs outline-none cursor-pointer border ${
+                  isMinimal
+                    ? 'rounded-md bg-white border-neutral-300 text-black'
+                    : isLcars
+                    ? 'rounded-full bg-black border-[#ff9966] text-[#ff9900]'
+                    : 'rounded-md bg-slate-900 border-slate-700 text-slate-200 focus:border-sky-500'
+                }`}
               >
                 {FONT_FAMILIES.map((f) => (
                   <option key={f.id} value={f.id}>
@@ -348,11 +461,21 @@ export const Toolbar: React.FC = () => {
               </select>
             </div>
 
-            <div className="h-4 w-px bg-slate-700" />
+            <div
+              className={`h-4 w-px ${
+                isMinimal ? 'bg-neutral-300' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+              }`}
+            />
 
             {/* Font Size Presets */}
             <div className="flex items-center gap-1">
-              <span className="text-[11px] text-slate-400 font-medium mr-0.5">{t.styles.fontSize}:</span>
+              <span
+                className={`text-[11px] font-medium mr-0.5 ${
+                  isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                }`}
+              >
+                {t.styles.fontSize}:
+              </span>
               {[12, 14, 18, 24, 32].map((s) => {
                 const isCurrSize =
                   (selectedAnn && (selectedAnn as any).fontSize === s) || fontSize === s;
@@ -361,7 +484,15 @@ export const Toolbar: React.FC = () => {
                     key={s}
                     onClick={() => handleFontSizeChange(s)}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                      isCurrSize ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
+                      isCurrSize
+                        ? isMinimal
+                          ? 'bg-black text-white'
+                          : isLcars
+                          ? 'bg-[#ff9900] text-black font-bold'
+                          : 'bg-sky-600 text-white'
+                        : isMinimal
+                        ? 'text-neutral-600 hover:text-black'
+                        : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     {s}
@@ -370,7 +501,11 @@ export const Toolbar: React.FC = () => {
               })}
             </div>
 
-            <div className="h-4 w-px bg-slate-700" />
+            <div
+              className={`h-4 w-px ${
+                isMinimal ? 'bg-neutral-300' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+              }`}
+            />
 
             {/* Text Color Picker */}
             <div className="flex items-center gap-1.5">
@@ -381,8 +516,14 @@ export const Toolbar: React.FC = () => {
                     key={c}
                     onClick={() => handleTextColorChange(c)}
                     style={{ backgroundColor: c }}
-                    className={`w-4 h-4 rounded-full border border-slate-600 transition-transform ${
-                      isCurrColor ? 'scale-125 ring-2 ring-sky-400' : 'hover:scale-110'
+                    className={`w-4 h-4 rounded-full border transition-transform ${
+                      isMinimal ? 'border-neutral-300' : 'border-slate-600'
+                    } ${
+                      isCurrColor
+                        ? isMinimal
+                          ? 'scale-125 ring-2 ring-black'
+                          : 'scale-125 ring-2 ring-sky-400'
+                        : 'hover:scale-110'
                     }`}
                   />
                 );
@@ -393,15 +534,33 @@ export const Toolbar: React.FC = () => {
 
         {/* Note Pin Color */}
         {showNoteStyles && selectedAnn && selectedAnn.type === 'note' && (
-          <div className="flex items-center gap-1.5 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700 animate-in fade-in duration-150">
-            <span className="text-[11px] text-slate-400 font-medium mr-1">{t.styles.color}:</span>
+          <div
+            className={`flex items-center gap-1.5 px-2 py-1 border animate-in fade-in duration-150 ${
+              isMinimal
+                ? 'rounded-md bg-neutral-50 border-neutral-200'
+                : isLcars
+                ? 'rounded-full bg-[#111111] border-[#ff9900]'
+                : 'rounded-lg bg-slate-800 border-slate-700'
+            }`}
+          >
+            <span
+              className={`text-[11px] font-medium mr-1 ${
+                isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+              }`}
+            >
+              {t.styles.color}:
+            </span>
             {NOTE_COLORS.map((c) => (
               <button
                 key={c}
                 onClick={() => handleNoteColorChange(c)}
                 style={{ backgroundColor: c }}
                 className={`w-4 h-4 rounded-full transition-transform ${
-                  selectedAnn.color === c ? 'scale-125 ring-2 ring-sky-400' : 'hover:scale-110 opacity-80'
+                  selectedAnn.color === c
+                    ? isMinimal
+                      ? 'scale-125 ring-2 ring-black'
+                      : 'scale-125 ring-2 ring-sky-400'
+                    : 'hover:scale-110 opacity-80'
                 }`}
               />
             ))}
@@ -412,10 +571,20 @@ export const Toolbar: React.FC = () => {
         {selectedAnn && (
           <button
             onClick={() => setIsNotesPanelOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 text-xs font-medium transition-colors"
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium transition-colors border ${
+              isMinimal
+                ? 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                : isLcars
+                ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffcc00] border-[#ffcc00]'
+                : 'rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border-amber-500/40'
+            }`}
             title={t.notesPanel.title}
           >
-            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+            <MessageSquare
+              className={`w-3.5 h-3.5 ${
+                isMinimal ? 'text-black' : isLcars ? 'text-[#ffcc00]' : 'text-amber-400'
+              }`}
+            />
             <span>{t.notesPanel.title}</span>
           </button>
         )}
@@ -424,7 +593,13 @@ export const Toolbar: React.FC = () => {
         {selectedAnn && (
           <button
             onClick={() => deleteAnnotation(selectedAnn.id)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 text-xs font-medium transition-colors"
+            className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors border ${
+              isMinimal
+                ? 'rounded-md bg-red-50 hover:bg-red-100 text-red-600 border-red-200'
+                : isLcars
+                ? 'rounded-full bg-[#cc3333] hover:bg-[#ff3333] text-white border-[#cc3333]'
+                : 'rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border-rose-500/30'
+            }`}
             title={t.annotations.deleteAnnotation}
           >
             <Trash2 className="w-3.5 h-3.5" />
