@@ -15,6 +15,7 @@ import {
   Check,
   ChevronRight,
   Sparkles,
+  Plus,
 } from 'lucide-react';
 
 export const NotesPanel: React.FC = () => {
@@ -22,9 +23,11 @@ export const NotesPanel: React.FC = () => {
   const {
     annotations,
     pages,
+    activePageIndex,
     setActivePageIndex,
     selectedAnnotationId,
     setSelectedAnnotationId,
+    addAnnotation,
     updateAnnotation,
     deleteAnnotation,
   } = useDocument();
@@ -83,6 +86,30 @@ export const NotesPanel: React.FC = () => {
     if (pageIdx !== -1) {
       setActivePageIndex(pageIdx);
     }
+  };
+
+  const handleAddNewStickyNote = () => {
+    const activePage = pages[activePageIndex] || pages[0];
+    if (!activePage) return;
+
+    const newNote: NoteAnnotation = {
+      id: `note_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      pageId: activePage.id,
+      type: 'note',
+      x: 80,
+      y: 80,
+      width: 24,
+      height: 24,
+      color: '#f59e0b',
+      opacity: 1.0,
+      text: '',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    addAnnotation(newNote);
+    setSelectedAnnotationId(newNote.id);
+    setEditingCommentId(newNote.id);
+    setCommentDraft('');
   };
 
   const handleStartEditComment = (ann: Annotation) => {
@@ -162,13 +189,23 @@ export const NotesPanel: React.FC = () => {
           </span>
         </div>
 
-        <button
-          onClick={() => setIsNotesPanelOpen(false)}
-          className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-          title={t.notesPanel.togglePanel}
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleAddNewStickyNote}
+            className="p-1 rounded-lg hover:bg-slate-800 text-amber-400 hover:text-amber-300 transition-colors"
+            title={t.tools.note}
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => setIsNotesPanelOpen(false)}
+            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+            title={t.notesPanel.togglePanel}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Search Input Filter */}

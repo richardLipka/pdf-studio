@@ -4,6 +4,10 @@ import {
   degrees,
   StandardFonts,
   PDFPage,
+  PDFName,
+  PDFString,
+  PDFHexString,
+  PDFArray,
 } from 'pdf-lib';
 import { PdfPageModel, SourceDocument } from '../types/document';
 import {
@@ -45,6 +49,54 @@ export const hexToPdfRgb = (color: string) => {
   return rgb(r / 255, g / 255, b / 255);
 };
 
+/**
+ * Helper to embed native PDF comment annotations (ISO 32000-1) in PDF Annots structure
+ */
+const addNativePdfComment = (
+  pdfDoc: PDFDocument,
+  targetPage: PDFPage,
+  subtype: 'Text' | 'Highlight' | 'Underline' | 'StrikeOut' | 'FreeText',
+  rect: [number, number, number, number],
+  contents: string,
+  author?: string,
+  colorRgb?: { red: number; green: number; blue: number }
+) => {
+  if (!contents || !contents.trim()) return;
+  try {
+    const context = pdfDoc.context;
+    const annotDict = context.obj({
+      Type: 'Annot',
+      Subtype: subtype,
+      Rect: rect,
+      Contents: PDFHexString.fromText(contents),
+      T: author ? PDFHexString.fromText(author) : PDFHexString.fromText('Reviewer'),
+      C: colorRgb
+        ? [colorRgb.red, colorRgb.green, colorRgb.blue]
+        : [1, 0.8, 0.2],
+      F: 4, // Print flag
+      CreationDate: PDFString.fromDate(new Date()),
+      M: PDFString.fromDate(new Date()),
+    });
+
+    const annotRef = context.register(annotDict);
+
+    // Get or create Annots array on page node
+    const annotsName = PDFName.of('Annots');
+    let annots = targetPage.node.get(annotsName);
+    if (!annots) {
+      const newAnnots = context.obj([annotRef]);
+      targetPage.node.set(annotsName, newAnnots);
+    } else if (annots instanceof PDFArray) {
+      annots.push(annotRef);
+    }
+  } catch (err) {
+    console.warn('Failed to embed native PDF comment annotation:', err);
+  }
+};
+
+/**
+ * Exports edited document with all pages, drawn annotations, and native PDF comments
+ */
 export const exportEditedPdf = async (
   sources: SourceDocument[],
   pages: PdfPageModel[],
@@ -53,38 +105,35 @@ export const exportEditedPdf = async (
 ): Promise<Uint8Array> => {
   const outputDoc = await PDFDocument.create();
 
-  // Map to hold loaded Source Documents in pdf-lib
+  // Pre-load source PDF documents into memory map
   const sourceDocsMap = new Map<string, PDFDocument>();
-
   for (const src of sources) {
-    try {
-      const doc = await PDFDocument.load(src.arrayBuffer, { ignoreEncryption: true });
-      sourceDocsMap.set(src.id, doc);
-    } catch (e) {
-      console.error(`Failed to load source doc ${src.id} in pdf-lib:`, e);
+    if (src.arrayBuffer) {
+      try {
+        const doc = await PDFDocument.load(src.arrayBuffer, { ignoreEncryption: true });
+        sourceDocsMap.set(src.id, doc);
+      } catch (e) {
+        console.warn(`Could not load source doc ${src.id}:`, e);
+      }
     }
   }
 
-  // Preload standard fonts
+  // Pre-embed standard fonts for text and notes
   const fontHelvetica = await outputDoc.embedFont(StandardFonts.Helvetica);
   const fontHelveticaBold = await outputDoc.embedFont(StandardFonts.HelveticaBold);
 
-  // Reconstruct each page in current order
-  for (let pageIdx = 0; pageIdx < pages.length; pageIdx++) {
-    const pageModel = pages[pageIdx];
+  // Process pages in order
+  for (const pageModel of pages) {
     let targetPage: PDFPage;
 
     if (pageModel.sourceType === 'image' && pageModel.imageDataUrl) {
-      // Embed Image Page
       let embeddedImage;
       if (pageModel.imageDataUrl.startsWith('data:image/png')) {
         embeddedImage = await outputDoc.embedPng(pageModel.imageDataUrl);
       } else {
-        // Assume JPEG or convert
         try {
           embeddedImage = await outputDoc.embedJpg(pageModel.imageDataUrl);
         } catch {
-          // If jpg embed fails, use png
           embeddedImage = await outputDoc.embedPng(pageModel.imageDataUrl);
         }
       }
@@ -97,10 +146,8 @@ export const exportEditedPdf = async (
         height: pageModel.height,
       });
     } else if (pageModel.sourceType === 'blank') {
-      // Blank Page
       targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
     } else {
-      // PDF Page from source
       const srcDoc = sourceDocsMap.get(pageModel.sourceDocId);
       if (srcDoc) {
         const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageModel.originalPageIndex]);
@@ -135,6 +182,19 @@ export const exportEditedPdf = async (
               color: pdfColor,
               opacity: h.opacity || 0.35,
             });
+
+            // If comment is attached, embed as native PDF highlight comment
+            if (h.comment && h.comment.trim()) {
+              addNativePdfComment(
+                outputDoc,
+                targetPage,
+                'Highlight',
+                [h.x, pdfY, h.x + h.width, pdfY + h.height],
+                h.comment,
+                h.author,
+                pdfColor
+              );
+            }
             break;
           }
 
@@ -149,6 +209,19 @@ export const exportEditedPdf = async (
               color: pdfColor,
               opacity: u.opacity || 0.9,
             });
+
+            // If comment is attached, embed as native PDF underline comment
+            if (u.comment && u.comment.trim()) {
+              addNativePdfComment(
+                outputDoc,
+                targetPage,
+                'Underline',
+                [u.x, pdfY - 2, u.x + u.width, pdfY + 4],
+                u.comment,
+                u.author,
+                pdfColor
+              );
+            }
             break;
           }
 
@@ -163,6 +236,19 @@ export const exportEditedPdf = async (
               color: pdfColor,
               opacity: s.opacity || 0.85,
             });
+
+            // If comment is attached, embed as native PDF strikethrough comment
+            if (s.comment && s.comment.trim()) {
+              addNativePdfComment(
+                outputDoc,
+                targetPage,
+                'StrikeOut',
+                [s.x, pdfY - 2, s.x + s.width, pdfY + 4],
+                s.comment,
+                s.author,
+                pdfColor
+              );
+            }
             break;
           }
 
@@ -226,67 +312,60 @@ export const exportEditedPdf = async (
               color: rgb(0.2, 0.15, 0.05),
             });
 
-            // If note has text, also render a subtle callout box beside it
-            if (n.text) {
-              const textSnippet = n.text.length > 50 ? n.text.substring(0, 47) + '...' : n.text;
-              targetPage.drawRectangle({
-                x: n.x + 24,
-                y: pdfY - 2,
-                width: Math.min(220, textSnippet.length * 6 + 14),
-                height: 24,
-                color: rgb(1, 0.98, 0.85),
-                borderColor: rgb(0.85, 0.75, 0.4),
-                borderWidth: 0.5,
-              });
-              targetPage.drawText(textSnippet, {
-                x: n.x + 30,
-                y: pdfY + 5,
-                size: 8,
-                font: fontHelvetica,
-                color: rgb(0.2, 0.2, 0.2),
-              });
+            // Embed native PDF sticky note annotation (Text annotation)
+            if (n.text && n.text.trim()) {
+              addNativePdfComment(
+                outputDoc,
+                targetPage,
+                'Text',
+                [n.x, pdfY, n.x + 20, pdfY + 20],
+                n.text,
+                n.author,
+                pdfColor
+              );
             }
             break;
           }
 
           case 'drawing': {
             const d = ann as DrawingAnnotation;
-            if (d.points && d.points.length > 1) {
-              const pdfColor = hexToPdfRgb(d.color || '#0284c7');
-              for (let i = 0; i < d.points.length - 1; i++) {
-                const p1 = d.points[i];
-                const p2 = d.points[i + 1];
-                targetPage.drawLine({
-                  start: { x: p1.x, y: pageHeight - p1.y },
-                  end: { x: p2.x, y: pageHeight - p2.y },
-                  thickness: d.strokeWidth || 2,
-                  color: pdfColor,
-                  opacity: d.opacity || 1.0,
-                });
-              }
+            if (!d.points || d.points.length < 2) break;
+
+            const pdfColor = hexToPdfRgb(d.color || '#0284c7');
+            for (let i = 0; i < d.points.length - 1; i++) {
+              const pt1 = d.points[i];
+              const pt2 = d.points[i + 1];
+
+              targetPage.drawLine({
+                start: { x: pt1.x, y: pageHeight - pt1.y },
+                end: { x: pt2.x, y: pageHeight - pt2.y },
+                thickness: d.strokeWidth || 2,
+                color: pdfColor,
+                opacity: d.opacity || 1.0,
+              });
             }
             break;
           }
 
           case 'signature': {
             const sig = ann as SignatureAnnotation;
-            if (sig.imageDataUrl) {
-              const sigImg = await outputDoc.embedPng(sig.imageDataUrl);
-              const pdfY = pageHeight - sig.y - sig.height;
-              targetPage.drawImage(sigImg, {
-                x: sig.x,
-                y: pdfY,
-                width: sig.width,
-                height: sig.height,
-                opacity: sig.opacity || 1.0,
-              });
-            }
+            if (!sig.imageDataUrl) break;
+
+            const sigImage = await outputDoc.embedPng(sig.imageDataUrl);
+            const pdfY = pageHeight - sig.y - sig.height;
+
+            targetPage.drawImage(sigImage, {
+              x: sig.x,
+              y: pdfY,
+              width: sig.width,
+              height: sig.height,
+            });
             break;
           }
 
           case 'shape': {
             const sh = ann as ShapeAnnotation;
-            const pdfColor = hexToPdfRgb(sh.color || '#0284c7');
+            const strokeColor = hexToPdfRgb(sh.color || '#0284c7');
             const pdfY = pageHeight - sh.y - sh.height;
 
             if (sh.shapeType === 'rectangle') {
@@ -295,52 +374,59 @@ export const exportEditedPdf = async (
                 y: pdfY,
                 width: sh.width,
                 height: sh.height,
-                borderColor: pdfColor,
+                borderColor: strokeColor,
                 borderWidth: sh.strokeWidth || 2,
-                color: sh.fillColor ? hexToPdfRgb(sh.fillColor) : undefined,
+                color: sh.fillColor && sh.fillColor !== 'transparent' ? hexToPdfRgb(sh.fillColor) : undefined,
                 opacity: sh.opacity || 1.0,
               });
             } else if (sh.shapeType === 'ellipse') {
               targetPage.drawEllipse({
                 x: sh.x + sh.width / 2,
                 y: pdfY + sh.height / 2,
-                xScale: Math.max(1, sh.width / 2),
-                yScale: Math.max(1, sh.height / 2),
-                borderColor: pdfColor,
+                xScale: sh.width / 2,
+                yScale: sh.height / 2,
+                borderColor: strokeColor,
                 borderWidth: sh.strokeWidth || 2,
-                color: sh.fillColor ? hexToPdfRgb(sh.fillColor) : undefined,
+                color: sh.fillColor && sh.fillColor !== 'transparent' ? hexToPdfRgb(sh.fillColor) : undefined,
                 opacity: sh.opacity || 1.0,
               });
-            } else if (sh.shapeType === 'line' || sh.shapeType === 'arrow') {
+            } else if (sh.shapeType === 'line' && sh.endPoint) {
               targetPage.drawLine({
                 start: { x: sh.x, y: pageHeight - sh.y },
-                end: { x: sh.x + sh.width, y: pageHeight - (sh.y + sh.height) },
+                end: { x: sh.endPoint.x, y: pageHeight - sh.endPoint.y },
                 thickness: sh.strokeWidth || 2,
-                color: pdfColor,
+                color: strokeColor,
                 opacity: sh.opacity || 1.0,
               });
             }
             break;
           }
+
+          default:
+            break;
         }
       } catch (err) {
-        console.error(`Failed to burn annotation ${ann.id}:`, err);
+        console.warn(`Error drawing annotation ${ann.id}:`, err);
       }
     }
   }
 
-  const outputPdfBytes = await outputDoc.save();
+  // Save document as bytes
+  const pdfBytes = await outputDoc.save();
 
-  // Trigger browser download
-  const blob = new Blob([outputPdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+  // Create client-side download link
+  const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
   const downloadUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = downloadUrl;
-  link.download = outputFileName.endsWith('.pdf') ? outputFileName : `${outputFileName}.pdf`;
+  link.download = outputFileName;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(downloadUrl), 2000);
 
-  return outputPdfBytes;
+  setTimeout(() => {
+    URL.revokeObjectURL(downloadUrl);
+  }, 2000);
+
+  return pdfBytes;
 };
