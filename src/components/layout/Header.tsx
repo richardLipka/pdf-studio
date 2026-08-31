@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useI18n } from '../../i18n/context';
 import { useDocument } from '../../context/DocumentContext';
+import { useEditor } from '../../context/EditorContext';
 import { createSamplePdfDoc } from '../../utils/file';
 import {
   FileUp,
@@ -11,6 +12,7 @@ import {
   ShieldCheck,
   Loader2,
   Sparkles,
+  MessageSquare,
 } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -18,6 +20,7 @@ export const Header: React.FC = () => {
   const {
     fileName,
     pages,
+    annotations,
     isSaving,
     canUndo,
     canRedo,
@@ -27,6 +30,8 @@ export const Header: React.FC = () => {
     loadSamplePdf,
     saveAndDownload,
   } = useDocument();
+
+  const { isNotesPanelOpen, toggleNotesPanel } = useEditor();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,6 +57,9 @@ export const Header: React.FC = () => {
   };
 
   const hasDoc = pages.length > 0;
+  const notesCount = annotations.filter(
+    (a) => a.type === 'note' || a.type === 'text' || a.comment
+  ).length;
 
   return (
     <header className="h-16 bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between select-none z-30">
@@ -72,7 +80,7 @@ export const Header: React.FC = () => {
               </span>
             </div>
             {hasDoc && (
-              <p className="text-xs text-slate-400 truncate max-w-[200px] md:max-w-xs">
+              <p className="text-xs text-slate-400 truncate max-w-[160px] md:max-w-xs">
                 {fileName}
               </p>
             )}
@@ -139,8 +147,29 @@ export const Header: React.FC = () => {
         )}
       </div>
 
-      {/* Right Side: Language switcher & Save/Download button */}
-      <div className="flex items-center gap-2.5">
+      {/* Right Side: Notes Panel Toggle, Language switcher & Save/Download button */}
+      <div className="flex items-center gap-2 sm:gap-2.5">
+        {/* Notes & Reviews Panel Toggle */}
+        {hasDoc && (
+          <button
+            onClick={toggleNotesPanel}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-all ${
+              isNotesPanelOpen
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title={t.notesPanel.togglePanel}
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden md:inline">{t.notesPanel.title}</span>
+            {notesCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/30 text-amber-300 font-bold border border-amber-500/40">
+                {notesCount}
+              </span>
+            )}
+          </button>
+        )}
+
         {/* Language Switcher */}
         <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700">
           <button

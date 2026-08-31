@@ -25,6 +25,8 @@ export interface BaseAnnotation {
   height: number;
   color: string;        // Hex or rgba
   opacity: number;      // 0..1
+  comment?: string;     // Attached review comment / note
+  author?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -48,7 +50,6 @@ export interface NoteAnnotation extends BaseAnnotation {
   type: 'note';
   text: string;
   isOpen?: boolean;
-  author?: string;
 }
 
 export interface TextAnnotation extends BaseAnnotation {

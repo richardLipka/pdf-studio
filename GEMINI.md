@@ -16,9 +16,12 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Reordering**: Drag-and-drop thumbnail grid reordering.
    - **Rotation**: Rotate individual or selected pages by 90° increments.
 
-2. **Document Review & Annotation**:
+2. **Document Review & Annotation Suite**:
+   - **Right-Side Notes & Reviews Panel**: Hidable side panel listing all document notes, review comments, highlights, underlines, and strikethroughs with full-text instant search and direct click navigation.
+   - **Comments on Markups**: Attach review comments and notes to underlines, strikethroughs, and highlights with visual indicator badges on canvas.
+   - **PDF Annotation Extraction**: Automatically parses and loads existing comments, sticky notes, and text markups from imported PDF files via `pdfjs-dist`.
    - **Text Markups**: Highlight, Underline, Strikethrough (Crossing text).
-   - **Text Insertion**: Add custom text boxes, comments, and sticky notes with configurable font sizes, colors, and opacity.
+   - **Text Insertion & Typography**: Add custom text boxes with immediate font family selection (Inter, Caveat, Dancing Script, Courier, Times New Roman, Georgia, Arial), custom font sizes, and instant color changes.
    - **Freehand Drawing & Pen**: Pen tool with color palette and stroke width adjustment.
    - **Eraser**: Delete individual annotations.
 

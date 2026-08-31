@@ -35,6 +35,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     textColor,
     strokeWidth,
     fontSize,
+    fontFamily,
+    setIsNotesPanelOpen,
   } = useEditor();
 
   const {
@@ -133,7 +135,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         opacity: 1.0,
         text: 'Text...',
         fontSize,
-        fontFamily: 'Inter',
+        fontFamily: fontFamily || 'Inter',
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -674,6 +676,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 }
                 style={{
                   fontSize: `${txt.fontSize * scale}px`,
+                  fontFamily: txt.fontFamily || 'Inter',
                   color: txt.color,
                   backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
                 }}
@@ -764,6 +767,52 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         }
 
         return null;
+      })}
+
+      {/* Comment Badges on Highlights, Underlines, and Strikethroughs */}
+      {pageAnnotations.map((ann) => {
+        if (
+          ann.type !== 'highlight' &&
+          ann.type !== 'underline' &&
+          ann.type !== 'strikethrough'
+        ) {
+          return null;
+        }
+        if (!ann.comment && selectedAnnotationId !== ann.id) {
+          return null;
+        }
+
+        const left = (ann.x + ann.width) * scale;
+        const top = ann.y * scale;
+
+        return (
+          <button
+            key={`comment_badge_${ann.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedAnnotationId(ann.id);
+              setIsNotesPanelOpen(true);
+            }}
+            style={{ left: `${left + 4}px`, top: `${top - 8}px` }}
+            className={`absolute z-30 px-1.5 py-0.5 rounded-full shadow-lg transition-transform hover:scale-110 flex items-center gap-1 text-[10px] font-bold ${
+              ann.comment
+                ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-300'
+                : 'bg-slate-800/90 text-amber-300 border border-amber-500/50 hover:bg-slate-700'
+            }`}
+            title={ann.comment || t.notesPanel.addComment}
+          >
+            <MessageSquare className="w-3 h-3" />
+            {ann.comment ? (
+              <span className="max-w-[80px] truncate text-[9px] font-semibold">
+                {ann.comment}
+              </span>
+            ) : (
+              <span className="text-[9px] font-semibold">
+                + {t.notesPanel.addComment}
+              </span>
+            )}
+          </button>
+        );
       })}
     </div>
   );

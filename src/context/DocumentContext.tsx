@@ -3,7 +3,7 @@ import { PdfPageModel, SourceDocument } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { exportEditedPdf } from '../services/pdfExporter';
 import { deletePage, reorderPages, rotatePage, insertPagesAtPosition, InsertPosition } from '../services/pageManager';
-import { parsePdfPages, clearPdfCache } from '../services/pdfLoader';
+import { parsePdfPages, extractPdfAnnotations, clearPdfCache } from '../services/pdfLoader';
 
 interface HistorySnapshot {
   pages: PdfPageModel[];
@@ -127,6 +127,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       };
 
       const parsedPages = await parsePdfPages(buffer, 'main');
+      const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
       setFileName(file.name);
       setSources([mainSource]);
       setPages(parsedPages);
@@ -134,13 +135,13 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       rangeAnchorIndexRef.current = 0;
       setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
       setLastSelectedPageId(parsedPages.length > 0 ? parsedPages[0].id : null);
-      setAnnotations([]);
+      setAnnotations(loadedAnnotations);
       setSelectedAnnotationId(null);
 
       // Initialize history
       setHistory([{
         pages: deepClone(parsedPages),
-        annotations: [],
+        annotations: deepClone(loadedAnnotations),
         activePageIndex: 0,
       }]);
       setHistoryIndex(0);
@@ -159,6 +160,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
 
     const parsedPages = await parsePdfPages(buffer, 'main');
+    const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
     setFileName('sample-contract.pdf');
     setSources([mainSource]);
     setPages(parsedPages);
@@ -166,12 +168,12 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     rangeAnchorIndexRef.current = 0;
     setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
     setLastSelectedPageId(parsedPages.length > 0 ? parsedPages[0].id : null);
-    setAnnotations([]);
+    setAnnotations(loadedAnnotations);
     setSelectedAnnotationId(null);
 
     setHistory([{
       pages: deepClone(parsedPages),
-      annotations: [],
+      annotations: deepClone(loadedAnnotations),
       activePageIndex: 0,
     }]);
     setHistoryIndex(0);

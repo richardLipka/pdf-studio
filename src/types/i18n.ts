@@ -51,6 +51,7 @@ export interface TranslationSchema {
     color: string;
     strokeWidth: string;
     fontSize: string;
+    fontFamily: string;
     opacity: string;
     thin: string;
     medium: string;
@@ -62,6 +63,22 @@ export interface TranslationSchema {
     fillColor: string;
     strokeColor: string;
     none: string;
+  };
+  notesPanel: {
+    title: string;
+    searchPlaceholder: string;
+    noNotes: string;
+    noSearchResults: string;
+    addComment: string;
+    commentPlaceholder: string;
+    typeHighlight: string;
+    typeUnderline: string;
+    typeStrikethrough: string;
+    typeNote: string;
+    typeText: string;
+    pageLabel: string;
+    togglePanel: string;
+    deleteItem: string;
   };
   sidebar: {
     thumbnails: string;

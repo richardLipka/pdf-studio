@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { PdfPageModel, SourceDocument } from '../types/document';
+import { Annotation } from '../types/annotations';
 
 // Configure pdfjs worker in Vite
 try {
@@ -57,6 +58,140 @@ export const parsePdfPages = async (
   }
 
   return pages;
+};
+
+// Extract existing annotations & comments from PDF document
+export const extractPdfAnnotations = async (
+  arrayBuffer: ArrayBuffer,
+  sourceDocId: string,
+  pages: PdfPageModel[]
+): Promise<Annotation[]> => {
+  try {
+    const pdfDoc = await getCachedPdfDocument(sourceDocId, arrayBuffer);
+    const loadedAnnotations: Annotation[] = [];
+
+    for (let i = 0; i < pages.length; i++) {
+      const pageModel = pages[i];
+      if (pageModel.sourceType !== 'pdf') continue;
+
+      const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+      const pdfAnnotations = await page.getAnnotations();
+
+      for (const ann of pdfAnnotations) {
+        if (!ann.rect || ann.rect.length < 4) continue;
+
+        const [x1, y1, x2, y2] = ann.rect;
+        const pageHeight = pageModel.height;
+        const x = Math.min(x1, x2);
+        const y = Math.min(pageHeight - y1, pageHeight - y2);
+        const width = Math.abs(x2 - x1);
+        const height = Math.abs(y2 - y1);
+        const textContent = ann.contents?.str || ann.contents || '';
+        const author = ann.title?.str || ann.title || '';
+
+        // Color extraction (rgb array 0..255 or 0..1)
+        let colorHex = '#f59e0b';
+        if (ann.color && Array.isArray(ann.color) && ann.color.length >= 3) {
+          const [r, g, b] = ann.color.map((v: number) => (v <= 1 ? Math.round(v * 255) : v));
+          colorHex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+        }
+
+        const id = `imported_${ann.id || Math.random().toString(36).slice(2, 8)}`;
+        const now = Date.now();
+
+        if (ann.subtype === 'Text') {
+          // Sticky Note / Review Comment
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'note',
+            x,
+            y,
+            width: 24,
+            height: 24,
+            color: colorHex || '#f59e0b',
+            opacity: 1.0,
+            text: textContent,
+            author,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else if (ann.subtype === 'Highlight') {
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'highlight',
+            x,
+            y,
+            width: Math.max(10, width),
+            height: Math.max(8, height),
+            color: colorHex || '#fde047',
+            opacity: 0.4,
+            comment: textContent,
+            author,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else if (ann.subtype === 'Underline') {
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'underline',
+            x,
+            y,
+            width: Math.max(10, width),
+            height: 2,
+            strokeWidth: 2,
+            color: colorHex || '#0284c7',
+            opacity: 0.9,
+            comment: textContent,
+            author,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else if (ann.subtype === 'StrikeOut') {
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'strikethrough',
+            x,
+            y,
+            width: Math.max(10, width),
+            height: 2,
+            strokeWidth: 2,
+            color: colorHex || '#dc2626',
+            opacity: 0.9,
+            comment: textContent,
+            author,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } else if (ann.subtype === 'FreeText') {
+          loadedAnnotations.push({
+            id,
+            pageId: pageModel.id,
+            type: 'text',
+            x,
+            y,
+            width: Math.max(60, width),
+            height: Math.max(20, height),
+            color: colorHex || '#0f172a',
+            opacity: 1.0,
+            text: textContent,
+            fontSize: 14,
+            fontFamily: 'Inter',
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    return loadedAnnotations;
+  } catch (err) {
+    console.warn('Could not extract PDF annotations:', err);
+    return [];
+  }
 };
 
 export const renderPdfPageToCanvas = async (

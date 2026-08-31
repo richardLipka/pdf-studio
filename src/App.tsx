@@ -6,6 +6,7 @@ import { Header } from './components/layout/Header';
 import { Toolbar } from './components/layout/Toolbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { StatusBar } from './components/layout/StatusBar';
+import { NotesPanel } from './components/layout/NotesPanel';
 import { PdfViewer } from './components/viewer/PdfViewer';
 import { Dropzone } from './components/common/Dropzone';
 import { SignatureModal } from './components/modals/SignatureModal';
@@ -62,10 +63,11 @@ const MainWorkspace: React.FC = () => {
           {/* Secondary Action Toolbar */}
           <Toolbar />
 
-          {/* Core Body: Left Sidebar + Main PDF Canvas */}
-          <div className="flex-1 flex overflow-hidden">
+          {/* Core Body: Left Sidebar + Main PDF Canvas + Right Notes Panel */}
+          <div className="flex-1 flex overflow-hidden relative">
             <Sidebar />
             <PdfViewer />
+            <NotesPanel />
           </div>
 
           {/* Bottom Status Bar */}

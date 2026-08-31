@@ -19,10 +19,17 @@ interface EditorContextType {
   setStrokeWidth: (width: number) => void;
   fontSize: number;
   setFontSize: (size: number) => void;
+  fontFamily: string;
+  setFontFamily: (font: string) => void;
   opacity: number;
   setOpacity: (op: number) => void;
   selectedShape: ShapeType;
   setSelectedShape: (shape: ShapeType) => void;
+
+  // Review & Notes Panel (Right sidebar)
+  isNotesPanelOpen: boolean;
+  setIsNotesPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleNotesPanel: () => void;
 
   // Modals
   isSignatureModalOpen: boolean;
@@ -52,13 +59,21 @@ const LEGACY_SIGS_KEY = 'pdf_studio_saved_sigs_v1';
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeTool, setActiveTool] = useState<ToolType>('select');
   const [strokeColor, setStrokeColor] = useState<string>('#0284c7');
-  const [highlightColor, setHighlightColor] = useState<string>('#facc15');
+  const [highlightColor, setHighlightColor] = useState<string>('#fde047');
   const [textColor, setTextColor] = useState<string>('#0f172a');
   const [fillColor, setFillColor] = useState<string>('transparent');
   const [strokeWidth, setStrokeWidth] = useState<number>(3);
   const [fontSize, setFontSize] = useState<number>(14);
+  const [fontFamily, setFontFamily] = useState<string>('Inter');
   const [opacity, setOpacity] = useState<number>(1.0);
   const [selectedShape, setSelectedShape] = useState<ShapeType>('rectangle');
+
+  // Review & Notes Panel (Right side)
+  const [isNotesPanelOpen, setIsNotesPanelOpen] = useState<boolean>(false);
+
+  const toggleNotesPanel = () => {
+    setIsNotesPanelOpen((prev) => !prev);
+  };
 
   // Modals
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState<boolean>(false);
@@ -206,10 +221,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setStrokeWidth,
     fontSize,
     setFontSize,
+    fontFamily,
+    setFontFamily,
     opacity,
     setOpacity,
     selectedShape,
     setSelectedShape,
+    isNotesPanelOpen,
+    setIsNotesPanelOpen,
+    toggleNotesPanel,
     isSignatureModalOpen,
     setIsSignatureModalOpen,
     isAddPageModalOpen,

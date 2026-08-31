@@ -28,12 +28,13 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
   - Insert blank A4 sheets in Portrait or Landscape orientation.
   - Configurable insertion targets (*At beginning*, *After current page*, *At end*).
 
-### 2. ✍️ Review & Annotation Suite
-- **Highlight**: Translucent multi-color highlighter for document reviews.
-- **Underline**: Color-coded line markups.
-- **Strikethrough (Cross out text)**: Cross out outdated or redacted contract text.
+### 2. ✍️ Review & Annotation Suite with Notes Panel
+- **Right-Side Notes & Reviews Panel**: Hidable sidebar listing all document notes, review comments, highlights, underlines, and strikethroughs with real-time text search and click-to-navigate.
+- **Review Comments on Markups**: Add and edit review comments on underlines, strikethroughs, and highlights with visual badge pins on the canvas.
+- **PDF Annotation Extraction**: Automatically imports and renders pre-existing comments and annotations from loaded PDF documents.
+- **Text Box & Typography**: Freehand text insertion with live font family selection (Inter, Caveat, Dancing Script, Courier, Times New Roman, Georgia, Arial), custom font sizes, and immediate color changes.
+- **Highlight, Underline & Strikethrough**: Live drawing feedback with instant color palette selection.
 - **Sticky Notes**: Clickable review pins with expanding notes and author timestamps.
-- **Text Box**: Freehand text insertion with customizable font size, color, and opacity.
 - **Freehand Pen**: Smooth vector drawing tool with configurable stroke width and color palette.
 - **Eraser**: One-click removal of individual annotations.
 

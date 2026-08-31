@@ -2,7 +2,7 @@ import React from 'react';
 import { useI18n } from '../../i18n/context';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
-import { ToolType } from '../../types/annotations';
+import { ToolType, TextAnnotation } from '../../types/annotations';
 import {
   MousePointer,
   Hand,
@@ -23,6 +23,16 @@ const STROKE_COLORS = ['#0284c7', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#
 const TEXT_COLORS = ['#0f172a', '#dc2626', '#2563eb', '#16a34a', '#9333ea', '#ffffff'];
 const NOTE_COLORS = ['#f59e0b', '#10b981', '#0284c7', '#8b5cf6', '#f43f5e'];
 
+const FONT_FAMILIES = [
+  { id: 'Inter', name: 'Inter (Sans)' },
+  { id: 'Caveat', name: 'Caveat (Psací / Script)' },
+  { id: 'Dancing Script', name: 'Dancing Script (Kurzíva)' },
+  { id: 'Courier New', name: 'Courier (Strojopis)' },
+  { id: 'Times New Roman', name: 'Times New Roman (Patkové)' },
+  { id: 'Georgia', name: 'Georgia (Serif)' },
+  { id: 'Arial', name: 'Arial (Sans)' },
+];
+
 export const Toolbar: React.FC = () => {
   const { t } = useI18n();
   const {
@@ -38,6 +48,8 @@ export const Toolbar: React.FC = () => {
     setStrokeWidth,
     fontSize,
     setFontSize,
+    fontFamily,
+    setFontFamily,
     setIsSignatureModalOpen,
     setIsAddPageModalOpen,
   } = useEditor();
@@ -70,7 +82,7 @@ export const Toolbar: React.FC = () => {
   const showNoteStyles =
     activeTool === 'note' || (selectedAnn && selectedAnn.type === 'note');
 
-  // Change color of active tool AND any currently selected element
+  // Change color of active tool AND any currently selected element immediately
   const handleHighlightColorChange = (c: string) => {
     setHighlightColor(c);
     if (selectedAnn && selectedAnn.type === 'highlight') {
@@ -116,6 +128,16 @@ export const Toolbar: React.FC = () => {
     if (selectedAnn && selectedAnn.type === 'text') {
       updateAnnotation(
         { ...selectedAnn, fontSize: s, height: s * 1.5, updatedAt: Date.now() },
+        true
+      );
+    }
+  };
+
+  const handleFontFamilyChange = (f: string) => {
+    setFontFamily(f);
+    if (selectedAnn && selectedAnn.type === 'text') {
+      updateAnnotation(
+        { ...selectedAnn, fontFamily: f, updatedAt: Date.now() },
         true
       );
     }
@@ -295,31 +317,34 @@ export const Toolbar: React.FC = () => {
           </div>
         )}
 
-        {/* Text Tool Styles */}
+        {/* Text Tool Styles (Font Family, Font Size, Text Color) */}
         {showTextStyles && (
-          <div className="flex items-center gap-3 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 animate-in fade-in duration-150">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-slate-400 font-medium mr-1">{t.styles.textColor}:</span>
-              {TEXT_COLORS.map((c) => {
-                const isCurrColor = (selectedAnn && selectedAnn.color === c) || textColor === c;
-                return (
-                  <button
-                    key={c}
-                    onClick={() => handleTextColorChange(c)}
-                    style={{ backgroundColor: c }}
-                    className={`w-4 h-4 rounded-full border border-slate-600 transition-transform ${
-                      isCurrColor ? 'scale-125 ring-2 ring-sky-400' : 'hover:scale-110'
-                    }`}
-                  />
-                );
-              })}
+          <div className="flex items-center gap-2.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 animate-in fade-in duration-150">
+            {/* Font Family Dropdown */}
+            <div className="flex items-center gap-1">
+              <select
+                value={
+                  selectedAnn && selectedAnn.type === 'text'
+                    ? (selectedAnn as TextAnnotation).fontFamily || fontFamily
+                    : fontFamily
+                }
+                onChange={(e) => handleFontFamilyChange(e.target.value)}
+                className="bg-slate-900 border border-slate-700 rounded-md px-2 py-0.5 text-xs text-slate-200 outline-none focus:border-sky-500 cursor-pointer"
+              >
+                {FONT_FAMILIES.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="h-4 w-px bg-slate-700" />
 
+            {/* Font Size Presets */}
             <div className="flex items-center gap-1">
-              <span className="text-[11px] text-slate-400 font-medium mr-1">{t.styles.fontSize}:</span>
-              {[12, 16, 22, 32].map((s) => {
+              <span className="text-[11px] text-slate-400 font-medium mr-0.5">{t.styles.fontSize}:</span>
+              {[12, 14, 18, 24, 32].map((s) => {
                 const isCurrSize =
                   (selectedAnn && (selectedAnn as any).fontSize === s) || fontSize === s;
                 return (
@@ -332,6 +357,25 @@ export const Toolbar: React.FC = () => {
                   >
                     {s}
                   </button>
+                );
+              })}
+            </div>
+
+            <div className="h-4 w-px bg-slate-700" />
+
+            {/* Text Color Picker */}
+            <div className="flex items-center gap-1.5">
+              {TEXT_COLORS.map((c) => {
+                const isCurrColor = (selectedAnn && selectedAnn.color === c) || textColor === c;
+                return (
+                  <button
+                    key={c}
+                    onClick={() => handleTextColorChange(c)}
+                    style={{ backgroundColor: c }}
+                    className={`w-4 h-4 rounded-full border border-slate-600 transition-transform ${
+                      isCurrColor ? 'scale-125 ring-2 ring-sky-400' : 'hover:scale-110'
+                    }`}
+                  />
                 );
               })}
             </div>
