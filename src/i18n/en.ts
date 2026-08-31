@@ -101,7 +101,7 @@ export const en: TranslationSchema = {
     clearSelection: 'Clear selection',
     deleteSelected: 'Delete selected',
     rotateSelected: 'Rotate selected by 90°',
-    selectRangeHelp: 'Tip: Ctrl+Click to select multiple, Shift+Click for range, Shift+PageUp/Down to select to start/end',
+    selectRangeHelp: 'Tip: Ctrl+Click to select multiple, Shift+Click for range, Shift+Home/End or Shift+PageUp/Down to select to start/end',
   },
   annotations: {
     addNote: 'Add Note',

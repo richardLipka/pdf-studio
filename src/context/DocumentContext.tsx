@@ -280,15 +280,25 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const selectRangeToStart = () => {
-    const endIdx = activePageIndex;
-    const rangeIds = pages.slice(0, endIdx + 1).map((p) => p.id);
+    if (pages.length === 0) return;
+    const anchor =
+      rangeAnchorIndexRef.current >= 0 && rangeAnchorIndexRef.current < pages.length
+        ? rangeAnchorIndexRef.current
+        : activePageIndex;
+    const rangeIds = pages.slice(0, anchor + 1).map((p) => p.id);
     setSelectedPageIds(rangeIds);
+    setActivePageIndex(0);
   };
 
   const selectRangeToEnd = () => {
-    const startIdx = activePageIndex;
-    const rangeIds = pages.slice(startIdx).map((p) => p.id);
+    if (pages.length === 0) return;
+    const anchor =
+      rangeAnchorIndexRef.current >= 0 && rangeAnchorIndexRef.current < pages.length
+        ? rangeAnchorIndexRef.current
+        : activePageIndex;
+    const rangeIds = pages.slice(anchor).map((p) => p.id);
     setSelectedPageIds(rangeIds);
+    setActivePageIndex(pages.length - 1);
   };
 
   const selectAllPages = () => {
@@ -489,16 +499,31 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } else if ((e.ctrlKey || e.metaKey) && (e.key === '-' || e.key === '_')) {
         e.preventDefault();
         setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))));
-      } else if (e.shiftKey && e.key === 'PageDown') {
+      } else if (e.shiftKey && (e.key === 'PageDown' || e.key === 'End')) {
         e.preventDefault();
         selectRangeToEnd();
-      } else if (e.shiftKey && e.key === 'PageUp') {
+      } else if (e.shiftKey && (e.key === 'PageUp' || e.key === 'Home')) {
         e.preventDefault();
         selectRangeToStart();
-      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      } else if (!e.shiftKey && e.key === 'Home') {
+        e.preventDefault();
+        if (pages.length > 0) {
+          rangeAnchorIndexRef.current = 0;
+          setActivePageIndex(0);
+          setSelectedPageIds([pages[0].id]);
+        }
+      } else if (!e.shiftKey && e.key === 'End') {
+        e.preventDefault();
+        if (pages.length > 0) {
+          const lastIdx = pages.length - 1;
+          rangeAnchorIndexRef.current = lastIdx;
+          setActivePageIndex(lastIdx);
+          setSelectedPageIds([pages[lastIdx].id]);
+        }
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || (!e.shiftKey && e.key === 'PageDown')) {
         e.preventDefault();
         navigatePage(1, e.shiftKey);
-      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || (!e.shiftKey && e.key === 'PageUp')) {
         e.preventDefault();
         navigatePage(-1, e.shiftKey);
       } else if (e.key === 'Delete' || e.key === 'Backspace') {

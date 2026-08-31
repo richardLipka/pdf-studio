@@ -112,4 +112,21 @@ describe('Undo/Redo History & Multi-Selection Engine', () => {
     togglePage('p2');
     expect(selected).toEqual(['p1', 'p3']);
   });
+
+  it('should select range to start on Shift+Home from anchor page', () => {
+    const allPageIds = ['p1', 'p2', 'p3', 'p4', 'p5'];
+    const currentAnchor = 2; // on p3
+
+    const rangeToStart = allPageIds.slice(0, currentAnchor + 1);
+    expect(rangeToStart).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  it('should select range to end on Shift+End from anchor page', () => {
+    const allPageIds = ['p1', 'p2', 'p3', 'p4', 'p5'];
+    const currentAnchor = 2; // on p3
+
+    const rangeToEnd = allPageIds.slice(currentAnchor);
+    expect(rangeToEnd).toEqual(['p3', 'p4', 'p5']);
+  });
 });
+

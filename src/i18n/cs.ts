@@ -101,7 +101,7 @@ export const cs: TranslationSchema = {
     clearSelection: 'Zrušit výběr',
     deleteSelected: 'Smazat vybrané',
     rotateSelected: 'Otočit vybrané',
-    selectRangeHelp: 'Shift+Klik pro výběr rozsahu',
+    selectRangeHelp: 'Tip: Ctrl+Klik pro výběr, Shift+Klik pro rozsah, Shift+Home/End na začátek/konec',
   },
   annotations: {
     addNote: 'Přidat poznámku',
