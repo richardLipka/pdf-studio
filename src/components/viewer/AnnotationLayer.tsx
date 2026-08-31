@@ -36,6 +36,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     strokeWidth,
     fontSize,
     fontFamily,
+    isNotesPanelOpen,
   } = useEditor();
 
   const {
@@ -86,9 +87,16 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // If clicking an existing element in select mode, let its own handler handle it
+    // If clicking an existing element or interactive widget, let its own handler handle it
     const targetEl = e.target as Element | null;
-    if (targetEl && targetEl.closest?.('.annotation-item')) {
+    if (
+      targetEl &&
+      (targetEl.closest?.('.annotation-item') ||
+        targetEl.closest?.('button') ||
+        targetEl.closest?.('input') ||
+        targetEl.closest?.('textarea') ||
+        targetEl.closest?.('.comment-popover'))
+    ) {
       return;
     }
 
@@ -333,8 +341,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           };
           addAnnotation(newHighlight);
           setSelectedAnnotationId(newHighlight.id);
-          setActiveCommentAnnId(newHighlight.id);
-          setCommentDraftText('');
+          if (isNotesPanelOpen) {
+            setActiveCommentAnnId(newHighlight.id);
+            setCommentDraftText('');
+          } else {
+            setActiveCommentAnnId(null);
+          }
         } else if (activeTool === 'underline') {
           const newUnderline: UnderlineAnnotation = {
             id: `ul_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -352,8 +364,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           };
           addAnnotation(newUnderline);
           setSelectedAnnotationId(newUnderline.id);
-          setActiveCommentAnnId(newUnderline.id);
-          setCommentDraftText('');
+          if (isNotesPanelOpen) {
+            setActiveCommentAnnId(newUnderline.id);
+            setCommentDraftText('');
+          } else {
+            setActiveCommentAnnId(null);
+          }
         } else if (activeTool === 'strikethrough') {
           const newStrike: StrikethroughAnnotation = {
             id: `st_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -371,8 +387,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           };
           addAnnotation(newStrike);
           setSelectedAnnotationId(newStrike.id);
-          setActiveCommentAnnId(newStrike.id);
-          setCommentDraftText('');
+          if (isNotesPanelOpen) {
+            setActiveCommentAnnId(newStrike.id);
+            setCommentDraftText('');
+          } else {
+            setActiveCommentAnnId(null);
+          }
         }
       }
 
@@ -857,11 +877,15 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         return (
           <div
             key={`comment_group_${ann.id}`}
-            className="absolute z-30 pointer-events-auto"
+            className="annotation-item absolute z-30 pointer-events-auto"
             style={{ left: `${left + 4}px`, top: `${top - 8}px` }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             {/* Comment Indicator Badge */}
             <button
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedAnnotationId(ann.id);
@@ -895,7 +919,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             {isCommentOpen && (
               <div
                 onClick={(e) => e.stopPropagation()}
-                className="absolute left-0 top-7 w-64 bg-slate-900 border border-amber-500/80 rounded-xl p-2.5 shadow-2xl z-40 animate-in fade-in zoom-in-95 duration-150"
+                onMouseDown={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                className="comment-popover absolute left-0 top-7 w-64 bg-slate-900 border border-amber-500/80 rounded-xl p-2.5 shadow-2xl z-40 animate-in fade-in zoom-in-95 duration-150"
               >
                 <div className="flex items-center justify-between mb-1.5 text-xs text-amber-400 font-semibold">
                   <span className="flex items-center gap-1">
@@ -905,7 +931,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
                   {ann.comment && (
                     <button
-                      onClick={() => {
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
                         updateAnnotation({ ...ann, comment: undefined, updatedAt: Date.now() }, true);
                         setActiveCommentAnnId(null);
                       }}
@@ -920,6 +948,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 <textarea
                   value={commentDraftText}
                   onChange={(e) => setCommentDraftText(e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onMouseUp={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
                   placeholder={t.notesPanel.commentPlaceholder}
                   rows={3}
                   className="w-full text-xs bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 placeholder-slate-500 outline-none focus:border-amber-500 resize-none"
@@ -928,14 +959,20 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
                 <div className="flex items-center justify-end gap-1.5 mt-2">
                   <button
-                    onClick={() => setActiveCommentAnnId(null)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveCommentAnnId(null);
+                    }}
                     className="px-2 py-1 rounded text-[11px] text-slate-400 hover:text-white"
                   >
                     {t.addPageModal.cancel}
                   </button>
 
                   <button
-                    onClick={() => {
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
                       updateAnnotation(
                         { ...ann, comment: commentDraftText.trim() || undefined, updatedAt: Date.now() },
                         true
