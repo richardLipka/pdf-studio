@@ -401,15 +401,15 @@ export const Toolbar: React.FC = () => {
           </div>
         )}
 
-        {/* Comment on Selected Item */}
+        {/* Comment / Notes Panel Button for Selected Item */}
         {selectedAnn && (
           <button
             onClick={() => setIsNotesPanelOpen(true)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 text-xs font-medium transition-colors"
-            title={selectedAnn.comment ? t.notesPanel.title : t.notesPanel.addComment}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40 text-xs font-medium transition-colors"
+            title={t.notesPanel.title}
           >
             <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-            <span>{selectedAnn.comment ? selectedAnn.comment : `+ ${t.notesPanel.addComment}`}</span>
+            <span>{t.notesPanel.title}</span>
           </button>
         )}
 
