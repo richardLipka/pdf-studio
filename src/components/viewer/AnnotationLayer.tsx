@@ -55,7 +55,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
   // Repositioning / Resizing selected annotation
   const [draggingAnnId, setDraggingAnnId] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState<Point>({ x: 0, y: 0 });
+  const [dragStartMouse, setDragStartMouse] = useState<Point>({ x: 0, y: 0 });
+  const [dragStartAnnPos, setDragStartAnnPos] = useState<Point>({ x: 0, y: 0 });
   const [resizingAnnId, setResizingAnnId] = useState<string | null>(null);
 
   // Open note card modal/popover
@@ -80,7 +81,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // If clicking an existing element in select mode, don't create new
+    // If clicking an existing element in select mode, let its own handler handle it
     if ((e.target as HTMLElement).closest('.annotation-item')) {
       return;
     }
@@ -97,6 +98,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     ) {
       setIsDrawing(true);
       setStartPoint(pt);
+      setCurrentPoints([pt]);
     } else if (activeTool === 'note') {
       // Place a new note
       const newNote: NoteAnnotation = {
@@ -115,6 +117,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       };
       addAnnotation(newNote);
       setActiveNoteId(newNote.id);
+      setSelectedAnnotationId(newNote.id);
       setNoteEditText('');
     } else if (activeTool === 'text') {
       // Place a new text box
@@ -148,30 +151,68 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     if (isDrawing) {
       if (activeTool === 'drawing') {
         setCurrentPoints((prev) => [...prev, pt]);
+      } else if (
+        activeTool === 'highlight' ||
+        activeTool === 'underline' ||
+        activeTool === 'strikethrough'
+      ) {
+        // Immediate visual preview updating as mouse moves
+        setCurrentPoints([pt]);
       }
     } else if (draggingAnnId) {
-      // Dragging an existing annotation - update without pushing history snapshot per pixel
+      // Dragging an existing annotation
       const target = annotations.find((a) => a.id === draggingAnnId);
       if (target) {
-        updateAnnotation({
-          ...target,
-          x: Math.max(0, Math.min(page.width - target.width, pt.x - dragOffset.x)),
-          y: Math.max(0, Math.min(page.height - target.height, pt.y - dragOffset.y)),
-          updatedAt: Date.now(),
-        }, false);
+        const dx = pt.x - dragStartMouse.x;
+        const dy = pt.y - dragStartMouse.y;
+        const newX = Math.max(0, Math.min(page.width - target.width, dragStartAnnPos.x + dx));
+        const newY = Math.max(0, Math.min(page.height - target.height, dragStartAnnPos.y + dy));
+
+        if (target.type === 'drawing') {
+          const drawAnn = target as DrawingAnnotation;
+          const shiftX = newX - target.x;
+          const shiftY = newY - target.y;
+          const updatedPoints = drawAnn.points.map((p) => ({
+            x: p.x + shiftX,
+            y: p.y + shiftY,
+          }));
+          updateAnnotation(
+            {
+              ...drawAnn,
+              x: newX,
+              y: newY,
+              points: updatedPoints,
+              updatedAt: Date.now(),
+            },
+            false
+          );
+        } else {
+          updateAnnotation(
+            {
+              ...target,
+              x: newX,
+              y: newY,
+              updatedAt: Date.now(),
+            },
+            false
+          );
+        }
       }
     } else if (resizingAnnId) {
-      // Resizing an existing annotation - update without pushing history snapshot per pixel
+      // Resizing an existing annotation
       const target = annotations.find((a) => a.id === resizingAnnId);
       if (target) {
         const newWidth = Math.max(30, pt.x - target.x);
         const newHeight = Math.max(20, pt.y - target.y);
-        updateAnnotation({
-          ...target,
-          width: newWidth,
-          height: newHeight,
-          updatedAt: Date.now(),
-        }, false);
+        updateAnnotation(
+          {
+            ...target,
+            width: newWidth,
+            height: newHeight,
+            updatedAt: Date.now(),
+          },
+          false
+        );
       }
     }
   };
@@ -209,8 +250,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           type: 'drawing',
           x: minX,
           y: minY,
-          width: maxX - minX,
-          height: maxY - minY,
+          width: Math.max(10, maxX - minX),
+          height: Math.max(10, maxY - minY),
           color: strokeColor,
           opacity: 1.0,
           points: currentPoints,
@@ -219,11 +260,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           updatedAt: Date.now(),
         };
         addAnnotation(newDrawing);
+        setSelectedAnnotationId(newDrawing.id);
       } else if (startPoint) {
         const x = Math.min(startPoint.x, endPoint.x);
         const y = Math.min(startPoint.y, endPoint.y);
-        const width = Math.max(10, Math.abs(endPoint.x - startPoint.x));
-        const height = Math.max(8, Math.abs(endPoint.y - startPoint.y));
+        const width = Math.max(12, Math.abs(endPoint.x - startPoint.x));
+        const height = Math.max(10, Math.abs(endPoint.y - startPoint.y));
 
         if (activeTool === 'highlight') {
           const newHighlight: HighlightAnnotation = {
@@ -240,12 +282,13 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             updatedAt: Date.now(),
           };
           addAnnotation(newHighlight);
+          setSelectedAnnotationId(newHighlight.id);
         } else if (activeTool === 'underline') {
           const newUnderline: UnderlineAnnotation = {
             id: `ul_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
             pageId: page.id,
             type: 'underline',
-            x,
+            x: Math.min(startPoint.x, endPoint.x),
             y: startPoint.y,
             width,
             height: strokeWidth,
@@ -256,12 +299,13 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             updatedAt: Date.now(),
           };
           addAnnotation(newUnderline);
+          setSelectedAnnotationId(newUnderline.id);
         } else if (activeTool === 'strikethrough') {
           const newStrike: StrikethroughAnnotation = {
             id: `st_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
             pageId: page.id,
             type: 'strikethrough',
-            x,
+            x: Math.min(startPoint.x, endPoint.x),
             y: startPoint.y,
             width,
             height: strokeWidth,
@@ -272,6 +316,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             updatedAt: Date.now(),
           };
           addAnnotation(newStrike);
+          setSelectedAnnotationId(newStrike.id);
         }
       }
 
@@ -281,32 +326,22 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     }
   };
 
-  const handleAnnotationClick = (ann: Annotation, e: React.MouseEvent) => {
+  const handleStartDragAnn = (ann: Annotation, e: React.MouseEvent) => {
     e.stopPropagation();
-
     if (activeTool === 'eraser') {
       deleteAnnotation(ann.id);
       return;
     }
-
+    const pt = getPdfCoords(e);
     setSelectedAnnotationId(ann.id);
+    setDraggingAnnId(ann.id);
+    setDragStartMouse(pt);
+    setDragStartAnnPos({ x: ann.x, y: ann.y });
 
     if (ann.type === 'note') {
       setActiveNoteId(ann.id);
       setNoteEditText((ann as NoteAnnotation).text || '');
     }
-  };
-
-  const handleStartDragAnn = (ann: Annotation, e: React.MouseEvent) => {
-    if (activeTool !== 'select') return;
-    e.stopPropagation();
-    const pt = getPdfCoords(e);
-    setDraggingAnnId(ann.id);
-    setSelectedAnnotationId(ann.id);
-    setDragOffset({
-      x: pt.x - ann.x,
-      y: pt.y - ann.y,
-    });
   };
 
   const handleSaveNote = (noteId: string) => {
@@ -337,7 +372,10 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       className={`absolute inset-0 select-none ${
         activeTool === 'pan'
           ? 'cursor-grab'
-          : activeTool === 'drawing' || activeTool === 'highlight' || activeTool === 'underline' || activeTool === 'strikethrough'
+          : activeTool === 'drawing' ||
+            activeTool === 'highlight' ||
+            activeTool === 'underline' ||
+            activeTool === 'strikethrough'
           ? 'cursor-crosshair'
           : activeTool === 'note' || activeTool === 'text'
           ? 'cursor-text'
@@ -358,60 +396,99 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           switch (ann.type) {
             case 'highlight':
               return (
-                <rect
-                  key={ann.id}
-                  x={ann.x}
-                  y={ann.y}
-                  width={ann.width}
-                  height={ann.height}
-                  fill={ann.color}
-                  fillOpacity={ann.opacity || 0.35}
-                  className={`pointer-events-auto cursor-pointer ${
-                    isSelected ? 'stroke-2 stroke-sky-500' : ''
-                  }`}
-                  onClick={(e) => handleAnnotationClick(ann, e)}
-                />
+                <g key={ann.id} className="annotation-item pointer-events-auto">
+                  <rect
+                    x={ann.x}
+                    y={ann.y}
+                    width={ann.width}
+                    height={ann.height}
+                    fill={ann.color}
+                    fillOpacity={ann.opacity || 0.4}
+                    className={`cursor-move transition-all ${
+                      isSelected
+                        ? 'stroke-2 stroke-sky-500 shadow-lg'
+                        : 'hover:stroke hover:stroke-sky-400/50'
+                    }`}
+                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                  />
+                  {isSelected && (
+                    <rect
+                      x={ann.x - 2}
+                      y={ann.y - 2}
+                      width={ann.width + 4}
+                      height={ann.height + 4}
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                    />
+                  )}
+                </g>
               );
 
             case 'underline': {
               const u = ann as UnderlineAnnotation;
               return (
-                <line
-                  key={ann.id}
-                  x1={u.x}
-                  y1={u.y + u.height}
-                  x2={u.x + u.width}
-                  y2={u.y + u.height}
-                  stroke={u.color}
-                  strokeWidth={u.strokeWidth || 2}
-                  strokeOpacity={u.opacity || 0.9}
-                  strokeLinecap="round"
-                  className={`pointer-events-auto cursor-pointer ${
-                    isSelected ? 'stroke-sky-400 stroke-[3px]' : ''
-                  }`}
-                  onClick={(e) => handleAnnotationClick(ann, e)}
-                />
+                <g key={ann.id} className="annotation-item pointer-events-auto">
+                  {/* Hit-test invisible wide padding */}
+                  <line
+                    x1={u.x}
+                    y1={u.y + u.height}
+                    x2={u.x + u.width}
+                    y2={u.y + u.height}
+                    stroke="transparent"
+                    strokeWidth={Math.max(12, (u.strokeWidth || 2) * 3)}
+                    className="cursor-move"
+                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                  />
+                  <line
+                    x1={u.x}
+                    y1={u.y + u.height}
+                    x2={u.x + u.width}
+                    y2={u.y + u.height}
+                    stroke={u.color}
+                    strokeWidth={u.strokeWidth || 2}
+                    strokeOpacity={u.opacity || 0.9}
+                    strokeLinecap="round"
+                    className={`cursor-move ${
+                      isSelected ? 'stroke-sky-400 stroke-[3px] filter drop-shadow(0 0 3px #38bdf8)' : ''
+                    }`}
+                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                  />
+                </g>
               );
             }
 
             case 'strikethrough': {
               const s = ann as StrikethroughAnnotation;
               return (
-                <line
-                  key={ann.id}
-                  x1={s.x}
-                  y1={s.y + s.height / 2}
-                  x2={s.x + s.width}
-                  y2={s.y + s.height / 2}
-                  stroke={s.color}
-                  strokeWidth={s.strokeWidth || 2}
-                  strokeOpacity={s.opacity || 0.9}
-                  strokeLinecap="round"
-                  className={`pointer-events-auto cursor-pointer ${
-                    isSelected ? 'stroke-sky-400 stroke-[3px]' : ''
-                  }`}
-                  onClick={(e) => handleAnnotationClick(ann, e)}
-                />
+                <g key={ann.id} className="annotation-item pointer-events-auto">
+                  {/* Hit-test invisible wide padding */}
+                  <line
+                    x1={s.x}
+                    y1={s.y + s.height / 2}
+                    x2={s.x + s.width}
+                    y2={s.y + s.height / 2}
+                    stroke="transparent"
+                    strokeWidth={Math.max(12, (s.strokeWidth || 2) * 3)}
+                    className="cursor-move"
+                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                  />
+                  <line
+                    x1={s.x}
+                    y1={s.y + s.height / 2}
+                    x2={s.x + s.width}
+                    y2={s.y + s.height / 2}
+                    stroke={s.color}
+                    strokeWidth={s.strokeWidth || 2}
+                    strokeOpacity={s.opacity || 0.9}
+                    strokeLinecap="round"
+                    className={`cursor-move ${
+                      isSelected ? 'stroke-sky-400 stroke-[3px] filter drop-shadow(0 0 3px #38bdf8)' : ''
+                    }`}
+                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                  />
+                </g>
               );
             }
 
@@ -423,19 +500,29 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 ''
               );
               return (
-                <path
-                  key={ann.id}
-                  d={pathStr}
-                  fill="none"
-                  stroke={d.color}
-                  strokeWidth={d.strokeWidth || 2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`pointer-events-auto cursor-pointer ${
-                    isSelected ? 'filter drop-shadow(0 0 3px #38bdf8)' : ''
-                  }`}
-                  onClick={(e) => handleAnnotationClick(ann, e)}
-                />
+                <g key={ann.id} className="annotation-item pointer-events-auto">
+                  {/* Invisible fat stroke for easy grabbing */}
+                  <path
+                    d={pathStr}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={Math.max(16, (d.strokeWidth || 2) * 3)}
+                    className="cursor-move"
+                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                  />
+                  <path
+                    d={pathStr}
+                    fill="none"
+                    stroke={d.color}
+                    strokeWidth={d.strokeWidth || 2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={`cursor-move ${
+                      isSelected ? 'filter drop-shadow(0 0 4px #38bdf8)' : ''
+                    }`}
+                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                  />
+                </g>
               );
             }
 
@@ -444,7 +531,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           }
         })}
 
-        {/* Live Drawing Preview Path */}
+        {/* LIVE DRAWING PREVIEW: Freehand Pen */}
         {isDrawing && activeTool === 'drawing' && currentPoints.length > 1 && (
           <path
             d={currentPoints.reduce(
@@ -459,15 +546,46 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           />
         )}
 
-        {/* Live Highlight Preview Box */}
+        {/* LIVE DRAWING PREVIEW: Highlight Box */}
         {isDrawing && activeTool === 'highlight' && startPoint && currentPoints.length > 0 && (
           <rect
-            x={Math.min(startPoint.x, currentPoints[currentPoints.length - 1].x)}
-            y={Math.min(startPoint.y, currentPoints[currentPoints.length - 1].y)}
-            width={Math.abs(currentPoints[currentPoints.length - 1].x - startPoint.x)}
-            height={Math.abs(currentPoints[currentPoints.length - 1].y - startPoint.y)}
+            x={Math.min(startPoint.x, currentPoints[0].x)}
+            y={Math.min(startPoint.y, currentPoints[0].y)}
+            width={Math.max(4, Math.abs(currentPoints[0].x - startPoint.x))}
+            height={Math.max(4, Math.abs(currentPoints[0].y - startPoint.y))}
             fill={highlightColor}
             fillOpacity={0.4}
+            stroke={highlightColor}
+            strokeWidth={1}
+            strokeDasharray="2 2"
+          />
+        )}
+
+        {/* LIVE DRAWING PREVIEW: Underline */}
+        {isDrawing && activeTool === 'underline' && startPoint && currentPoints.length > 0 && (
+          <line
+            x1={Math.min(startPoint.x, currentPoints[0].x)}
+            y1={startPoint.y + strokeWidth}
+            x2={Math.max(startPoint.x, currentPoints[0].x)}
+            y2={startPoint.y + strokeWidth}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            strokeOpacity={0.9}
+            strokeLinecap="round"
+          />
+        )}
+
+        {/* LIVE DRAWING PREVIEW: Strikethrough */}
+        {isDrawing && activeTool === 'strikethrough' && startPoint && currentPoints.length > 0 && (
+          <line
+            x1={Math.min(startPoint.x, currentPoints[0].x)}
+            y1={startPoint.y + strokeWidth / 2}
+            x2={Math.max(startPoint.x, currentPoints[0].x)}
+            y2={startPoint.y + strokeWidth / 2}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            strokeOpacity={0.9}
+            strokeLinecap="round"
           />
         )}
       </svg>
@@ -495,7 +613,6 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 height: `${height}px`,
               }}
               onMouseDown={(e) => handleStartDragAnn(sig, e)}
-              onClick={(e) => handleAnnotationClick(sig, e)}
             >
               <img
                 src={sig.imageDataUrl}
@@ -535,7 +652,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           return (
             <div
               key={txt.id}
-              className={`annotation-item absolute group ${
+              className={`annotation-item absolute group cursor-move ${
                 isSelected ? 'ring-2 ring-sky-500 rounded p-0.5' : ''
               }`}
               style={{
@@ -544,7 +661,6 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 minWidth: `${Math.max(60, width)}px`,
               }}
               onMouseDown={(e) => handleStartDragAnn(txt, e)}
-              onClick={(e) => handleAnnotationClick(txt, e)}
             >
               <input
                 type="text"
@@ -559,7 +675,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 style={{
                   fontSize: `${txt.fontSize * scale}px`,
                   color: txt.color,
-                  backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.85)' : 'transparent',
+                  backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.9)' : 'transparent',
                 }}
                 className="bg-transparent border-none outline-none font-medium px-1 py-0.5 rounded shadow-none w-full"
                 placeholder={t.annotations.textPlaceholder}
@@ -587,19 +703,20 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           return (
             <div
               key={note.id}
-              className="annotation-item absolute z-30"
+              className="annotation-item absolute z-30 cursor-move"
               style={{
                 left: `${left}px`,
                 top: `${top}px`,
               }}
-              onClick={(e) => handleAnnotationClick(note, e)}
+              onMouseDown={(e) => handleStartDragAnn(note, e)}
             >
               {/* Note Badge Icon */}
               <button
-                className="w-7 h-7 rounded-full bg-amber-400 hover:bg-amber-300 text-amber-950 flex items-center justify-center shadow-lg border-2 border-amber-500 transition-transform active:scale-95"
+                style={{ backgroundColor: note.color || '#f59e0b' }}
+                className="w-7 h-7 rounded-full text-slate-950 flex items-center justify-center shadow-lg border-2 border-white/60 transition-transform active:scale-95"
                 title={note.text || t.tools.note}
               >
-                <MessageSquare className="w-4 h-4 fill-amber-950/20" />
+                <MessageSquare className="w-4 h-4 fill-slate-950/20" />
               </button>
 
               {/* Popover Card */}
@@ -607,6 +724,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 <div
                   className="absolute left-8 -top-2 w-64 bg-slate-900 border border-amber-500/40 rounded-xl shadow-2xl p-3 z-40 text-slate-100 backdrop-blur-md"
                   onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-amber-400">

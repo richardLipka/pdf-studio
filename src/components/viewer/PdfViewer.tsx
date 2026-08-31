@@ -1,23 +1,37 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
 import { PageCanvas } from './PageCanvas';
 import { AnnotationLayer } from './AnnotationLayer';
 
 export const PdfViewer: React.FC = () => {
-  const { pages, sources, scale, activePageIndex, setActivePageIndex } = useDocument();
+  const {
+    pages,
+    sources,
+    scale,
+    activePageIndex,
+    setActivePageIndex,
+    setSelectedPageIds,
+  } = useDocument();
   const { activeTool } = useEditor();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+
+  // Flag to distinguish between user scrolling with mousewheel vs programmatic scroll
+  const isUserScrollingRef = useRef<boolean>(false);
+  const scrollTimeoutRef = useRef<number | null>(null);
 
   // Pan dragging state
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [scrollStart, setScrollStart] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
 
-  // Scroll active page into main view whenever activePageIndex changes
+  // Scroll active page into main view when selected from outside (sidebar click, arrow keys)
   useEffect(() => {
+    if (isUserScrollingRef.current) {
+      return; // Do not interrupt user mousewheel / scrollbar scrolling
+    }
     const activePage = pages[activePageIndex];
     if (activePage) {
       const el = pageContainerRefs.current[activePage.id];
@@ -26,6 +40,43 @@ export const PdfViewer: React.FC = () => {
       }
     }
   }, [activePageIndex, pages]);
+
+  // Track viewport scroll position and update active page + sidebar thumbnail on mousewheel
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current || pages.length === 0) return;
+
+    isUserScrollingRef.current = true;
+    if (scrollTimeoutRef.current) {
+      window.clearTimeout(scrollTimeoutRef.current);
+    }
+    scrollTimeoutRef.current = window.setTimeout(() => {
+      isUserScrollingRef.current = false;
+    }, 250);
+
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const viewportCenterY = containerRect.top + containerRect.height / 2;
+
+    let closestIndex = activePageIndex;
+    let minDistance = Infinity;
+
+    pages.forEach((page, index) => {
+      const el = pageContainerRefs.current[page.id];
+      if (el) {
+        const pageRect = el.getBoundingClientRect();
+        const pageCenterY = pageRect.top + pageRect.height / 2;
+        const dist = Math.abs(pageCenterY - viewportCenterY);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestIndex = index;
+        }
+      }
+    });
+
+    if (closestIndex !== activePageIndex) {
+      setActivePageIndex(closestIndex);
+      setSelectedPageIds([pages[closestIndex].id]);
+    }
+  }, [pages, activePageIndex, setActivePageIndex, setSelectedPageIds]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // Only pan if tool is pan or middle mouse button is pressed
@@ -57,6 +108,7 @@ export const PdfViewer: React.FC = () => {
   return (
     <main
       ref={containerRef}
+      onScroll={handleScroll}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
