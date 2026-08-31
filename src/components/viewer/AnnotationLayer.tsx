@@ -348,6 +348,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             setActiveCommentAnnId(null);
           }
         } else if (activeTool === 'underline') {
+          const uColor = strokeColor || '#0284c7';
           const newUnderline: UnderlineAnnotation = {
             id: `ul_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
             pageId: page.id,
@@ -355,10 +356,10 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             x: Math.min(startPoint.x, endPoint.x),
             y: startPoint.y,
             width,
-            height: strokeWidth,
-            color: strokeColor,
+            height: strokeWidth || 2,
+            color: uColor,
             opacity: 0.9,
-            strokeWidth,
+            strokeWidth: strokeWidth || 2,
             createdAt: Date.now(),
             updatedAt: Date.now(),
           };
@@ -371,6 +372,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             setActiveCommentAnnId(null);
           }
         } else if (activeTool === 'strikethrough') {
+          const sColor = strokeColor === '#0284c7' ? '#dc2626' : (strokeColor || '#dc2626');
           const newStrike: StrikethroughAnnotation = {
             id: `st_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
             pageId: page.id,
@@ -378,10 +380,10 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             x: Math.min(startPoint.x, endPoint.x),
             y: startPoint.y,
             width,
-            height: strokeWidth,
-            color: strokeColor,
+            height: strokeWidth || 2,
+            color: sColor,
             opacity: 0.9,
-            strokeWidth,
+            strokeWidth: strokeWidth || 2,
             createdAt: Date.now(),
             updatedAt: Date.now(),
           };
@@ -494,11 +496,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                     height={ann.height}
                     fill={ann.color}
                     fillOpacity={ann.opacity || 0.4}
-                    className={`cursor-move transition-all ${
-                      isSelected
-                        ? 'stroke-2 stroke-sky-500 shadow-lg'
-                        : 'hover:stroke hover:stroke-sky-400/50'
-                    }`}
+                    stroke="none"
+                    className="cursor-move transition-opacity hover:opacity-90"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
                   {isSelected && (
@@ -511,6 +510,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                       stroke="#0284c7"
                       strokeWidth={1.5}
                       strokeDasharray="4 2"
+                      className="pointer-events-none"
                     />
                   )}
                 </g>

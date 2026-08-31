@@ -183,6 +183,39 @@ export const extractPdfAnnotations = async (
             createdAt: now,
             updatedAt: now,
           });
+        } else if (ann.subtype === 'Ink' && (ann.inkLists || ann.paths)) {
+          const inkLists = ann.inkLists || ann.paths || [];
+          for (let pIdx = 0; pIdx < inkLists.length; pIdx++) {
+            const inkPath = inkLists[pIdx];
+            const points: { x: number; y: number }[] = [];
+            for (let k = 0; k < inkPath.length; k += 2) {
+              points.push({
+                x: inkPath[k],
+                y: pageHeight - inkPath[k + 1],
+              });
+            }
+            if (points.length >= 2) {
+              const minX = Math.min(...points.map((p) => p.x));
+              const minY = Math.min(...points.map((p) => p.y));
+              const maxX = Math.max(...points.map((p) => p.x));
+              const maxY = Math.max(...points.map((p) => p.y));
+              loadedAnnotations.push({
+                id: `${id}_path_${pIdx}`,
+                pageId: pageModel.id,
+                type: 'drawing',
+                x: minX,
+                y: minY,
+                width: Math.max(10, maxX - minX),
+                height: Math.max(10, maxY - minY),
+                points,
+                color: colorHex || '#0284c7',
+                strokeWidth: 2,
+                opacity: 1.0,
+                createdAt: now,
+                updatedAt: now,
+              });
+            }
+          }
         }
       }
     }
@@ -254,7 +287,7 @@ export const renderPdfPageToCanvas = async (
     return;
   }
 
-  // PDF Page Rendering
+  // PDF Page Rendering (Disable static annotation baking so extracted annotations remain 100% interactive)
   const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
   const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
 
@@ -275,6 +308,7 @@ export const renderPdfPageToCanvas = async (
   const renderContext = {
     canvasContext: ctx,
     viewport,
+    annotationMode: 0, // 0 = AnnotationMode.DISABLE
   };
 
   await pdfPage.render(renderContext).promise;

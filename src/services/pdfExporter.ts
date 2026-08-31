@@ -191,6 +191,13 @@ export const exportEditedPdf = async (
       }
     }
 
+    // Clear pre-existing annotations dictionary on copied page so deleted/modified annotations don't conflict
+    try {
+      targetPage.node.delete(PDFName.of('Annots'));
+    } catch {
+      // Ignore if no Annots node
+    }
+
     // Apply rotation
     if (pageModel.rotation !== undefined) {
       targetPage.setRotation(degrees(pageModel.rotation));
