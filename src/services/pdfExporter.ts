@@ -249,24 +249,31 @@ export const exportEditedPdf = async (
   const imageEmbedCache = new Map<string, PDFImage>();
   const srcCounter = new Map<string, number>();
 
+  const embedDataUrlImage = async (doc: PDFDocument, dataUrl: string): Promise<PDFImage> => {
+    let cached = imageEmbedCache.get(dataUrl);
+    if (cached) return cached;
+
+    if (dataUrl.startsWith('data:image/jpeg') || dataUrl.startsWith('data:image/jpg')) {
+      cached = await doc.embedJpg(dataUrl);
+    } else if (dataUrl.startsWith('data:image/png')) {
+      cached = await doc.embedPng(dataUrl);
+    } else {
+      try {
+        cached = await doc.embedPng(dataUrl);
+      } catch {
+        cached = await doc.embedJpg(dataUrl);
+      }
+    }
+    imageEmbedCache.set(dataUrl, cached);
+    return cached;
+  };
+
   // Process pages in order
   for (const pageModel of pages) {
     let targetPage: PDFPage | null = null;
 
     if (pageModel.sourceType === 'image' && pageModel.imageDataUrl) {
-      let embeddedImage = imageEmbedCache.get(pageModel.imageDataUrl);
-      if (!embeddedImage) {
-        if (pageModel.imageDataUrl.startsWith('data:image/png')) {
-          embeddedImage = await outputDoc.embedPng(pageModel.imageDataUrl);
-        } else {
-          try {
-            embeddedImage = await outputDoc.embedJpg(pageModel.imageDataUrl);
-          } catch {
-            embeddedImage = await outputDoc.embedPng(pageModel.imageDataUrl);
-          }
-        }
-        imageEmbedCache.set(pageModel.imageDataUrl, embeddedImage);
-      }
+      const embeddedImage = await embedDataUrlImage(outputDoc, pageModel.imageDataUrl);
 
       targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
       targetPage.drawImage(embeddedImage, {
@@ -307,7 +314,7 @@ export const exportEditedPdf = async (
           const sourceDoc = sources.find((s) => s.id === pageModel.sourceDocId) || sources[0];
           if (sourceDoc && sourceDoc.arrayBuffer) {
             const highResDataUrl = await renderPdfPageToDataUrl(sourceDoc, pageModel, 2.0);
-            const embeddedImg = await outputDoc.embedPng(highResDataUrl);
+            const embeddedImg = await embedDataUrlImage(outputDoc, highResDataUrl);
             targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
             targetPage.drawImage(embeddedImg, {
               x: 0,
@@ -478,11 +485,7 @@ export const exportEditedPdf = async (
             const sig = ann as SignatureAnnotation;
             if (!sig.imageDataUrl) break;
 
-            let sigImage = imageEmbedCache.get(sig.imageDataUrl);
-            if (!sigImage) {
-              sigImage = await outputDoc.embedPng(sig.imageDataUrl);
-              imageEmbedCache.set(sig.imageDataUrl, sigImage);
-            }
+            const sigImage = await embedDataUrlImage(outputDoc, sig.imageDataUrl);
             const pdfY = pageHeight - sig.y - sig.height;
 
             targetPage.drawImage(sigImage, {

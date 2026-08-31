@@ -436,14 +436,14 @@ export const renderPdfPageToCanvas = async (
 };
 
 /**
- * Renders a PDF page to a compressed image data URL (fallback only)
+ * Renders a PDF page to a high-resolution PNG data URL
  */
 export const renderPdfPageToDataUrl = async (
   sourceDoc: SourceDocument,
   pageModel: PdfPageModel,
-  scale: number = 1.5
+  scale: number = 2.0
 ): Promise<string> => {
   const canvas = document.createElement('canvas');
   await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
-  return canvas.toDataURL('image/jpeg', 0.88);
+  return canvas.toDataURL('image/png');
 };
