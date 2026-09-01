@@ -6,7 +6,6 @@ import { useDocument } from '../../context/DocumentContext';
 import {
   X,
   FileCode2,
-  Replace,
   Search,
   CheckCircle2,
   AlertCircle,
@@ -18,7 +17,6 @@ import {
 import {
   parseStreamSegments,
   StreamSegment,
-  replaceTextInStreamString,
 } from '../../services/contentStreamEditor';
 
 export const StreamReplaceModal: React.FC = () => {
@@ -48,8 +46,6 @@ export const StreamReplaceModal: React.FC = () => {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [selectedBlockId, setSelectedBlockId] = useState<string>('');
   const [editorContent, setEditorContent] = useState<string>('');
-  const [quickFind, setQuickFind] = useState<string>('');
-  const [quickReplace, setQuickReplace] = useState<string>('');
   const [filterQuery, setFilterQuery] = useState<string>('');
   const [statusMessage, setStatusMessage] = useState<{
     type: 'idle' | 'success' | 'error';
@@ -107,7 +103,6 @@ export const StreamReplaceModal: React.FC = () => {
               b.previewText.toLowerCase().includes(target) ||
               b.rawContent.toLowerCase().includes(target)
           );
-          setQuickFind(streamReplaceTargetText.trim());
         }
 
         const initialBlock = matchedBlock || texts[0];
@@ -152,40 +147,6 @@ export const StreamReplaceModal: React.FC = () => {
       }
     } else {
       setEditorContent(fullStreamText);
-    }
-  };
-
-  // Quick text replacement helper inside the current editor content
-  const handleQuickReplaceInEditor = () => {
-    if (!quickFind) return;
-    const { modifiedContent, count } = replaceTextInStreamString(
-      editorContent,
-      quickFind,
-      quickReplace,
-      { matchCase: true }
-    );
-
-    if (count > 0) {
-      setEditorContent(modifiedContent);
-      setStatusMessage({
-        type: 'success',
-        text: `V editoru nahrazeno ${count} výskytů. Klikněte na "Uložit do PDF" pro zápis.`,
-      });
-    } else {
-      // Fallback simple replace
-      if (editorContent.includes(quickFind)) {
-        const replaced = editorContent.split(quickFind).join(quickReplace);
-        setEditorContent(replaced);
-        setStatusMessage({
-          type: 'success',
-          text: `V editoru nahrazen řetězec. Klikněte na "Uložit do PDF" pro zápis.`,
-        });
-      } else {
-        setStatusMessage({
-          type: 'error',
-          text: `Řetězec "${quickFind}" nebyl v aktuálním kódu editoru nalezen.`,
-        });
-      }
     }
   };
 
@@ -557,7 +518,7 @@ export const StreamReplaceModal: React.FC = () => {
                   <textarea
                     value={editorContent}
                     onChange={(e) => setEditorContent(e.target.value)}
-                    rows={activeTab === 'segment' ? 8 : 14}
+                    rows={activeTab === 'segment' ? 12 : 16}
                     spellCheck={false}
                     className="w-full p-4 font-mono text-xs leading-relaxed bg-transparent resize-y outline-hidden scrollbar-thin scrollbar-thumb-slate-700"
                     placeholder="BT ... ET"
@@ -565,71 +526,27 @@ export const StreamReplaceModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Quick Text Replacement Helper inside this block */}
-              {activeTab === 'segment' && (
-                <div
-                  className={`p-3.5 rounded-xl border space-y-2.5 ${
-                    isMinimal
-                      ? 'bg-neutral-50 border-neutral-200 text-neutral-800'
-                      : isLcars
-                      ? 'bg-[#111111] border-[#333333] text-[#ff9966]'
-                      : 'bg-slate-950/40 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-xs font-semibold">
-                    <span className="flex items-center gap-1.5 text-sky-400">
-                      <Replace className="w-3.5 h-3.5" />
-                      {t.streamReplaceModal.quickTextReplace}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <div>
-                      <input
-                        type="text"
-                        value={quickFind}
-                        onChange={(e) => setQuickFind(e.target.value)}
-                        placeholder={t.streamReplaceModal.findText}
-                        className={`w-full text-xs px-3 py-1.5 rounded-lg border outline-hidden ${
-                          isMinimal
-                            ? 'bg-white border-neutral-300 text-black'
-                            : isLcars
-                            ? 'bg-black border-[#ff9900] text-[#ff9900]'
-                            : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-sky-500'
-                        }`}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={quickReplace}
-                        onChange={(e) => setQuickReplace(e.target.value)}
-                        placeholder={t.streamReplaceModal.replaceWith}
-                        className={`w-full text-xs px-3 py-1.5 rounded-lg border outline-hidden ${
-                          isMinimal
-                            ? 'bg-white border-neutral-300 text-black'
-                            : isLcars
-                            ? 'bg-black border-[#ff9900] text-[#ff9900]'
-                            : 'bg-slate-900 border-slate-700 text-slate-200 focus:border-sky-500'
-                        }`}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleQuickReplaceInEditor}
-                        className={`px-3 py-1.5 text-xs font-semibold whitespace-nowrap rounded-lg border transition-all ${
-                          isMinimal
-                            ? 'bg-white hover:bg-neutral-100 border-neutral-300 text-black shadow-xs'
-                            : isLcars
-                            ? 'bg-[#ff9900] text-black font-bold border-[#ff9900]'
-                            : 'bg-sky-600 hover:bg-sky-500 border-sky-500 text-white shadow-xs shadow-sky-600/20'
-                        }`}
-                      >
-                        {t.streamReplaceModal.applyQuickReplace}
-                      </button>
-                    </div>
-                  </div>
+              {/* PDF Content Stream Syntax Tips */}
+              <div
+                className={`p-3 rounded-xl border text-xs space-y-1 ${
+                  isMinimal
+                    ? 'bg-neutral-50 border-neutral-200 text-neutral-700'
+                    : isLcars
+                    ? 'bg-[#111111] border-[#333333] text-[#ff9966]'
+                    : 'bg-slate-950/40 border-slate-800 text-slate-400'
+                }`}
+              >
+                <div className="font-semibold text-sky-400 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5" />
+                  <span>Struktura PDF Content Streamu (operátory):</span>
                 </div>
-              )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 pt-1 font-mono text-[11px]">
+                  <div><span className="text-indigo-400 font-bold">(Text) Tj</span> — zobrazení textového řetězce</div>
+                  <div><span className="text-indigo-400 font-bold">[(T) 10 (ext)] TJ</span> — text s mezerami/kerningem</div>
+                  <div><span className="text-emerald-400 font-bold">x y Td</span> — posun na souřadnice X, Y</div>
+                  <div><span className="text-amber-400 font-bold">/FontName Size Tf</span> — výběr fontu a velikosti</div>
+                </div>
+              </div>
 
               {/* Status & Feedback Message */}
               {statusMessage.type !== 'idle' && (

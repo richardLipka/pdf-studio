@@ -20,7 +20,6 @@ import {
   MessageSquare,
   Crop,
   FileCode2,
-  Replace,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -397,45 +396,26 @@ export const Toolbar: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 2: Document Editing Suite */}
+        {/* Tab 2: Document Editing Suite - Single Primary Stream Editor Button */}
         {activeTab === 'edit' && (
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setActiveTool('streamReplace')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+              onClick={() => {
+                setActiveTool('streamReplace');
+                setIsStreamReplaceModalOpen(true);
+              }}
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold transition-all ${
                 isMinimal
-                  ? activeTool === 'streamReplace'
-                    ? 'rounded-md bg-black text-white border border-black shadow-none'
-                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
+                  ? 'rounded-md bg-black text-white hover:bg-neutral-800 border border-black shadow-xs'
                   : isLcars
-                  ? activeTool === 'streamReplace'
-                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900]'
-                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                  : activeTool === 'streamReplace'
-                  ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                  ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                  : 'rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
               }`}
               title={t.tools.streamReplaceDesc}
             >
               <FileCode2 className="w-4 h-4" />
               <span>{t.tools.streamReplace}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsStreamReplaceModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
-                isMinimal
-                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300'
-                  : isLcars
-                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66]'
-                  : 'rounded-lg bg-gradient-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 text-sky-300 border border-sky-500/30 hover:border-sky-400/50'
-              }`}
-              title={t.streamReplaceModal.subtitle}
-            >
-              <Replace className="w-4 h-4" />
-              <span>{t.streamReplaceModal.title}</span>
             </button>
           </div>
         )}

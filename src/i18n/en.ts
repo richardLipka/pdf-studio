@@ -56,8 +56,8 @@ export const en: TranslationSchema = {
     eraserDesc: 'Click an annotation to delete it',
     addPage: 'Add Page',
     addPageDesc: 'Insert another PDF, image or blank page',
-    streamReplace: 'Replace Text in Stream',
-    streamReplaceDesc: 'Direct vector text replacement in decompressed /Contents stream',
+    streamReplace: 'Stream Editor',
+    streamReplaceDesc: 'Direct editing of selected text block (BT...ET) or full PDF page stream',
   },
   styles: {
     color: 'Color',

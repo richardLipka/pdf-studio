@@ -56,8 +56,8 @@ export const cs: TranslationSchema = {
     eraserDesc: 'Kliknutím smažete anotaci',
     addPage: 'Přidat stránku',
     addPageDesc: 'Vložit další PDF, obrázek nebo prázdnou stránku',
-    streamReplace: 'Nahradit text v PDF streamu',
-    streamReplaceDesc: 'Přímá náhrada textových řetězců ve vektorovém PDF streamu',
+    streamReplace: 'Editor streamu',
+    streamReplaceDesc: 'Přímá editace vybraného textového bloku (BT...ET) nebo celého proudu PDF stránky',
   },
   styles: {
     color: 'Barva',
