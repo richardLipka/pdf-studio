@@ -11,7 +11,21 @@ import {
   StrikethroughAnnotation,
   WhiteoutAnnotation,
 } from '../../types/annotations';
-import { Copy, Highlighter, Underline as UnderlineIcon, Strikethrough as StrikeIcon, Check, X, FileCode2, SquarePen } from 'lucide-react';
+import {
+  Copy,
+  Highlighter,
+  Underline as UnderlineIcon,
+  Strikethrough as StrikeIcon,
+  Check,
+  X,
+  FileCode2,
+  SquarePen,
+  Trash2,
+} from 'lucide-react';
+import {
+  parseStreamSegments,
+  findBestMatchingBlock,
+} from '../../services/contentStreamEditor';
 
 interface TextLayerProps {
   page: PdfPageModel;
@@ -29,9 +43,16 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     strokeWidth,
     setIsStreamReplaceModalOpen,
     setStreamReplaceTargetText,
+    streamReplaceTargetPosition,
     setStreamReplaceTargetPosition,
   } = useEditor();
-  const { addAnnotation, setSelectedAnnotationId } = useDocument();
+  const {
+    addAnnotation,
+    setSelectedAnnotationId,
+    pages,
+    getPageStream,
+    removePageBlock,
+  } = useDocument();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedText, setSelectedText] = useState<string>('');
@@ -304,6 +325,32 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     window.getSelection()?.removeAllRanges();
   };
 
+  const handleDeleteBlockDirectly = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedText) return;
+    try {
+      const pageIndex = pages.findIndex((p) => p.id === page.id);
+      const targetIdx = pageIndex >= 0 ? pageIndex : 0;
+      const { streamText } = await getPageStream(targetIdx);
+      if (streamText) {
+        const segments = parseStreamSegments(streamText);
+        const best = findBestMatchingBlock(
+          segments,
+          selectedText,
+          streamReplaceTargetPosition || undefined
+        );
+        if (best) {
+          await removePageBlock(best, targetIdx);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to delete block:', err);
+    } finally {
+      setFloatingMenuPos(null);
+      window.getSelection()?.removeAllRanges();
+    }
+  };
+
   const handleLayerClick = (e: React.MouseEvent) => {
     if (activeTool === 'streamReplace') {
       const container = containerRef.current;
@@ -486,6 +533,22 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
               >
                 <StrikeIcon className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">{t.textSelection.strikethrough}</span>
+              </button>
+
+              {/* Delete Block (Direct Stream Removal) Button */}
+              <button
+                onClick={handleDeleteBlockDirectly}
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  isMinimal
+                    ? 'hover:bg-rose-100 text-rose-700'
+                    : isLcars
+                    ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
+                    : 'hover:bg-rose-950/80 text-rose-400'
+                }`}
+                title={t.textSelection.deleteBlock}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t.textSelection.deleteBlock}</span>
               </button>
 
               {/* Dismiss Button */}

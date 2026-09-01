@@ -13,6 +13,7 @@ import {
   Type,
   Code,
   Info,
+  Trash2,
 } from 'lucide-react';
 import {
   parseStreamSegments,
@@ -37,6 +38,7 @@ export const StreamReplaceModal: React.FC = () => {
     getPageStream,
     applyPageContentStreamEdit,
     applyStreamSegmentEdit,
+    removePageBlock,
   } = useDocument();
 
   const isMinimal = theme === 'minimal';
@@ -213,6 +215,41 @@ export const StreamReplaceModal: React.FC = () => {
       setStatusMessage({
         type: 'error',
         text: err?.message || 'Chyba při zápisu do PDF',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Delete selected text block completely from stream
+  const handleDeleteBlock = async () => {
+    if (isSaving || isLoading) return;
+    const origBlock = textBlocks.find((b) => b.id === selectedBlockId);
+    if (!origBlock) return;
+
+    setIsSaving(true);
+    setStatusMessage({ type: 'idle' });
+
+    try {
+      const res = await removePageBlock(origBlock, activePageIndex);
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: t.removeElementsModal.toastDeleted,
+        });
+        setTimeout(() => {
+          handleClose();
+        }, 600);
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: res.error || 'Nepodařilo se smazat blok',
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || String(err),
       });
     } finally {
       setIsSaving(false);
@@ -594,6 +631,19 @@ export const StreamReplaceModal: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
+            {activeTab === 'segment' && selectedBlockId && (
+              <button
+                type="button"
+                onClick={handleDeleteBlock}
+                disabled={isSaving || isLoading}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white transition-all border border-rose-500/40 disabled:opacity-50"
+                title={t.streamReplaceModal.deleteBlockButton}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{t.streamReplaceModal.deleteBlockButton}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleClose}

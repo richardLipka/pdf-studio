@@ -61,6 +61,8 @@ export interface TranslationSchema {
     whiteout: string;
     whiteoutDesc: string;
     whiteoutPlaceholder: string;
+    removeElements: string;
+    removeElementsDesc: string;
   };
   styles: {
     color: string;
@@ -245,6 +247,7 @@ export interface TranslationSchema {
     underline: string;
     strikethrough: string;
     whiteout: string;
+    deleteBlock: string;
     charsSelected: string;
   };
   notifications: {
@@ -355,6 +358,7 @@ export interface TranslationSchema {
     replaceWith: string;
     applyQuickReplace: string;
     saveAndApply: string;
+    deleteBlockButton: string;
     saving: string;
     cancel: string;
     toastSaved: string;
@@ -376,5 +380,29 @@ export interface TranslationSchema {
     resultsSuccess: string;
     resultsNone: string;
     resultsError: string;
+  };
+  removeElementsModal: {
+    title: string;
+    subtitle: string;
+    tabBlocks: string;
+    tabImages: string;
+    searchPlaceholder: string;
+    noBlocksFound: string;
+    noImagesFound: string;
+    deleteBlock: string;
+    deleteImage: string;
+    batchDeleteSelected: string;
+    selectAll: string;
+    deselectAll: string;
+    selectedCount: string;
+    confirmDeleteTitle: string;
+    confirmDeleteMsg: string;
+    dimensions: string;
+    position: string;
+    font: string;
+    format: string;
+    toastDeleted: string;
+    undoHint: string;
+    close: string;
   };
 }

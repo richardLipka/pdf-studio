@@ -65,6 +65,7 @@ export const Toolbar: React.FC = () => {
     setIsAddPageModalOpen,
     setIsNotesPanelOpen,
     setIsStreamReplaceModalOpen,
+    setIsRemoveElementsModalOpen,
   } = useEditor();
 
   const {
@@ -488,6 +489,32 @@ export const Toolbar: React.FC = () => {
             >
               <FileCode2 className="w-4 h-4" />
               <span>{t.tools.streamReplace}</span>
+            </button>
+
+            {/* Button 3: Remove Elements (Blocks & Images) */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTool('removeElements');
+                setIsRemoveElementsModalOpen(true);
+              }}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
+                isMinimal
+                  ? activeTool === 'removeElements'
+                    ? 'rounded-md bg-rose-600 text-white border border-rose-600 shadow-xs'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                  : isLcars
+                  ? activeTool === 'removeElements'
+                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                  : activeTool === 'removeElements'
+                  ? 'rounded-lg bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-500/50'
+                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+              }`}
+              title={t.tools.removeElementsDesc}
+            >
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              <span>{t.tools.removeElements}</span>
             </button>
           </div>
         )}

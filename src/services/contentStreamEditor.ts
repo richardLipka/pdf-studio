@@ -4,6 +4,8 @@ import {
   PDFArray,
   PDFRef,
   PDFRawStream,
+  PDFDict,
+  PDFNumber,
   decodePDFRawStream,
   arrayAsString,
 } from 'pdf-lib';
@@ -898,5 +900,298 @@ export async function updateStreamSegmentInPage(
   }
 
   return updatePageContentStream(pdfDocBytes, pageIndex, updatedStream);
+}
+
+export interface PageImageInfo {
+  id: string;
+  name: string;
+  cleanName: string;
+  width?: number;
+  height?: number;
+  x?: number;
+  y?: number;
+  pixelWidth?: number;
+  pixelHeight?: number;
+  colorSpace?: string;
+  filter?: string;
+  rawInvocation?: string;
+}
+
+/**
+ * Discovers and inspects all embedded image XObjects and inline image placements on a PDF page.
+ */
+export async function getPageImages(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number
+): Promise<{ images: PageImageInfo[]; error?: string }> {
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+
+    const pageCount = pdfDoc.getPageCount();
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      return { images: [], error: `Neplatný index stránky ${pageIndex + 1}` };
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+    const { streamText } = await getPageContentStream(pdfDocBytes, pageIndex);
+
+    const images: PageImageInfo[] = [];
+    const discoveredNames = new Set<string>();
+
+    // 1. Inspect /Resources /XObject dictionary
+    const resources = page.node.Resources();
+    if (resources) {
+      const xObjectDict = resources.get(PDFName.of('XObject'));
+      if (xObjectDict instanceof PDFDict) {
+        const entries = xObjectDict.entries();
+        for (const [nameKey, refVal] of entries) {
+          const cleanName = nameKey.asString().replace(/^\//, '');
+          const xObj = page.node.context.lookup(refVal);
+          const dict =
+            xObj instanceof PDFDict
+              ? xObj
+              : (xObj as any)?.dict instanceof PDFDict
+              ? (xObj as any).dict
+              : undefined;
+
+          if (dict) {
+            const subtype = dict.get(PDFName.of('Subtype'));
+            if (subtype?.toString() === '/Image') {
+              discoveredNames.add(cleanName);
+
+              const widthVal = dict.get(PDFName.of('Width'));
+              const heightVal = dict.get(PDFName.of('Height'));
+              const colorSpaceVal = dict.get(PDFName.of('ColorSpace'));
+              const filterVal = dict.get(PDFName.of('Filter'));
+
+              const pixelWidth =
+                widthVal instanceof PDFNumber
+                  ? widthVal.asNumber()
+                  : parseInt(String(widthVal || '').replace(/[^0-9]/g, ''), 10) || undefined;
+              const pixelHeight =
+                heightVal instanceof PDFNumber
+                  ? heightVal.asNumber()
+                  : parseInt(String(heightVal || '').replace(/[^0-9]/g, ''), 10) || undefined;
+
+              images.push({
+                id: `img_${images.length + 1}`,
+                name: `/${cleanName}`,
+                cleanName,
+                pixelWidth,
+                pixelHeight,
+                colorSpace: colorSpaceVal ? String(colorSpaceVal).replace(/^\//, '') : undefined,
+                filter: filterVal ? String(filterVal).replace(/^\//, '') : undefined,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Correlate with streamText to find layout coordinates (cm /Do)
+    if (streamText) {
+      const doRegex =
+        /(?:([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm[\s\S]*?)?\/([A-Za-z0-9_\-+]+)\s+Do/g;
+      let doMatch: RegExpExecArray | null;
+      while ((doMatch = doRegex.exec(streamText)) !== null) {
+        const cleanName = doMatch[7];
+        const existing = images.find((im) => im.cleanName === cleanName);
+        const invMatrix = {
+          a: doMatch[1] ? parseFloat(doMatch[1]) : undefined,
+          b: doMatch[2] ? parseFloat(doMatch[2]) : undefined,
+          c: doMatch[3] ? parseFloat(doMatch[3]) : undefined,
+          d: doMatch[4] ? parseFloat(doMatch[4]) : undefined,
+          e: doMatch[5] ? parseFloat(doMatch[5]) : undefined,
+          f: doMatch[6] ? parseFloat(doMatch[6]) : undefined,
+        };
+
+        const calcWidth =
+          invMatrix.a !== undefined && invMatrix.b !== undefined
+            ? Math.round(Math.hypot(invMatrix.a, invMatrix.b) * 10) / 10
+            : undefined;
+        const calcHeight =
+          invMatrix.c !== undefined && invMatrix.d !== undefined
+            ? Math.round(Math.hypot(invMatrix.c, invMatrix.d) * 10) / 10
+            : undefined;
+
+        if (existing) {
+          existing.width = calcWidth || existing.width;
+          existing.height = calcHeight || existing.height;
+          existing.x = invMatrix.e !== undefined ? Math.round(invMatrix.e * 10) / 10 : existing.x;
+          existing.y = invMatrix.f !== undefined ? Math.round(invMatrix.f * 10) / 10 : existing.y;
+          existing.rawInvocation = doMatch[0];
+        } else if (!discoveredNames.has(cleanName)) {
+          discoveredNames.add(cleanName);
+          images.push({
+            id: `img_${images.length + 1}`,
+            name: `/${cleanName}`,
+            cleanName,
+            width: calcWidth,
+            height: calcHeight,
+            x: invMatrix.e !== undefined ? Math.round(invMatrix.e * 10) / 10 : undefined,
+            y: invMatrix.f !== undefined ? Math.round(invMatrix.f * 10) / 10 : undefined,
+            rawInvocation: doMatch[0],
+          });
+        }
+      }
+    }
+
+    return { images };
+  } catch (err: any) {
+    logger.error('edit', `Chyba při čtení obrázků ze strany ${pageIndex + 1}: ${err?.message || err}`);
+    return { images: [], error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Removes an image from a page by its XObject name.
+ */
+export async function removeImageFromPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  imageName: string
+): Promise<{ updatedPdfBytes: ArrayBuffer; error?: string }> {
+  const res = await removeMultipleElementsFromPage(pdfDocBytes, pageIndex, [], [imageName]);
+  return { updatedPdfBytes: res.updatedPdfBytes, error: res.error };
+}
+
+/**
+ * Removes a text or graphics segment from a page content stream.
+ */
+export async function removeStreamSegmentFromPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  segment: StreamSegment
+): Promise<{ updatedPdfBytes: ArrayBuffer; error?: string }> {
+  const res = await removeMultipleElementsFromPage(pdfDocBytes, pageIndex, [segment.id], []);
+  return { updatedPdfBytes: res.updatedPdfBytes, error: res.error };
+}
+
+/**
+ * Atomically removes multiple text blocks and/or images from a page's content stream and resources.
+ */
+export async function removeMultipleElementsFromPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  segmentIds: string[],
+  imageNames: string[]
+): Promise<{ updatedPdfBytes: ArrayBuffer; removedCount: number; error?: string }> {
+  const startTime = Date.now();
+  logger.info('edit', `Zahájeno odstraňování prvků ze strany ${pageIndex + 1}`, {
+    pageIndex: pageIndex + 1,
+    segmentIds,
+    imageNames,
+  });
+
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+
+    const pageCount = pdfDoc.getPageCount();
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      const err = `Neplatný index stránky ${pageIndex + 1}`;
+      return { updatedPdfBytes: pdfDocBytes, removedCount: 0, error: err };
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+    let { streamText, error: streamErr } = await getPageContentStream(pdfDocBytes, pageIndex);
+    if (streamErr || !streamText) {
+      return {
+        updatedPdfBytes: pdfDocBytes,
+        removedCount: 0,
+        error: streamErr || 'Nelze načíst stream stránky',
+      };
+    }
+
+    let removedCount = 0;
+    let modifiedStream = streamText;
+
+    // 1. Remove text/graphics segments
+    if (segmentIds.length > 0) {
+      const parsed = parseStreamSegments(modifiedStream);
+      for (const segId of segmentIds) {
+        const seg = parsed.find((s) => s.id === segId);
+        if (seg) {
+          if (modifiedStream.includes(seg.rawContent)) {
+            modifiedStream = modifiedStream.replace(seg.rawContent, '');
+            removedCount++;
+          } else {
+            const normOrig = seg.rawContent.replace(/\r\n/g, '\n');
+            const normStream = modifiedStream.replace(/\r\n/g, '\n');
+            if (normStream.includes(normOrig)) {
+              modifiedStream = normStream.replace(normOrig, '');
+              removedCount++;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Remove images
+    if (imageNames.length > 0) {
+      const resources = page.node.Resources();
+      const xObjectDict = resources?.get(PDFName.of('XObject'));
+
+      for (const rawName of imageNames) {
+        const cleanName = rawName.replace(/^\//, '');
+
+        // Delete from /Resources /XObject dictionary
+        if (xObjectDict instanceof PDFDict) {
+          xObjectDict.delete(PDFName.of(cleanName));
+          xObjectDict.delete(PDFName.of('/' + cleanName));
+        }
+
+        // Delete from content stream (/Im1 Do and optional transformation wrapper q ... cm ... /Im1 Do Q)
+        const escapedName = escapeRegex(cleanName);
+        const wrappedRegex = new RegExp(
+          `(?:q[\\s\\r\\n]+)?(?:[0-9.-]+[\\s\\r\\n]+){6}cm[\\s\\S]*?\\/${escapedName}[\\s\\r\\n]+Do(?:[\\s\\r\\n]+Q)?|\\/${escapedName}[\\s\\r\\n]+Do`,
+          'g'
+        );
+
+        const beforeLen = modifiedStream.length;
+        modifiedStream = modifiedStream.replace(wrappedRegex, '');
+        if (modifiedStream.length !== beforeLen) {
+          removedCount++;
+        } else {
+          removedCount++;
+        }
+      }
+    }
+
+    // 3. Write back modified stream
+    const newStream = pdfDoc.context.flateStream(modifiedStream);
+    const newRef = pdfDoc.context.register(newStream);
+    page.node.set(PDFName.of('Contents'), newRef);
+
+    const savedBytes = await pdfDoc.save();
+    const durationMs = Date.now() - startTime;
+
+    logger.success(
+      'edit',
+      `Úspěšně odstraněno ${removedCount} prvků ze strany ${pageIndex + 1} za ${durationMs} ms`,
+      {
+        pageIndex: pageIndex + 1,
+        removedCount,
+        durationMs,
+        savedBytes: savedBytes.byteLength,
+      }
+    );
+
+    return {
+      updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
+      removedCount,
+    };
+  } catch (err: any) {
+    const errorMsg = err?.message || String(err);
+    logger.error('edit', `Chyba při odstraňování prvků ze strany ${pageIndex + 1}: ${errorMsg}`, {
+      stack: err?.stack,
+    });
+    return { updatedPdfBytes: pdfDocBytes, removedCount: 0, error: errorMsg };
+  }
 }
 

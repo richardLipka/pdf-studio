@@ -12,6 +12,10 @@ import {
   getPageContentStream,
   updatePageContentStream,
   updateStreamSegmentInPage,
+  getPageImages,
+  removeMultipleElementsFromPage,
+  PageImageInfo,
+  StreamSegment,
 } from '../services/contentStreamEditor';
 
 interface HistorySnapshot {
@@ -88,6 +92,14 @@ interface DocumentContextType {
       matchCase?: boolean;
     }
   ) => Promise<{ success: boolean; totalReplaced: number; error?: string }>;
+  getPageImagesList: (pageIndex?: number) => Promise<{ images: PageImageInfo[]; error?: string }>;
+  removePageImage: (imageName: string, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
+  removePageBlock: (segment: StreamSegment, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
+  removeMultiplePageElements: (
+    segmentIds: string[],
+    imageNames: string[],
+    pageIndex?: number
+  ) => Promise<{ success: boolean; removedCount: number; error?: string }>;
   
   // Undo / Redo / Export
   undo: () => void;
@@ -739,6 +751,86 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return { success: true };
   };
 
+  const getPageImagesList = async (
+    pageIndex: number = activePageIndex
+  ): Promise<{ images: PageImageInfo[]; error?: string }> => {
+    const targetPage = pages[pageIndex];
+    if (!targetPage) {
+      return { images: [], error: 'Stránka nenalezena' };
+    }
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) {
+      return { images: [], error: 'Zdrojový PDF dokument nenalezen' };
+    }
+    const sourcePageIndex =
+      targetPage.originalPageIndex !== undefined
+        ? targetPage.originalPageIndex
+        : pageIndex;
+    return getPageImages(sourceDoc.arrayBuffer, sourcePageIndex);
+  };
+
+  const removePageImage = async (
+    imageName: string,
+    pageIndex: number = activePageIndex
+  ): Promise<{ success: boolean; error?: string }> => {
+    const res = await removeMultiplePageElements([], [imageName], pageIndex);
+    return { success: res.success, error: res.error };
+  };
+
+  const removePageBlock = async (
+    segment: StreamSegment,
+    pageIndex: number = activePageIndex
+  ): Promise<{ success: boolean; error?: string }> => {
+    const res = await removeMultiplePageElements([segment.id], [], pageIndex);
+    return { success: res.success, error: res.error };
+  };
+
+  const removeMultiplePageElements = async (
+    segmentIds: string[],
+    imageNames: string[],
+    pageIndex: number = activePageIndex
+  ): Promise<{ success: boolean; removedCount: number; error?: string }> => {
+    const targetPage = pages[pageIndex];
+    if (!targetPage) {
+      return { success: false, removedCount: 0, error: 'Stránka nenalezena' };
+    }
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) {
+      return { success: false, removedCount: 0, error: 'Zdrojový PDF dokument nenalezen' };
+    }
+    const sourcePageIndex =
+      targetPage.originalPageIndex !== undefined
+        ? targetPage.originalPageIndex
+        : pageIndex;
+
+    const result = await removeMultipleElementsFromPage(
+      sourceDoc.arrayBuffer,
+      sourcePageIndex,
+      segmentIds,
+      imageNames
+    );
+
+    if (result.error) {
+      return { success: false, removedCount: 0, error: result.error };
+    }
+
+    const updatedSources = sources.map((s) => {
+      if (s.id === sourceDoc.id) {
+        return {
+          ...s,
+          arrayBuffer: result.updatedPdfBytes,
+          updatedAt: Date.now(),
+        };
+      }
+      return s;
+    });
+
+    clearPdfCache();
+    setSources(updatedSources);
+    pushHistory(pages, annotations, activePageIndex, updatedSources);
+    return { success: true, removedCount: result.removedCount };
+  };
+
   const saveAndDownload = async (
     customName?: string,
     rasterSettings?: RasterizationSettings,
@@ -876,6 +968,10 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     applyPageContentStreamEdit,
     applyStreamSegmentEdit,
     applyContentStreamReplacement,
+    getPageImagesList,
+    removePageImage,
+    removePageBlock,
+    removeMultiplePageElements,
     undo,
     redo,
     commitHistorySnapshot,

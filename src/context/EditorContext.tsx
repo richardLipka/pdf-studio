@@ -57,6 +57,9 @@ interface EditorContextType {
   isStreamReplaceModalOpen: boolean;
   setIsStreamReplaceModalOpen: (open: boolean) => void;
   toggleStreamReplaceModal: () => void;
+  isRemoveElementsModalOpen: boolean;
+  setIsRemoveElementsModalOpen: (open: boolean) => void;
+  toggleRemoveElementsModal: () => void;
   streamReplaceTargetText: string;
   setStreamReplaceTargetText: (text: string) => void;
   streamReplaceTargetPosition: { x: number; y: number } | null;
@@ -111,6 +114,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
   const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpen] = useState<boolean>(false);
+  const [isRemoveElementsModalOpen, setIsRemoveElementsModalOpen] = useState<boolean>(false);
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
   const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
 
@@ -128,6 +132,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const toggleStreamReplaceModal = () => {
     setIsStreamReplaceModalOpen((prev) => !prev);
+  };
+
+  const toggleRemoveElementsModal = () => {
+    setIsRemoveElementsModalOpen((prev) => !prev);
   };
 
   // Rasterization Settings State (persisted in localStorage)
@@ -327,6 +335,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isStreamReplaceModalOpen,
     setIsStreamReplaceModalOpen,
     toggleStreamReplaceModal,
+    isRemoveElementsModalOpen,
+    setIsRemoveElementsModalOpen,
+    toggleRemoveElementsModal,
     streamReplaceTargetText,
     setStreamReplaceTargetText,
     streamReplaceTargetPosition,

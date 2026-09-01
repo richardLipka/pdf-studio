@@ -122,5 +122,6 @@ export type ToolType =
   | 'crop'
   | 'eraser'
   | 'streamReplace'
-  | 'whiteout';
+  | 'whiteout'
+  | 'removeElements';
 
