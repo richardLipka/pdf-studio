@@ -10,6 +10,7 @@ import {
   StrikethroughAnnotation,
   TextAnnotation,
   UnderlineAnnotation,
+  ShapeAnnotation,
 } from '../../types/annotations';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
@@ -687,6 +688,122 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                   )}
                 </g>
               );
+            }
+
+            case 'shape': {
+              const sh = ann as ShapeAnnotation;
+              const sWidth = sh.strokeWidth || 2;
+              const hasFill = sh.fillColor && sh.fillColor !== 'transparent';
+
+              if (sh.shapeType === 'line') {
+                const endX = sh.endPoint ? sh.endPoint.x : sh.x + sh.width;
+                const endY = sh.endPoint ? sh.endPoint.y : sh.y + sh.height;
+                return (
+                  <g key={ann.id} className="annotation-item pointer-events-auto">
+                    {/* Invisible fat hit line */}
+                    <line
+                      x1={sh.x}
+                      y1={sh.y}
+                      x2={endX}
+                      y2={endY}
+                      stroke="transparent"
+                      strokeWidth={Math.max(16, sWidth * 3)}
+                      className="cursor-move"
+                      onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                    />
+                    <line
+                      x1={sh.x}
+                      y1={sh.y}
+                      x2={endX}
+                      y2={endY}
+                      stroke={sh.color}
+                      strokeWidth={sWidth}
+                      strokeLinecap="round"
+                      strokeOpacity={sh.opacity || 1.0}
+                      className="cursor-move"
+                      onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                    />
+                    {isSelected && (
+                      <rect
+                        x={Math.min(sh.x, endX) - 4}
+                        y={Math.min(sh.y, endY) - 4}
+                        width={Math.abs(endX - sh.x) + 8}
+                        height={Math.abs(endY - sh.y) + 8}
+                        fill="none"
+                        stroke="#0284c7"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 2"
+                        className="pointer-events-none"
+                      />
+                    )}
+                  </g>
+                );
+              }
+
+              if (sh.shapeType === 'rectangle') {
+                return (
+                  <g key={ann.id} className="annotation-item pointer-events-auto">
+                    <rect
+                      x={sh.x}
+                      y={sh.y}
+                      width={sh.width}
+                      height={sh.height}
+                      fill={hasFill ? sh.fillColor : 'transparent'}
+                      stroke={sh.color}
+                      strokeWidth={sWidth}
+                      strokeOpacity={sh.opacity || 1.0}
+                      className="cursor-move"
+                      onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                    />
+                    {isSelected && (
+                      <rect
+                        x={sh.x - 3}
+                        y={sh.y - 3}
+                        width={sh.width + 6}
+                        height={sh.height + 6}
+                        fill="none"
+                        stroke="#0284c7"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 2"
+                        className="pointer-events-none"
+                      />
+                    )}
+                  </g>
+                );
+              }
+
+              if (sh.shapeType === 'ellipse') {
+                return (
+                  <g key={ann.id} className="annotation-item pointer-events-auto">
+                    <ellipse
+                      cx={sh.x + sh.width / 2}
+                      cy={sh.y + sh.height / 2}
+                      rx={Math.max(1, sh.width / 2)}
+                      ry={Math.max(1, sh.height / 2)}
+                      fill={hasFill ? sh.fillColor : 'transparent'}
+                      stroke={sh.color}
+                      strokeWidth={sWidth}
+                      strokeOpacity={sh.opacity || 1.0}
+                      className="cursor-move"
+                      onMouseDown={(e) => handleStartDragAnn(ann, e)}
+                    />
+                    {isSelected && (
+                      <rect
+                        x={sh.x - 3}
+                        y={sh.y - 3}
+                        width={sh.width + 6}
+                        height={sh.height + 6}
+                        fill="none"
+                        stroke="#0284c7"
+                        strokeWidth={1.5}
+                        strokeDasharray="4 2"
+                        className="pointer-events-none"
+                      />
+                    )}
+                  </g>
+                );
+              }
+              return null;
             }
 
             default:

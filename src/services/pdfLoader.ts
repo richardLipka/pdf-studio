@@ -111,6 +111,44 @@ const extractColor = (rawColor: any, defaultColor: string): string => {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
 
+/**
+ * Safely extracts stroke width from pdf.js annotation representation
+ * Supports borderStyle.width, borderStyle.rawWidth, borderWidth, strokeWidth, lineWidth, border[2], bs.w
+ */
+const extractStrokeWidth = (ann: any, defaultWidth: number = 2): number => {
+  if (typeof ann.borderStyle?.width === 'number' && ann.borderStyle.width > 0) {
+    return ann.borderStyle.width;
+  }
+  if (typeof ann.borderStyle?.rawWidth === 'number' && ann.borderStyle.rawWidth > 0) {
+    return ann.borderStyle.rawWidth;
+  }
+  if (typeof ann.borderWidth === 'number' && ann.borderWidth > 0) {
+    return ann.borderWidth;
+  }
+  if (typeof ann.strokeWidth === 'number' && ann.strokeWidth > 0) {
+    return ann.strokeWidth;
+  }
+  if (typeof ann.lineWidth === 'number' && ann.lineWidth > 0) {
+    return ann.lineWidth;
+  }
+  if (Array.isArray(ann.border) && typeof ann.border[2] === 'number' && ann.border[2] > 0) {
+    return ann.border[2];
+  }
+  if (typeof ann.bs?.width === 'number' && ann.bs.width > 0) {
+    return ann.bs.width;
+  }
+  if (typeof ann.bs?.w === 'number' && ann.bs.w > 0) {
+    return ann.bs.w;
+  }
+  if (typeof ann.data?.borderStyle?.width === 'number' && ann.data.borderStyle.width > 0) {
+    return ann.data.borderStyle.width;
+  }
+  if (typeof ann.data?.strokeWidth === 'number' && ann.data.strokeWidth > 0) {
+    return ann.data.strokeWidth;
+  }
+  return defaultWidth;
+};
+
 // Extract existing annotations & comments from PDF document
 export const extractPdfAnnotations = async (
   arrayBuffer: ArrayBuffer,
@@ -147,8 +185,7 @@ export const extractPdfAnnotations = async (
           (typeof ann.title === 'string' ? ann.title : ann.title?.str) ||
           (typeof ann.author === 'string' ? ann.author : ann.author?.str) ||
           '';
-        const strokeWidth =
-          ann.borderStyle?.width ?? (ann.border && ann.border[2]) ?? ann.strokeWidth ?? 2;
+        const strokeWidth = extractStrokeWidth(ann, 2);
 
         const id = `imported_${ann.id || Math.random().toString(36).slice(2, 8)}`;
         const now = Date.now();

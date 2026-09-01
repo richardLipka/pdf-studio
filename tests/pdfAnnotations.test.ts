@@ -296,7 +296,7 @@ describe('PDF Export & ISO 32000-1 Annotations Compatibility', () => {
     expect(doc.getPage(1).getRotation().angle).toBe(180);
   });
 
-  it('should store custom line widths (strokeWidth) in /BS Border dictionaries for Underlines, Strikes, and Shapes', async () => {
+  it('should store custom line widths (strokeWidth) in /BS Border dictionaries and /AP Appearance Streams for Drawings, Markups, and Shapes', async () => {
     const pageModel: PdfPageModel = {
       id: 'p-1',
       sourceDocId: 'src-1',
@@ -331,27 +331,67 @@ describe('PDF Export & ISO 32000-1 Annotations Compatibility', () => {
         x: 50,
         y: 150,
         width: 100,
-        height: 5,
-        strokeWidth: 5,
+        height: 6,
+        strokeWidth: 6,
         color: '#dc2626',
         opacity: 0.9,
-        comment: 'Custom 5pt strikethrough',
+        comment: 'Custom 6pt strikethrough',
         createdAt: 1000,
         updatedAt: 1000,
       } as StrikethroughAnnotation,
+      {
+        id: 'd-custom',
+        pageId: 'p-1',
+        type: 'drawing',
+        x: 100,
+        y: 200,
+        width: 80,
+        height: 80,
+        strokeWidth: 8,
+        color: '#16a34a',
+        opacity: 1.0,
+        points: [
+          { x: 100, y: 200 },
+          { x: 150, y: 250 },
+          { x: 180, y: 280 },
+        ],
+        createdAt: 1000,
+        updatedAt: 1000,
+      } as DrawingAnnotation,
+      {
+        id: 'sh-custom',
+        pageId: 'p-1',
+        type: 'shape',
+        shapeType: 'line',
+        x: 50,
+        y: 300,
+        width: 150,
+        height: 50,
+        strokeWidth: 12,
+        endPoint: { x: 200, y: 350 },
+        color: '#9333ea',
+        opacity: 1.0,
+        createdAt: 1000,
+        updatedAt: 1000,
+      } as ShapeAnnotation,
     ];
 
     const bytes = await exportEditedPdf([], [pageModel], annotations, 'custom-widths.pdf');
     const doc = await PDFDocument.load(bytes);
     const firstPage = doc.getPage(0);
     const annotsArray = firstPage.node.get(PDFName.of('Annots')) as PDFArray;
-    expect(annotsArray.size()).toBe(2);
+    expect(annotsArray.size()).toBe(4);
 
     for (let i = 0; i < annotsArray.size(); i++) {
       const dict = annotsArray.lookup(i) as PDFDict;
       const bsDict = dict.get(PDFName.of('BS')) as PDFDict;
       expect(bsDict).toBeDefined();
       expect(bsDict.get(PDFName.of('W'))).toBeDefined();
+
+      // Verify Appearance Stream (/AP << /N stream >>) exists for universal viewer display
+      const apDict = dict.get(PDFName.of('AP')) as PDFDict;
+      expect(apDict).toBeDefined();
+      expect(apDict.get(PDFName.of('N'))).toBeDefined();
     }
   });
 });

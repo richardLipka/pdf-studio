@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-34%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-35%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -38,11 +38,15 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 ### 2. ✍️ Review & Annotation Suite with Notes Panel
 - **Right-Side Notes & Reviews Panel**: Hidable sidebar listing all document notes, review comments, highlights, underlines, and strikethroughs with real-time text search and click-to-navigate.
 - **Review Comments on Markups**: Add and edit review comments on underlines, strikethroughs, and highlights with visual badge pins on the canvas.
-- **PDF Annotation Extraction**: Automatically imports and renders pre-existing comments and annotations from loaded PDF documents.
+- **Full Line Width Storage & Display (1pt - 12pt)**:
+  - Select from preset line thicknesses (`1pt`, `2pt`, `4pt`, `6pt`, `8pt`, `12pt`) with visual thickness indicators in the Toolbar.
+  - **ISO 32000-1 Appearance Streams (`/AP /N`)**: Exported PDFs contain compiled vector Appearance Streams and Border specifications (`/BS << /W width >>`), ensuring line widths and colors are rendered in **every PDF viewer** (Adobe Acrobat, Chrome, Firefox, Edge, Apple Preview, iOS/Android).
+  - **Smart Loading**: Automatically parses line widths from existing PDF annotations (`borderStyle.width`, `borderWidth`, `lineWidth`, `/Border`, `/BS /W`).
+- **PDF Annotation Extraction**: Automatically imports and renders pre-existing comments, shapes, lines, and annotations from loaded PDF documents.
 - **Text Box & Typography**: Freehand text insertion with live font family selection (Inter, Caveat, Dancing Script, Courier, Times New Roman, Georgia, Arial), custom font sizes, and immediate color changes.
-- **Highlight, Underline & Strikethrough**: Live drawing feedback with instant color palette selection.
+- **Highlight, Underline & Strikethrough**: Live drawing feedback with instant color palette selection and thickness adjustment.
 - **Sticky Notes**: Clickable review pins with expanding notes and author timestamps.
-- **Freehand Pen**: Smooth vector drawing tool with configurable stroke width and color palette.
+- **Freehand Pen & Shapes**: Smooth vector drawing tool (pen, lines, rectangles, ellipses) with configurable stroke width and color palette.
 - **High-Resolution Image Cropper**: Select any rectangular region on any page to crop and copy high-resolution image data directly to your system clipboard.
 - **Eraser**: One-click removal of individual annotations.
 

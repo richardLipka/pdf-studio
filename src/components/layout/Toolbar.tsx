@@ -82,7 +82,8 @@ export const Toolbar: React.FC = () => {
     (selectedAnn &&
       (selectedAnn.type === 'drawing' ||
         selectedAnn.type === 'underline' ||
-        selectedAnn.type === 'strikethrough'));
+        selectedAnn.type === 'strikethrough' ||
+        selectedAnn.type === 'shape'));
 
   const showTextStyles =
     activeTool === 'text' || (selectedAnn && selectedAnn.type === 'text');
@@ -104,7 +105,8 @@ export const Toolbar: React.FC = () => {
       selectedAnn &&
       (selectedAnn.type === 'drawing' ||
         selectedAnn.type === 'underline' ||
-        selectedAnn.type === 'strikethrough')
+        selectedAnn.type === 'strikethrough' ||
+        selectedAnn.type === 'shape')
     ) {
       updateAnnotation({ ...selectedAnn, color: c, updatedAt: Date.now() }, true);
     }
@@ -116,7 +118,8 @@ export const Toolbar: React.FC = () => {
       selectedAnn &&
       (selectedAnn.type === 'drawing' ||
         selectedAnn.type === 'underline' ||
-        selectedAnn.type === 'strikethrough')
+        selectedAnn.type === 'strikethrough' ||
+        selectedAnn.type === 'shape')
     ) {
       updateAnnotation({ ...selectedAnn, strokeWidth: w, updatedAt: Date.now() }, true);
     }
@@ -398,26 +401,48 @@ export const Toolbar: React.FC = () => {
               >
                 {t.styles.strokeWidth}:
               </span>
-              {[2, 4, 7].map((w) => {
+              {[1, 2, 4, 6, 8, 12].map((w) => {
                 const isCurrWidth =
-                  (selectedAnn && (selectedAnn as any).strokeWidth === w) || strokeWidth === w;
+                  (selectedAnn && (selectedAnn as any).strokeWidth === w) ||
+                  (!selectedAnn && strokeWidth === w);
                 return (
                   <button
                     key={w}
                     onClick={() => handleStrokeWidthChange(w)}
-                    className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${
+                    title={`${w} pt`}
+                    className={`h-6 px-1.5 rounded flex items-center justify-center gap-1 transition-all ${
                       isCurrWidth
                         ? isMinimal
-                          ? 'bg-black text-white'
+                          ? 'bg-black text-white shadow-sm ring-1 ring-black'
                           : isLcars
-                          ? 'bg-[#ff9900] text-black font-bold'
-                          : 'bg-sky-600 text-white'
+                          ? 'bg-[#ff9900] text-black font-bold ring-1 ring-[#ffff66]'
+                          : 'bg-sky-600 text-white shadow-sm ring-1 ring-sky-400'
                         : isMinimal
-                        ? 'text-neutral-600 hover:text-black'
-                        : 'text-slate-400 hover:text-white'
+                        ? 'text-neutral-600 hover:text-black hover:bg-neutral-200/60'
+                        : isLcars
+                        ? 'text-[#99ccff] hover:text-[#ffff66] hover:bg-[#222]'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
                     }`}
                   >
-                    {w === 2 ? 'S' : w === 4 ? 'M' : 'L'}
+                    <span
+                      className="rounded-full inline-block"
+                      style={{
+                        width: '10px',
+                        height: `${Math.min(6, Math.max(1, w / 2))}px`,
+                        backgroundColor: isCurrWidth
+                          ? isMinimal
+                            ? '#ffffff'
+                            : isLcars
+                            ? '#000000'
+                            : '#ffffff'
+                          : isMinimal
+                          ? '#525252'
+                          : isLcars
+                          ? '#99ccff'
+                          : '#94a3b8',
+                      }}
+                    />
+                    <span className="text-[10px] font-mono font-semibold">{w}</span>
                   </button>
                 );
               })}
