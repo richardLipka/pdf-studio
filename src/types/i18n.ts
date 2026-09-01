@@ -58,6 +58,9 @@ export interface TranslationSchema {
     addPageDesc: string;
     streamReplace: string;
     streamReplaceDesc: string;
+    whiteout: string;
+    whiteoutDesc: string;
+    whiteoutPlaceholder: string;
   };
   styles: {
     color: string;
@@ -237,6 +240,7 @@ export interface TranslationSchema {
     highlight: string;
     underline: string;
     strikethrough: string;
+    whiteout: string;
     charsSelected: string;
   };
   notifications: {

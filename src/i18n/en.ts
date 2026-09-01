@@ -58,6 +58,9 @@ export const en: TranslationSchema = {
     addPageDesc: 'Insert another PDF, image or blank page',
     streamReplace: 'Stream Editor',
     streamReplaceDesc: 'Direct editing of selected text block (BT...ET) or full PDF page stream',
+    whiteout: 'Visual Rewrite',
+    whiteoutDesc: 'Opaque whiteout mask and typed replacement text overlay',
+    whiteoutPlaceholder: 'Type replacement text...',
   },
   styles: {
     color: 'Color',
@@ -237,6 +240,7 @@ export const en: TranslationSchema = {
     highlight: 'Highlight',
     underline: 'Underline',
     strikethrough: 'Strikethrough',
+    whiteout: 'Rewrite (Whiteout)',
     charsSelected: 'chars selected',
   },
   notifications: {

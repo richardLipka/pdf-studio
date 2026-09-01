@@ -9,6 +9,7 @@ import {
   SignatureAnnotation,
   StrikethroughAnnotation,
   TextAnnotation,
+  WhiteoutAnnotation,
   UnderlineAnnotation,
   ShapeAnnotation,
 } from '../../types/annotations';
@@ -45,6 +46,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     strokeColor,
     highlightColor,
     textColor,
+    fillColor,
     strokeWidth,
     fontSize,
     fontFamily,
@@ -127,6 +129,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         ann.type === 'underline' ||
         ann.type === 'strikethrough' ||
         ann.type === 'text' ||
+        ann.type === 'whiteout' ||
         ann.type === 'drawing'
       ) {
         return (
@@ -160,7 +163,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       }
     }
 
-    if (activeTool === 'crop') {
+    if (activeTool === 'crop' || activeTool === 'whiteout') {
       setIsDrawing(true);
       setStartPoint(pt);
       setCurrentPoints([pt]);
@@ -234,7 +237,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         activeTool === 'highlight' ||
         activeTool === 'underline' ||
         activeTool === 'strikethrough' ||
-        activeTool === 'crop'
+        activeTool === 'crop' ||
+        activeTool === 'whiteout'
       ) {
         // Immediate visual preview updating as mouse moves
         setCurrentPoints([pt]);
@@ -351,6 +355,34 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         // Check if drawn over text lines on this page
         const pageContainer = containerRef.current?.parentElement || containerRef.current;
         const textLines = findIntersectedTextLines(pageContainer, dragBox, scale);
+
+        if (activeTool === 'whiteout') {
+          const maskColor = fillColor && fillColor !== 'transparent' ? fillColor : '#ffffff';
+          const newWhiteout: WhiteoutAnnotation = {
+            id: `wo_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            pageId: page.id,
+            type: 'whiteout',
+            x,
+            y,
+            width: Math.max(30, width),
+            height: Math.max(18, height),
+            color: maskColor,
+            fillColor: maskColor,
+            opacity: 1.0,
+            text: '',
+            textColor: textColor || '#0f172a',
+            fontSize: fontSize || 12,
+            fontFamily: fontFamily || 'Inter',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          addAnnotation(newWhiteout);
+          setSelectedAnnotationId(newWhiteout.id);
+          setIsDrawing(false);
+          setStartPoint(null);
+          setCurrentPoints([]);
+          return;
+        }
 
         if (activeTool === 'highlight') {
           if (textLines.length > 0) {
@@ -951,6 +983,53 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           />
         )}
 
+        {/* LIVE DRAWING PREVIEW: Whiteout Box */}
+        {isDrawing && activeTool === 'whiteout' && startPoint && currentPoints.length > 0 && (() => {
+          const x1 = Math.min(startPoint.x, currentPoints[0].x);
+          const y1 = Math.min(startPoint.y, currentPoints[0].y);
+          const w = Math.max(8, Math.abs(currentPoints[0].x - startPoint.x));
+          const h = Math.max(8, Math.abs(currentPoints[0].y - startPoint.y));
+          const bgCol = fillColor && fillColor !== 'transparent' ? fillColor : '#ffffff';
+
+          return (
+            <g className="pointer-events-none">
+              <rect
+                x={x1}
+                y={y1}
+                width={w}
+                height={h}
+                fill={bgCol}
+                fillOpacity={1.0}
+                stroke="#6366f1"
+                strokeWidth={1.5}
+                strokeDasharray="4 2"
+              />
+              <g transform={`translate(${x1 + w / 2}, ${y1 > 20 ? y1 - 8 : y1 + h + 14})`}>
+                <rect
+                  x={-45}
+                  y={-9}
+                  width={90}
+                  height={18}
+                  rx={4}
+                  fill="#1e1b4b"
+                  stroke="#6366f1"
+                  strokeWidth={1}
+                />
+                <text
+                  textAnchor="middle"
+                  y={3}
+                  fill="#c7d2fe"
+                  fontSize={10}
+                  fontFamily="sans-serif"
+                  fontWeight="600"
+                >
+                  Whiteout
+                </text>
+              </g>
+            </g>
+          );
+        })()}
+
         {/* LIVE DRAWING PREVIEW: Crop Region Selection Marquee */}
         {isDrawing && activeTool === 'crop' && startPoint && currentPoints.length > 0 && (() => {
           const x1 = Math.min(startPoint.x, currentPoints[0].x);
@@ -1136,6 +1215,90 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
+              )}
+            </div>
+          );
+        }
+
+        if (ann.type === 'whiteout') {
+          const wo = ann as WhiteoutAnnotation;
+          const bgCol = wo.fillColor || wo.color || '#ffffff';
+          const txtCol = wo.textColor || '#0f172a';
+          const fontSz = (wo.fontSize || 12) * scale;
+          const fontFm = wo.fontFamily || 'Inter';
+
+          return (
+            <div
+              key={wo.id}
+              className={`annotation-item absolute group cursor-move transition-shadow ${
+                isSelected
+                  ? 'ring-2 ring-indigo-500 rounded shadow-md z-30'
+                  : 'hover:ring-1 hover:ring-indigo-400/60 z-20'
+              }`}
+              style={{
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${Math.max(30, width)}px`,
+                height: `${Math.max(18, height)}px`,
+                backgroundColor: bgCol,
+                opacity: wo.opacity ?? 1.0,
+              }}
+              onMouseDown={(e) => handleStartDragAnn(wo, e)}
+            >
+              <textarea
+                value={wo.text || ''}
+                onChange={(e) => {
+                  updateAnnotation({
+                    ...wo,
+                    text: e.target.value,
+                    updatedAt: Date.now(),
+                  });
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  setSelectedAnnotationId(wo.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    (e.target as HTMLTextAreaElement).blur();
+                    setSelectedAnnotationId(null);
+                  }
+                }}
+                style={{
+                  fontSize: `${fontSz}px`,
+                  fontFamily: fontFm,
+                  color: txtCol,
+                  backgroundColor: 'transparent',
+                  resize: 'none',
+                }}
+                className="w-full h-full border-none outline-none font-medium px-1 py-0.5 shadow-none overflow-hidden"
+                placeholder={isSelected && !wo.text ? t.tools.whiteoutPlaceholder : ''}
+                autoFocus={isSelected && !wo.text}
+              />
+
+              {isSelected && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteAnnotation(wo.id);
+                    }}
+                    className="absolute -top-3 -right-3 p-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-md z-40 transition-transform hover:scale-110"
+                    title={t.annotations.deleteAnnotation}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+
+                  <div
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      setResizingAnnId(wo.id);
+                    }}
+                    className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-indigo-500 border-2 border-white rounded-full cursor-se-resize shadow z-40"
+                    title="Změnit velikost"
+                  />
+                </>
               )}
             </div>
           );

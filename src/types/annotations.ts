@@ -6,7 +6,8 @@ export type AnnotationType =
   | 'text'
   | 'drawing'
   | 'signature'
-  | 'shape';
+  | 'shape'
+  | 'whiteout';
 
 export type ShapeType = 'rectangle' | 'ellipse' | 'arrow' | 'line';
 
@@ -23,7 +24,7 @@ export interface BaseAnnotation {
   y: number;            // 0..pageHeight (PDF point coordinates)
   width: number;
   height: number;
-  color: string;        // Hex or rgba
+  color: string;        // Hex or rgba (for whiteout: background mask color)
   opacity: number;      // 0..1
   comment?: string;     // Attached review comment / note
   author?: string;
@@ -62,6 +63,17 @@ export interface TextAnnotation extends BaseAnnotation {
   backgroundColor?: string;
 }
 
+export interface WhiteoutAnnotation extends BaseAnnotation {
+  type: 'whiteout';
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  textColor?: string;
+  fillColor?: string; // Mask background color (default '#ffffff')
+  bold?: boolean;
+  italic?: boolean;
+}
+
 export interface DrawingAnnotation extends BaseAnnotation {
   type: 'drawing';
   points: Point[];
@@ -88,6 +100,7 @@ export type Annotation =
   | StrikethroughAnnotation
   | NoteAnnotation
   | TextAnnotation
+  | WhiteoutAnnotation
   | DrawingAnnotation
   | SignatureAnnotation
   | ShapeAnnotation;
@@ -108,5 +121,6 @@ export type ToolType =
   | 'shape'
   | 'crop'
   | 'eraser'
-  | 'streamReplace';
+  | 'streamReplace'
+  | 'whiteout';
 

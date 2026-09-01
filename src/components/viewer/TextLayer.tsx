@@ -9,8 +9,9 @@ import {
   HighlightAnnotation,
   UnderlineAnnotation,
   StrikethroughAnnotation,
+  WhiteoutAnnotation,
 } from '../../types/annotations';
-import { Copy, Highlighter, Underline as UnderlineIcon, Strikethrough as StrikeIcon, Check, X, FileCode2 } from 'lucide-react';
+import { Copy, Highlighter, Underline as UnderlineIcon, Strikethrough as StrikeIcon, Check, X, FileCode2, SquarePen } from 'lucide-react';
 
 interface TextLayerProps {
   page: PdfPageModel;
@@ -30,7 +31,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     setStreamReplaceTargetText,
     setStreamReplaceTargetPosition,
   } = useEditor();
-  const { addAnnotation } = useDocument();
+  const { addAnnotation, setSelectedAnnotationId } = useDocument();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedText, setSelectedText] = useState<string>('');
@@ -245,6 +246,47 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     window.getSelection()?.removeAllRanges();
   };
 
+  const handleWhiteout = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const container = containerRef.current;
+    if (!container || selectedRects.length === 0) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const minLeft = Math.min(...selectedRects.map((r) => r.left));
+    const minTop = Math.min(...selectedRects.map((r) => r.top));
+    const maxRight = Math.max(...selectedRects.map((r) => r.right));
+    const maxBottom = Math.max(...selectedRects.map((r) => r.bottom));
+
+    const pdfX = (minLeft - containerRect.left) / scale;
+    const pdfY = (minTop - containerRect.top) / scale;
+    const pdfWidth = Math.max(30, (maxRight - minLeft) / scale);
+    const pdfHeight = Math.max(18, (maxBottom - minTop) / scale);
+
+    const newWhiteout: WhiteoutAnnotation = {
+      id: `wo_sel_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      pageId: page.id,
+      type: 'whiteout',
+      x: pdfX,
+      y: pdfY,
+      width: pdfWidth,
+      height: pdfHeight,
+      color: '#ffffff',
+      fillColor: '#ffffff',
+      opacity: 1.0,
+      text: '',
+      textColor: '#0f172a',
+      fontSize: Math.max(10, Math.min(24, Math.round(pdfHeight * 0.75))),
+      fontFamily: 'Inter',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    addAnnotation(newWhiteout);
+    setSelectedAnnotationId(newWhiteout.id);
+    setFloatingMenuPos(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
   const handleStreamReplace = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!selectedText) return;
@@ -368,6 +410,28 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
               >
                 <FileCode2 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">{t.tools.streamReplace}</span>
+              </button>
+
+              <div
+                className={`h-4 w-px mx-0.5 ${
+                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                }`}
+              />
+
+              {/* Whiteout / Visual Rewrite Button (Quick Action) */}
+              <button
+                onClick={handleWhiteout}
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  isMinimal
+                    ? 'hover:bg-indigo-50 text-indigo-700'
+                    : isLcars
+                    ? 'hover:bg-[#ff9900]/20 text-[#ff9966]'
+                    : 'hover:bg-indigo-950/60 text-indigo-400'
+                }`}
+                title={t.textSelection.whiteout}
+              >
+                <SquarePen className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t.textSelection.whiteout}</span>
               </button>
 
               <div

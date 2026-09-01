@@ -10,6 +10,7 @@ import {
   PDFImage,
   PDFDict,
   ParseSpeeds,
+  StandardFonts,
 } from 'pdf-lib';
 import { PdfPageModel, SourceDocument, RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS, DocumentMetadata } from '../types/document';
 import {
@@ -22,6 +23,7 @@ import {
   StrikethroughAnnotation,
   TextAnnotation,
   UnderlineAnnotation,
+  WhiteoutAnnotation,
 } from '../types/annotations';
 import { renderPdfPageToDataUrl } from './pdfLoader';
 import { logger } from './logger';
@@ -859,6 +861,70 @@ export const exportEditedPdf = async (
               colorRgb: pdfColor,
               fontSize,
             });
+            break;
+          }
+
+          case 'whiteout': {
+            const w = ann as WhiteoutAnnotation;
+            const maskColor = hexToPdfRgb(w.fillColor || w.color || '#ffffff');
+            const pdfY = pageHeight - w.y - w.height;
+
+            // 1. Draw opaque whiteout rectangle to mask underlying content
+            targetPage.drawRectangle({
+              x: w.x,
+              y: pdfY,
+              width: w.width,
+              height: w.height,
+              color: maskColor,
+              opacity: w.opacity ?? 1.0,
+            });
+
+            // 2. If overlay text is provided, render vector typography on top
+            if (w.text && w.text.trim()) {
+              const textColor = hexToPdfRgb(w.textColor || '#0f172a');
+              const fontSize = w.fontSize || 12;
+
+              let standardFontName = StandardFonts.Helvetica;
+              if (w.fontFamily) {
+                const fm = w.fontFamily.toLowerCase();
+                if (fm.includes('courier')) standardFontName = StandardFonts.Courier;
+                else if (fm.includes('times') || fm.includes('georgia')) standardFontName = StandardFonts.TimesRoman;
+              }
+
+              try {
+                const font = await outputDoc.embedFont(standardFontName);
+                const lines = w.text.split('\n');
+                const lineHeight = fontSize * 1.2;
+                let currentTextY = pdfY + w.height - fontSize - 2;
+
+                for (const line of lines) {
+                  if (currentTextY < pdfY) break;
+                  targetPage.drawText(line, {
+                    x: w.x + 3,
+                    y: currentTextY,
+                    size: fontSize,
+                    font,
+                    color: textColor,
+                  });
+                  currentTextY -= lineHeight;
+                }
+              } catch (fontErr) {
+                logger.warn('save', `Nelze načíst standardní font pro whiteout: ${fontErr}`);
+              }
+            }
+
+            // 3. Add FreeText annotation for PDF viewer compatibility
+            if (w.text) {
+              addNativePdfAnnotation(outputDoc, targetPage, {
+                id: w.id,
+                subtype: 'FreeText',
+                rect: [w.x, pdfY, w.x + w.width, pdfY + w.height],
+                contents: w.text,
+                author: w.author,
+                colorRgb: hexToPdfRgb(w.textColor || '#0f172a'),
+                fontSize: w.fontSize || 12,
+              });
+            }
             break;
           }
 

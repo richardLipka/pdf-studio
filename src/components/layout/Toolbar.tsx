@@ -20,12 +20,14 @@ import {
   MessageSquare,
   Crop,
   FileCode2,
+  SquarePen,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
 const STROKE_COLORS = ['#0284c7', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0f172a', '#ffffff'];
 const TEXT_COLORS = ['#0f172a', '#dc2626', '#2563eb', '#16a34a', '#9333ea', '#ffffff'];
 const NOTE_COLORS = ['#f59e0b', '#10b981', '#0284c7', '#8b5cf6', '#f43f5e'];
+const WHITEOUT_BG_COLORS = ['#ffffff', '#f8fafc', '#fef3c7', '#f1f5f9', '#000000'];
 
 const FONT_FAMILIES = [
   { id: 'Inter', name: 'Inter (Sans)' },
@@ -51,6 +53,8 @@ export const Toolbar: React.FC = () => {
     setHighlightColor,
     textColor,
     setTextColor,
+    fillColor,
+    setFillColor,
     strokeWidth,
     setStrokeWidth,
     fontSize,
@@ -92,7 +96,12 @@ export const Toolbar: React.FC = () => {
         selectedAnn.type === 'shape'));
 
   const showTextStyles =
-    activeTool === 'text' || (selectedAnn && selectedAnn.type === 'text');
+    activeTool === 'text' ||
+    activeTool === 'whiteout' ||
+    (selectedAnn && (selectedAnn.type === 'text' || selectedAnn.type === 'whiteout'));
+
+  const showWhiteoutStyles =
+    activeTool === 'whiteout' || (selectedAnn && selectedAnn.type === 'whiteout');
 
   const showNoteStyles =
     activeTool === 'note' || (selectedAnn && selectedAnn.type === 'note');
@@ -133,14 +142,47 @@ export const Toolbar: React.FC = () => {
 
   const handleTextColorChange = (c: string) => {
     setTextColor(c);
-    if (selectedAnn && selectedAnn.type === 'text') {
-      updateAnnotation({ ...selectedAnn, color: c, updatedAt: Date.now() }, true);
+    if (selectedAnn) {
+      if (selectedAnn.type === 'text') {
+        updateAnnotation(
+          {
+            ...selectedAnn,
+            color: c,
+            updatedAt: Date.now(),
+          },
+          true
+        );
+      } else if (selectedAnn.type === 'whiteout') {
+        updateAnnotation(
+          {
+            ...selectedAnn,
+            textColor: c,
+            updatedAt: Date.now(),
+          },
+          true
+        );
+      }
+    }
+  };
+
+  const handleWhiteoutBgColorChange = (c: string) => {
+    setFillColor(c);
+    if (selectedAnn && selectedAnn.type === 'whiteout') {
+      updateAnnotation(
+        {
+          ...selectedAnn,
+          fillColor: c,
+          color: c,
+          updatedAt: Date.now(),
+        },
+        true
+      );
     }
   };
 
   const handleFontSizeChange = (s: number) => {
     setFontSize(s);
-    if (selectedAnn && selectedAnn.type === 'text') {
+    if (selectedAnn && (selectedAnn.type === 'text' || selectedAnn.type === 'whiteout')) {
       updateAnnotation(
         { ...selectedAnn, fontSize: s, updatedAt: Date.now() },
         true
@@ -150,7 +192,7 @@ export const Toolbar: React.FC = () => {
 
   const handleFontFamilyChange = (f: string) => {
     setFontFamily(f);
-    if (selectedAnn && selectedAnn.type === 'text') {
+    if (selectedAnn && (selectedAnn.type === 'text' || selectedAnn.type === 'whiteout')) {
       updateAnnotation(
         { ...selectedAnn, fontFamily: f, updatedAt: Date.now() },
         true
@@ -396,21 +438,51 @@ export const Toolbar: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 2: Document Editing Suite - Single Primary Stream Editor Button */}
+        {/* Tab 2: Document Editing Suite - 1. Visual Rewrite (Whiteout), 2. Stream Editor */}
         {activeTab === 'edit' && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {/* Button 1: Visual Rewrite (Whiteout + Overlay) */}
+            <button
+              type="button"
+              onClick={() => setActiveTool('whiteout')}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
+                isMinimal
+                  ? activeTool === 'whiteout'
+                    ? 'rounded-md bg-black text-white border border-black shadow-xs'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                  : isLcars
+                  ? activeTool === 'whiteout'
+                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                  : activeTool === 'whiteout'
+                  ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
+                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+              }`}
+              title={t.tools.whiteoutDesc}
+            >
+              <SquarePen className="w-4 h-4" />
+              <span>{t.tools.whiteout}</span>
+            </button>
+
+            {/* Button 2: Content Stream Editor */}
             <button
               type="button"
               onClick={() => {
                 setActiveTool('streamReplace');
                 setIsStreamReplaceModalOpen(true);
               }}
-              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold transition-all ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
                 isMinimal
-                  ? 'rounded-md bg-black text-white hover:bg-neutral-800 border border-black shadow-xs'
+                  ? activeTool === 'streamReplace'
+                    ? 'rounded-md bg-black text-white border border-black shadow-xs'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
                   : isLcars
-                  ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
-                  : 'rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
+                  ? activeTool === 'streamReplace'
+                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                  : activeTool === 'streamReplace'
+                  ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
+                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
               }`}
               title={t.tools.streamReplaceDesc}
             >
@@ -664,8 +736,20 @@ export const Toolbar: React.FC = () => {
 
             {/* Text Color Picker */}
             <div className="flex items-center gap-1.5">
+              <span
+                className={`text-[11px] font-medium mr-0.5 ${
+                  isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                }`}
+              >
+                {t.styles.textColor}:
+              </span>
               {TEXT_COLORS.map((c) => {
-                const isCurrColor = (selectedAnn && selectedAnn.color === c) || textColor === c;
+                const isCurrColor =
+                  (selectedAnn &&
+                    (selectedAnn.type === 'whiteout'
+                      ? (selectedAnn as any).textColor === c
+                      : selectedAnn.color === c)) ||
+                  textColor === c;
                 return (
                   <button
                     key={c}
@@ -680,10 +764,55 @@ export const Toolbar: React.FC = () => {
                           : 'scale-125 ring-2 ring-sky-400'
                         : 'hover:scale-110'
                     }`}
+                    title={c}
                   />
                 );
               })}
             </div>
+
+            {/* Background Fill Color (for Whiteout) */}
+            {showWhiteoutStyles && (
+              <>
+                <div
+                  className={`h-4 w-px ${
+                    isMinimal ? 'bg-neutral-300' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                  }`}
+                />
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`text-[11px] font-medium mr-0.5 ${
+                      isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                    }`}
+                  >
+                    {t.styles.fillColor}:
+                  </span>
+                  {WHITEOUT_BG_COLORS.map((c) => {
+                    const isCurrBg =
+                      (selectedAnn && (selectedAnn as any).fillColor === c) ||
+                      (selectedAnn && selectedAnn.color === c) ||
+                      fillColor === c ||
+                      (c === '#ffffff' && !selectedAnn && fillColor === 'transparent');
+                    return (
+                      <button
+                        key={c}
+                        onClick={() => handleWhiteoutBgColorChange(c)}
+                        style={{ backgroundColor: c }}
+                        className={`w-4 h-4 rounded border transition-transform ${
+                          isMinimal ? 'border-neutral-300' : 'border-slate-600'
+                        } ${
+                          isCurrBg
+                            ? isMinimal
+                              ? 'scale-125 ring-2 ring-black'
+                              : 'scale-125 ring-2 ring-indigo-400'
+                            : 'hover:scale-110'
+                        }`}
+                        title={c}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
 

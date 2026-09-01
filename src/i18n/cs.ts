@@ -58,6 +58,9 @@ export const cs: TranslationSchema = {
     addPageDesc: 'Vložit další PDF, obrázek nebo prázdnou stránku',
     streamReplace: 'Editor streamu',
     streamReplaceDesc: 'Přímá editace vybraného textového bloku (BT...ET) nebo celého proudu PDF stránky',
+    whiteout: 'Vizuální přepsání',
+    whiteoutDesc: 'Překrytí bílou barvou (Whiteout) a vložení nového textu přímo na stránku',
+    whiteoutPlaceholder: 'Zadejte nový text...',
   },
   styles: {
     color: 'Barva',
@@ -237,6 +240,7 @@ export const cs: TranslationSchema = {
     highlight: 'Zvýraznit',
     underline: 'Podtrhnout',
     strikethrough: 'Přeškrtnout',
+    whiteout: 'Přepsat (Whiteout)',
     charsSelected: 'znaků vybráno',
   },
   notifications: {
