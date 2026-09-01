@@ -23,8 +23,10 @@ export const en: TranslationSchema = {
     pages: 'pages',
   },
   tools: {
-    select: 'Select',
+    select: 'Select Objects',
     selectDesc: 'Move and resize annotations and signatures',
+    textSelect: 'Select Text',
+    textSelectDesc: 'Select, copy and highlight text in the PDF',
     pan: 'Pan Hand',
     panDesc: 'Drag to pan around the page',
     highlight: 'Highlight',
@@ -220,6 +222,14 @@ export const en: TranslationSchema = {
     saveAsStamp: 'Save to Stamps',
     stampSaved: 'Saved to Stamps',
     resBadge: 'Ultra HD',
+  },
+  textSelection: {
+    copyText: 'Copy',
+    copied: 'Text copied to clipboard',
+    highlight: 'Highlight',
+    underline: 'Underline',
+    strikethrough: 'Strikethrough',
+    charsSelected: 'chars selected',
   },
   notifications: {
     pageAdded: 'New page added successfully',

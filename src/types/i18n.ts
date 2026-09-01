@@ -25,6 +25,8 @@ export interface TranslationSchema {
   tools: {
     select: string;
     selectDesc: string;
+    textSelect: string;
+    textSelectDesc: string;
     pan: string;
     panDesc: string;
     highlight: string;
@@ -220,6 +222,14 @@ export interface TranslationSchema {
     saveAsStamp: string;
     stampSaved: string;
     resBadge: string;
+  };
+  textSelection: {
+    copyText: string;
+    copied: string;
+    highlight: string;
+    underline: string;
+    strikethrough: string;
+    charsSelected: string;
   };
   notifications: {
     pageAdded: string;

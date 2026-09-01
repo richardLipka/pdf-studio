@@ -491,6 +491,10 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         height: `${pixelHeight}px`,
       }}
       className={`absolute inset-0 select-none ${
+        activeTool === 'textSelect'
+          ? 'pointer-events-none'
+          : 'pointer-events-auto'
+      } ${
         activeTool === 'pan'
           ? 'cursor-grab'
           : activeTool === 'drawing' ||

@@ -23,8 +23,10 @@ export const cs: TranslationSchema = {
     pages: 'stránek',
   },
   tools: {
-    select: 'Výběr',
+    select: 'Výběr objektů',
     selectDesc: 'Posunovat a měnit velikost anotací a podpisů',
+    textSelect: 'Výběr textu',
+    textSelectDesc: 'Označit, kopírovat a zvýraznit text přímo v PDF',
     pan: 'Posun',
     panDesc: 'Posunovat zobrazení stránky',
     highlight: 'Zvýraznění',
@@ -220,6 +222,14 @@ export const cs: TranslationSchema = {
     saveAsStamp: 'Uložit do razítek',
     stampSaved: 'Uloženo do razítek',
     resBadge: 'Ultra HD',
+  },
+  textSelection: {
+    copyText: 'Kopírovat',
+    copied: 'Text byl zkopírován do schránky',
+    highlight: 'Zvýraznit',
+    underline: 'Podtrhnout',
+    strikethrough: 'Přeškrtnout',
+    charsSelected: 'znaků vybráno',
   },
   notifications: {
     pageAdded: 'Nová stránka byla úspěšně vložena',

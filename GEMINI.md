@@ -17,6 +17,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Rotation**: Rotate individual or selected pages by 90° increments.
 
 2. **Document Review & Annotation Suite**:
+   - **Interactive PDF Text Layer & Selection**: Built-in text layer allows natural mouse selection, native clipboard copying (`Ctrl + C`), and floating quick-actions for instant highlighting, underlining, or crossing out selected text.
    - **Right-Side Notes & Reviews Panel**: Hidable side panel listing all document notes, review comments, highlights, underlines, and strikethroughs with full-text instant search and direct click navigation.
    - **Comments on Markups**: Attach review comments and notes to underlines, strikethroughs, and highlights with visual indicator badges on canvas.
    - **Full Line Width Storage & Display (1pt - 12pt)**: Complete support for line thicknesses (1, 2, 4, 6, 8, 12 pt) with ISO 32000-1 Appearance Streams (`/AP /N`) and Border dictionaries (`/BS /W`) ensuring exact line width rendering across all PDF readers.
@@ -71,7 +72,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (35 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (38 tests) |
 
 ---
 
@@ -88,7 +89,7 @@ pdf-editor/
 │   │   ├── common/         # Dropzone, Toast, Icons
 │   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel
 │   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal
-│   │   └── viewer/         # PdfViewer, PageCanvas, AnnotationLayer
+│   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom
 │   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library, modal states

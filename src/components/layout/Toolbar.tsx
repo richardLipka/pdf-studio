@@ -73,7 +73,9 @@ export const Toolbar: React.FC = () => {
 
   // Determine what style controls to show based on selected item or active tool
   const showHighlightStyles =
-    activeTool === 'highlight' || (selectedAnn && selectedAnn.type === 'highlight');
+    activeTool === 'highlight' ||
+    activeTool === 'textSelect' ||
+    (selectedAnn && selectedAnn.type === 'highlight');
 
   const showStrokeStyles =
     activeTool === 'drawing' ||
@@ -164,6 +166,16 @@ export const Toolbar: React.FC = () => {
       label: t.tools.select,
       icon: <MousePointer className="w-4 h-4" />,
       desc: t.tools.selectDesc,
+    },
+    {
+      id: 'textSelect',
+      label: t.tools.textSelect,
+      icon: (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M7 4h10M7 20h10M12 4v16" />
+        </svg>
+      ),
+      desc: t.tools.textSelectDesc,
     },
     {
       id: 'pan',

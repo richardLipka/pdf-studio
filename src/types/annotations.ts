@@ -94,6 +94,7 @@ export type Annotation =
 
 export type ToolType =
   | 'select'
+  | 'textSelect'
   | 'pan'
   | 'highlight'
   | 'underline'

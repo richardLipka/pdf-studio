@@ -3,16 +3,18 @@ import { PdfPageModel, SourceDocument } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { logger } from './logger';
 
-// Configure pdfjs worker in Vite
-try {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.js',
-    import.meta.url
-  ).toString();
-} catch (e) {
-  console.warn('Falling back to CDN worker for pdf.js', e);
-  logger.warn('load', 'Použit záložní CDN worker pro pdf.js', e);
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// Configure pdfjs worker in Vite for browser
+if (typeof window !== 'undefined') {
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.js',
+      import.meta.url
+    ).toString();
+  } catch (e) {
+    console.warn('Falling back to CDN worker for pdf.js', e);
+    logger.warn('load', 'Použit záložní CDN worker pro pdf.js', e);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+  }
 }
 
 // In-memory cache of loaded pdf documents
@@ -511,4 +513,46 @@ export const renderPdfPageToDataUrl = async (
   const canvas = document.createElement('canvas');
   await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
   return canvas.toDataURL('image/png');
+};
+
+/**
+ * Renders the interactive PDF text layer into a container DOM element for mouse selection, copying, and search
+ */
+export const renderPdfTextLayer = async (
+  sourceDoc: SourceDocument,
+  pageModel: PdfPageModel,
+  container: HTMLElement,
+  scale: number
+): Promise<void> => {
+  if (pageModel.sourceType !== 'pdf') {
+    container.innerHTML = '';
+    return;
+  }
+
+  try {
+    const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
+    const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+
+    const viewport = pdfPage.getViewport({
+      scale,
+      rotation: pageModel.rotation,
+    });
+
+    const textContent = await pdfPage.getTextContent();
+    container.innerHTML = '';
+
+    const task = pdfjsLib.renderTextLayer({
+      textContentSource: textContent,
+      container,
+      viewport,
+      textDivs: [],
+    });
+
+    await task.promise;
+  } catch (err: any) {
+    if (err?.name === 'RenderingCancelledException') {
+      return;
+    }
+    console.warn(`Text layer render skipped for page ${pageModel.id}:`, err);
+  }
 };

@@ -3,6 +3,7 @@ import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
 import { useTheme } from '../../context/ThemeContext';
 import { PageCanvas } from './PageCanvas';
+import { TextLayer } from './TextLayer';
 import { AnnotationLayer } from './AnnotationLayer';
 
 export const PdfViewer: React.FC = () => {
@@ -170,6 +171,9 @@ export const PdfViewer: React.FC = () => {
             >
               {/* PDF Canvas */}
               <PageCanvas page={page} sourceDoc={sourceDoc} scale={scale} />
+
+              {/* PDF Text Selection & Copy Layer */}
+              <TextLayer page={page} sourceDoc={sourceDoc} scale={scale} />
 
               {/* Annotation & Interaction Overlay */}
               <AnnotationLayer page={page} scale={scale} />
