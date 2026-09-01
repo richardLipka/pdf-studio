@@ -334,6 +334,26 @@ export interface TranslationSchema {
   streamReplaceModal: {
     title: string;
     subtitle: string;
+    tabSelectedBlock: string;
+    tabFullStream: string;
+    blockSelectLabel: string;
+    blockPreview: string;
+    font: string;
+    position: string;
+    length: string;
+    streamEditorLabel: string;
+    quickTextReplace: string;
+    findText: string;
+    replaceWith: string;
+    applyQuickReplace: string;
+    saveAndApply: string;
+    saving: string;
+    cancel: string;
+    toastSaved: string;
+    noBlocksFound: string;
+    streamLength: string;
+    hintInfo: string;
+    quickReplaceTooltip: string;
     searchLabel: string;
     searchPlaceholder: string;
     replaceLabel: string;
@@ -348,7 +368,5 @@ export interface TranslationSchema {
     resultsSuccess: string;
     resultsNone: string;
     resultsError: string;
-    hintInfo: string;
-    quickReplaceTooltip: string;
   };
 }

@@ -6,7 +6,13 @@ import { deletePage, reorderPages, rotatePage, insertPagesAtPosition, InsertPosi
 import { parsePdfPages, extractPdfAnnotations, extractPdfMetadata, clearPdfCache } from '../services/pdfLoader';
 import { logger } from '../services/logger';
 
-import { replaceTextInPageContentStream, replaceTextInAllPagesContentStream } from '../services/contentStreamEditor';
+import {
+  replaceTextInPageContentStream,
+  replaceTextInAllPagesContentStream,
+  getPageContentStream,
+  updatePageContentStream,
+  updateStreamSegmentInPage,
+} from '../services/contentStreamEditor';
 
 interface HistorySnapshot {
   pages: PdfPageModel[];
@@ -70,6 +76,9 @@ interface DocumentContextType {
   setSelectedAnnotationId: (id: string | null) => void;
 
   // Direct Content Stream Editing
+  getPageStream: (pageIndex?: number) => Promise<{ streamText: string; streamCount: number; error?: string }>;
+  applyPageContentStreamEdit: (newStreamContent: string, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
+  applyStreamSegmentEdit: (originalSegment: string, newSegment: string, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
   applyContentStreamReplacement: (
     searchText: string,
     replaceText: string,
@@ -604,6 +613,110 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return { success: false, totalReplaced: 0 };
   };
 
+  const getPageStream = async (
+    pageIndex: number = activePageIndex
+  ): Promise<{ streamText: string; streamCount: number; error?: string }> => {
+    const targetPage = pages[pageIndex];
+    if (!targetPage) {
+      return { streamText: '', streamCount: 0, error: 'Stránka nenalezena' };
+    }
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) {
+      return { streamText: '', streamCount: 0, error: 'Zdrojový PDF dokument nenalezen' };
+    }
+    const sourcePageIndex =
+      targetPage.originalPageIndex !== undefined
+        ? targetPage.originalPageIndex
+        : pageIndex;
+    return getPageContentStream(sourceDoc.arrayBuffer, sourcePageIndex);
+  };
+
+  const applyPageContentStreamEdit = async (
+    newStreamContent: string,
+    pageIndex: number = activePageIndex
+  ): Promise<{ success: boolean; error?: string }> => {
+    const targetPage = pages[pageIndex];
+    if (!targetPage) {
+      return { success: false, error: 'Stránka nenalezena' };
+    }
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) {
+      return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+    }
+    const sourcePageIndex =
+      targetPage.originalPageIndex !== undefined
+        ? targetPage.originalPageIndex
+        : pageIndex;
+    const result = await updatePageContentStream(
+      sourceDoc.arrayBuffer,
+      sourcePageIndex,
+      newStreamContent
+    );
+    if (result.error) {
+      return { success: false, error: result.error };
+    }
+
+    const updatedSources = sources.map((s) => {
+      if (s.id === sourceDoc.id) {
+        return {
+          ...s,
+          arrayBuffer: result.updatedPdfBytes,
+          updatedAt: Date.now(),
+        };
+      }
+      return s;
+    });
+
+    clearPdfCache();
+    setSources(updatedSources);
+    pushHistory(pages, annotations, activePageIndex, updatedSources);
+    return { success: true };
+  };
+
+  const applyStreamSegmentEdit = async (
+    originalSegment: string,
+    newSegment: string,
+    pageIndex: number = activePageIndex
+  ): Promise<{ success: boolean; error?: string }> => {
+    const targetPage = pages[pageIndex];
+    if (!targetPage) {
+      return { success: false, error: 'Stránka nenalezena' };
+    }
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) {
+      return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+    }
+    const sourcePageIndex =
+      targetPage.originalPageIndex !== undefined
+        ? targetPage.originalPageIndex
+        : pageIndex;
+    const result = await updateStreamSegmentInPage(
+      sourceDoc.arrayBuffer,
+      sourcePageIndex,
+      originalSegment,
+      newSegment
+    );
+    if (result.error) {
+      return { success: false, error: result.error };
+    }
+
+    const updatedSources = sources.map((s) => {
+      if (s.id === sourceDoc.id) {
+        return {
+          ...s,
+          arrayBuffer: result.updatedPdfBytes,
+          updatedAt: Date.now(),
+        };
+      }
+      return s;
+    });
+
+    clearPdfCache();
+    setSources(updatedSources);
+    pushHistory(pages, annotations, activePageIndex, updatedSources);
+    return { success: true };
+  };
+
   const saveAndDownload = async (
     customName?: string,
     rasterSettings?: RasterizationSettings,
@@ -737,6 +850,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     updateAnnotation,
     deleteAnnotation,
     setSelectedAnnotationId,
+    getPageStream,
+    applyPageContentStreamEdit,
+    applyStreamSegmentEdit,
     applyContentStreamReplacement,
     undo,
     redo,

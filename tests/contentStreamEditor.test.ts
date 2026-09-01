@@ -6,6 +6,11 @@ import {
   replaceTextInAllPagesContentStream,
   unescapePdfLiteralString,
   escapePdfLiteralString,
+  getPageContentStream,
+  parseStreamSegments,
+  extractPreviewTextFromBlock,
+  updatePageContentStream,
+  updateStreamSegmentInPage,
 } from '../src/services/contentStreamEditor';
 import { logger } from '../src/services/logger';
 
@@ -96,9 +101,144 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
     });
   });
 
+  describe('parseStreamSegments & extractPreviewTextFromBlock', () => {
+    it('should correctly parse BT ... ET text blocks and extract human readable preview text', () => {
+      const stream = `
+        q 1 0 0 1 0 0 cm
+        BT
+        /F1 14 Tf
+        72 712 Td
+        (Smlouva o dilo) Tj
+        ET
+        0.5 g
+        10 10 100 50 re f
+        BT
+        /TT2 12 Tf
+        1 0 0 1 100 200 Tm
+        [(Cena) 10 ( ) -5 (2500) 20 ( CZK)] TJ
+        ET
+        Q
+      `;
+
+      const segments = parseStreamSegments(stream);
+      const textBlocks = segments.filter((s) => s.type === 'text');
+
+      expect(textBlocks.length).toBe(2);
+      expect(textBlocks[0].id).toBe('block_1');
+      expect(textBlocks[0].previewText).toContain('Smlouva o dilo');
+      expect(textBlocks[0].fontInfo).toBe('/F1 14pt');
+      expect(textBlocks[0].positionInfo).toBe('X: 72.0, Y: 712.0');
+
+      expect(textBlocks[1].id).toBe('block_2');
+      expect(textBlocks[1].previewText).toContain('Cena 2500 CZK');
+      expect(textBlocks[1].fontInfo).toBe('/TT2 12pt');
+      expect(textBlocks[1].positionInfo).toBe('X: 100.0, Y: 200.0');
+    });
+
+    it('should extract text from hex and quote operators', () => {
+      const block = `
+        BT
+        /F1 12 Tf
+        <48656c6c6f20576f726c64> Tj
+        (Dalsi radek) '
+        ET
+      `;
+
+      const preview = extractPreviewTextFromBlock(block);
+      expect(preview).toContain('Hello World');
+      expect(preview).toContain('Dalsi radek');
+    });
+  });
+
+  describe('getPageContentStream, updatePageContentStream & updateStreamSegmentInPage', () => {
+    it('should extract decompressed page stream from a real PDF and parse segments', async () => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([500, 500]);
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+
+      page.drawText('Original Text In Stream 12345', {
+        x: 50,
+        y: 400,
+        size: 14,
+        font,
+      });
+
+      const bytes = await doc.save();
+      const { streamText, streamCount } = await getPageContentStream(
+        bytes.buffer as ArrayBuffer,
+        0
+      );
+
+      expect(streamCount).toBeGreaterThanOrEqual(1);
+      expect(streamText).toContain('BT');
+      expect(streamText).toContain('ET');
+
+      const segments = parseStreamSegments(streamText);
+      const textBlocks = segments.filter((s) => s.type === 'text');
+      expect(textBlocks.length).toBeGreaterThanOrEqual(1);
+      expect(textBlocks[0].previewText).toContain('Original Text In Stream 12345');
+    });
+
+    it('should directly update a specific segment in the page stream', async () => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([500, 500]);
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+
+      page.drawText('Faktura 2025', { x: 50, y: 400, size: 12, font });
+      const initialBytes = await doc.save();
+
+      const { streamText } = await getPageContentStream(initialBytes.buffer as ArrayBuffer, 0);
+      const segments = parseStreamSegments(streamText);
+      const block1 = segments.find((s) => s.type === 'text');
+      expect(block1).toBeDefined();
+
+      // In pdf-lib hex encoding, 2025 is 32303235, 2026 is 32303236
+      const modifiedBlock = block1!.rawContent.includes('32303235')
+        ? block1!.rawContent.replace('32303235', '32303236')
+        : block1!.rawContent.replace('2025', '2026');
+
+      const result = await updateStreamSegmentInPage(
+        initialBytes.buffer as ArrayBuffer,
+        0,
+        block1!.rawContent,
+        modifiedBlock
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.updatedPdfBytes).toBeDefined();
+
+      const reloadedStream = await getPageContentStream(result.updatedPdfBytes, 0);
+      const reloadedSegments = parseStreamSegments(reloadedStream.streamText);
+      const reloadedBlock = reloadedSegments.find((s) => s.type === 'text');
+      expect(reloadedBlock?.previewText).toContain('Faktura 2026');
+      expect(reloadedBlock?.previewText).not.toContain('Faktura 2025');
+    });
+
+    it('should directly replace the full page content stream', async () => {
+      const doc = await PDFDocument.create();
+      const page = doc.addPage([500, 500]);
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      page.drawText('Old Content', { x: 50, y: 400, size: 12, font });
+      const bytes = await doc.save();
+
+      const customStream = `
+        BT
+        /F1 16 Tf
+        100 300 Td
+        (Direct Full Custom Stream Injection) Tj
+        ET
+      `;
+
+      const result = await updatePageContentStream(bytes.buffer as ArrayBuffer, 0, customStream);
+      expect(result.error).toBeUndefined();
+
+      const reloadedStream = await getPageContentStream(result.updatedPdfBytes, 0);
+      expect(reloadedStream.streamText).toContain('Direct Full Custom Stream Injection');
+    });
+  });
+
   describe('replaceTextInPageContentStream (Integration with PDF bytes)', () => {
     it('should replace text in a real PDF page content stream and produce valid PDF', async () => {
-      // 1. Create a sample PDF with pdf-lib
       const doc = await PDFDocument.create();
       const page = doc.addPage([600, 400]);
       const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -113,7 +253,6 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
 
       const initialBytes = await doc.save();
 
-      // 2. Perform in-place stream replacement on page 0
       const result = await replaceTextInPageContentStream(
         initialBytes.buffer as ArrayBuffer,
         0,
@@ -126,14 +265,12 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
       expect(result.updatedPdfBytes).toBeDefined();
       expect(result.updatedPdfBytes.byteLength).toBeGreaterThan(0);
 
-      // 3. Verify that the loaded PDF is valid and contains the modified text
       const reloadedDoc = await PDFDocument.load(result.updatedPdfBytes, {
         ignoreEncryption: true,
         updateMetadata: false,
       });
       expect(reloadedDoc.getPageCount()).toBe(1);
 
-      // 4. Verify logs
       const logs = logger.getLogs();
       const editSuccess = logs.find(
         (l) => l.category === 'edit' && l.level === 'success'
@@ -148,7 +285,7 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
 
       const result = await replaceTextInPageContentStream(
         bytes.buffer as ArrayBuffer,
-        99, // out of bounds
+        99,
         'test',
         'replacement'
       );

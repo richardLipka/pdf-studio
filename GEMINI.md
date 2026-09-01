@@ -20,13 +20,13 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes, Digital signatures & stamps, High-res image cropper, and Eraser.
    - **Editace (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files with modular expansion capability.
 
-3. **In-Place Content Stream Text & Byte Replacement**:
-   - **Direct Vector Stream Replacement**: Decodes, unescapes, replaces, and re-compresses text operators (`Tj`, `TJ`, `'`, `"`, and hex strings `<...>`) directly inside `/Contents` streams.
-   - **Interactive Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly pre-fills the search query in the replacement dialog for rapid correction.
-   - **Search & Replace Scope**: Replace text in the active page or globally across all document pages with case-sensitivity matching options.
+3. **Direct Content Stream Segment & Page Editor**:
+   - **Segment Isolation & Inspection**: Decodes and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.
+   - **Interactive Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly focuses and selects that specific stream segment in the Stream Editor.
+   - **Direct Code Editor & Quick Replacer**: Live monospaced code editor allowing direct byte/operator edits or quick text replacement inside the selected block, plus a Full Page Stream tab.
    - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time.
    - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
-   - **Logging**: Captures occurrences replaced, duration in ms, and detailed error logs under `'edit'` category.
+   - **Logging**: Captures duration in ms, stream sizes, and detailed error logs under `'edit'` category.
 
 4. **Document Review & Annotation Suite**:
    - **Interactive PDF Text Layer & Selection**: Built-in text layer allows natural mouse selection, native clipboard copying (`Ctrl + C`), and floating quick-actions for instant highlighting, underlining, crossing out, or stream replacing selected text.
@@ -98,7 +98,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (51 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (56 tests) |
 
 ---
 

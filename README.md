@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-51%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-56%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -39,13 +39,15 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 - **Revize & Anotace (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes, Digital signatures & stamps, High-res image cropper, and Eraser.
 - **Editace PDF (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files with modular expansion capability.
 
-### 3. ⚡ In-Place Content Stream Text & Byte Replacement (`streamReplace`)
-- **Direct Vector Stream Editing**: Parses, decompresses (`FlateDecode` / `pako`), and modifies raw text operators (`Tj`, `TJ`, `'`, `"`, and hex strings `<...>`) directly inside `/Contents` streams.
-- **Interactive Page Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly pre-fills the search query in the replacement dialog for rapid correction.
-- **Search & Replace Scope**: Replace text in the active page or globally across all document pages with case-sensitivity matching options.
+### 3. ⚡ Direct Content Stream Segment & Page Editor (`streamReplace`)
+- **Direct Segment Isolation**: Analyzes, decompresses (`FlateDecode` / `pako`), and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.
+- **Interactive Page Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly pre-selects that exact stream segment (`BT ... ET`) in the Stream Editor for direct modification.
+- **Segment Selector & Live Previews**: Lists all text blocks on the active page with decoded text previews, font specifications (`/F1 12pt`), coordinates, and character counts.
+- **Direct Code Editor & Quick Replacer**: Live monospaced code editor allowing direct byte/operator edits or quick text replacement inside the selected block.
+- **Full Page Stream Tab**: Switchable view to inspect or rewrite the entire decompressed page stream at once.
 - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time so users immediately verify the visual result.
 - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
-- **Comprehensive Logging**: Every stream replacement operation is tracked with occurrence counts, execution duration in milliseconds, and detailed error logs.
+- **Comprehensive Logging**: Every stream edit is tracked with execution duration in milliseconds, data sizes, and detailed diagnostic logs under category `'edit'`.
 
 ### 4. 🔍 Text Layer, Text Selection & Clipboard Support
 - **Interactive PDF Text Layer**: Built-in PDF text layer extraction allows users to select text naturally with the mouse cursor across all vector PDF pages.

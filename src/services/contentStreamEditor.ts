@@ -20,6 +20,17 @@ export interface StreamReplaceResult {
   error?: string;
 }
 
+export interface StreamSegment {
+  id: string;
+  type: 'text' | 'graphics' | 'other';
+  rawContent: string;
+  previewText: string;
+  fontInfo?: string;
+  positionInfo?: string;
+  startIndex: number;
+  endIndex: number;
+}
+
 /**
  * Unescape a PDF literal string (e.g. \( -> (, \\ -> \)
  */
@@ -419,3 +430,321 @@ export async function replaceTextInAllPagesContentStream(
     };
   }
 }
+
+/**
+ * Safely decode a PDF stream object (handles FlateDecode, raw uncompressed, and fallback).
+ */
+export function decodeStreamObject(stream: any): string {
+  if (!stream) return '';
+  try {
+    if (typeof stream.getContents === 'function') {
+      const decoded = decodePDFRawStream(stream).decode();
+      return arrayAsString(decoded);
+    }
+  } catch (err) {
+    try {
+      if (typeof stream.getContents === 'function') {
+        return arrayAsString(stream.getContents());
+      }
+    } catch (_) {}
+  }
+  return '';
+}
+
+/**
+ * Get decompressed content stream of a specific page in a PDF ArrayBuffer.
+ */
+export async function getPageContentStream(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number
+): Promise<{ streamText: string; streamCount: number; error?: string }> {
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+
+    const pageCount = pdfDoc.getPageCount();
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      return {
+        streamText: '',
+        streamCount: 0,
+        error: `Neplatný index stránky ${pageIndex + 1} (celkem stran: ${pageCount})`,
+      };
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+    const contentsRef = page.node.Contents();
+    let streamText = '';
+    let streamCount = 0;
+
+    if (contentsRef instanceof PDFRef) {
+      const stream = page.node.context.lookup(contentsRef);
+      streamText = decodeStreamObject(stream);
+      if (streamText) streamCount = 1;
+    } else if (contentsRef instanceof PDFArray) {
+      const parts: string[] = [];
+      for (let i = 0; i < contentsRef.size(); i++) {
+        const item = contentsRef.get(i);
+        if (item instanceof PDFRef) {
+          const stream = page.node.context.lookup(item);
+          const decodedPart = decodeStreamObject(stream);
+          if (decodedPart) {
+            parts.push(decodedPart);
+            streamCount++;
+          }
+        } else {
+          const decodedPart = decodeStreamObject(item);
+          if (decodedPart) {
+            parts.push(decodedPart);
+            streamCount++;
+          }
+        }
+      }
+      streamText = parts.join('\n');
+    } else if (contentsRef) {
+      streamText = decodeStreamObject(contentsRef);
+      if (streamText) streamCount = 1;
+    }
+
+    return { streamText, streamCount };
+  } catch (err: any) {
+    logger.error('edit', `Chyba při čtení content streamu strany ${pageIndex + 1}: ${err?.message || err}`);
+    return { streamText: '', streamCount: 0, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Parse a raw content stream string into individual structured segments (BT ... ET text blocks and graphics).
+ */
+export function parseStreamSegments(streamText: string): StreamSegment[] {
+  const segments: StreamSegment[] = [];
+  if (!streamText) return segments;
+
+  const btEtRegex = /BT[\s\S]*?ET/g;
+  let match: RegExpExecArray | null;
+  let lastIndex = 0;
+  let blockIndex = 1;
+
+  while ((match = btEtRegex.exec(streamText)) !== null) {
+    const startIndex = match.index;
+    const endIndex = startIndex + match[0].length;
+
+    // Non-text chunk before this BT
+    if (startIndex > lastIndex) {
+      const nonText = streamText.substring(lastIndex, startIndex);
+      const trimmed = nonText.trim();
+      if (trimmed) {
+        segments.push({
+          id: `seg_graphics_${segments.length + 1}`,
+          type: 'graphics',
+          rawContent: nonText,
+          previewText: trimmed.length > 50 ? trimmed.substring(0, 50) + '...' : trimmed,
+          startIndex: lastIndex,
+          endIndex: startIndex,
+        });
+      }
+    }
+
+    const rawBlock = match[0];
+    const extractedText = extractPreviewTextFromBlock(rawBlock);
+    const fontInfo = extractFontInfoFromBlock(rawBlock);
+    const positionInfo = extractPositionInfoFromBlock(rawBlock);
+
+    segments.push({
+      id: `block_${blockIndex}`,
+      type: 'text',
+      rawContent: rawBlock,
+      previewText: extractedText || `[Textový blok #${blockIndex}]`,
+      fontInfo,
+      positionInfo,
+      startIndex,
+      endIndex,
+    });
+
+    blockIndex++;
+    lastIndex = endIndex;
+  }
+
+  // Trailing non-text chunk after last ET
+  if (lastIndex < streamText.length) {
+    const trailing = streamText.substring(lastIndex);
+    const trimmed = trailing.trim();
+    if (trimmed) {
+      segments.push({
+        id: `seg_graphics_${segments.length + 1}`,
+        type: 'graphics',
+        rawContent: trailing,
+        previewText: trimmed.length > 50 ? trimmed.substring(0, 50) + '...' : trimmed,
+        startIndex: lastIndex,
+        endIndex: streamText.length,
+      });
+    }
+  }
+
+  return segments;
+}
+
+/**
+ * Extract human-readable preview text from a BT ... ET text block.
+ */
+export function extractPreviewTextFromBlock(rawBlock: string): string {
+  const parts: string[] = [];
+
+  // 1. Match TJ arrays: [ ... ] TJ
+  const tjRegex = /\[([\s\S]*?)\]\s*TJ/g;
+  let tjMatch: RegExpExecArray | null;
+  while ((tjMatch = tjRegex.exec(rawBlock)) !== null) {
+    const arrayContent = tjMatch[1];
+    const strRegex = /\((?:[^\\()]+|\\.)*\)|<([0-9a-fA-F\s]+)>/g;
+    let strMatch: RegExpExecArray | null;
+    let combinedTj = '';
+    while ((strMatch = strRegex.exec(arrayContent)) !== null) {
+      if (strMatch[0].startsWith('(')) {
+        combinedTj += unescapePdfLiteralString(strMatch[0].slice(1, -1));
+      } else if (strMatch[1]) {
+        combinedTj += hexToString(strMatch[1]);
+      }
+    }
+    if (combinedTj.trim()) {
+      parts.push(combinedTj.trim());
+    }
+  }
+
+  // 2. Match single Tj operators: ( ... ) Tj
+  const singleTjRegex = /\(((?:[^\\()]+|\\.)*)\)\s*Tj/g;
+  let singleMatch: RegExpExecArray | null;
+  while ((singleMatch = singleTjRegex.exec(rawBlock)) !== null) {
+    const text = unescapePdfLiteralString(singleMatch[1]);
+    if (text.trim()) {
+      parts.push(text.trim());
+    }
+  }
+
+  // 3. Match hex strings in Tj: < ... > Tj
+  const hexTjRegex = /<([0-9a-fA-F\s]+)>\s*Tj/g;
+  let hexMatch: RegExpExecArray | null;
+  while ((hexMatch = hexTjRegex.exec(rawBlock)) !== null) {
+    const text = hexToString(hexMatch[1]);
+    if (text.trim()) {
+      parts.push(text.trim());
+    }
+  }
+
+  // 4. Match ' and " line show operators
+  const quoteRegex = /\(((?:[^\\()]+|\\.)*)\)\s*['"]/g;
+  let quoteMatch: RegExpExecArray | null;
+  while ((quoteMatch = quoteRegex.exec(rawBlock)) !== null) {
+    const text = unescapePdfLiteralString(quoteMatch[1]);
+    if (text.trim()) {
+      parts.push(text.trim());
+    }
+  }
+
+  return parts.join(' ');
+}
+
+export function extractFontInfoFromBlock(rawBlock: string): string | undefined {
+  const fontMatch = rawBlock.match(/\/([A-Za-z0-9_\-+]+)\s+([0-9.]+)\s+Tf/);
+  if (fontMatch) {
+    return `/${fontMatch[1]} ${fontMatch[2]}pt`;
+  }
+  return undefined;
+}
+
+export function extractPositionInfoFromBlock(rawBlock: string): string | undefined {
+  const tmMatch = rawBlock.match(/([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+Tm/);
+  if (tmMatch) {
+    return `X: ${parseFloat(tmMatch[5]).toFixed(1)}, Y: ${parseFloat(tmMatch[6]).toFixed(1)}`;
+  }
+  const tdMatch = rawBlock.match(/([0-9.-]+)\s+([0-9.-]+)\s+Td/);
+  if (tdMatch) {
+    return `X: ${parseFloat(tdMatch[1]).toFixed(1)}, Y: ${parseFloat(tdMatch[2]).toFixed(1)}`;
+  }
+  return undefined;
+}
+
+/**
+ * Direct full replacement of a page's content stream.
+ */
+export async function updatePageContentStream(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  newStreamContent: string
+): Promise<{ updatedPdfBytes: ArrayBuffer; error?: string }> {
+  const startTime = Date.now();
+  logger.info('edit', `Zahájena přímá aktualizace content streamu na straně ${pageIndex + 1}`, {
+    pageIndex: pageIndex + 1,
+    newLengthBytes: newStreamContent.length,
+  });
+
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+
+    const pageCount = pdfDoc.getPageCount();
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      const err = `Neplatný index stránky ${pageIndex + 1} (celkem stran: ${pageCount})`;
+      logger.error('edit', err);
+      return { updatedPdfBytes: pdfDocBytes, error: err };
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+    const newStream = pdfDoc.context.flateStream(newStreamContent);
+    const newRef = pdfDoc.context.register(newStream);
+    page.node.set(PDFName.of('Contents'), newRef);
+
+    const savedBytes = await pdfDoc.save();
+    const durationMs = Date.now() - startTime;
+
+    logger.success('edit', `Content stream strany ${pageIndex + 1} úspěšně zapsán do PDF za ${durationMs} ms (${savedBytes.byteLength} B)`, {
+      pageIndex: pageIndex + 1,
+      durationMs,
+      savedBytes: savedBytes.byteLength,
+    });
+
+    return { updatedPdfBytes: savedBytes.buffer as ArrayBuffer };
+  } catch (err: any) {
+    const errorMsg = err?.message || String(err);
+    logger.error('edit', `Chyba při zápisu content streamu strany ${pageIndex + 1}: ${errorMsg}`, {
+      stack: err?.stack,
+    });
+    return { updatedPdfBytes: pdfDocBytes, error: errorMsg };
+  }
+}
+
+/**
+ * Direct replacement of a specific segment inside a page's content stream.
+ */
+export async function updateStreamSegmentInPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  originalSegment: string,
+  newSegment: string
+): Promise<{ updatedPdfBytes: ArrayBuffer; error?: string }> {
+  const { streamText, error } = await getPageContentStream(pdfDocBytes, pageIndex);
+  if (error || !streamText) {
+    return { updatedPdfBytes: pdfDocBytes, error: error || 'Nelze načíst stream stránky' };
+  }
+
+  let updatedStream: string;
+  if (streamText.includes(originalSegment)) {
+    updatedStream = streamText.replace(originalSegment, newSegment);
+  } else {
+    const normalizedOrig = originalSegment.replace(/\r\n/g, '\n');
+    const normalizedStream = streamText.replace(/\r\n/g, '\n');
+    if (normalizedStream.includes(normalizedOrig)) {
+      updatedStream = normalizedStream.replace(normalizedOrig, newSegment);
+    } else {
+      return {
+        updatedPdfBytes: pdfDocBytes,
+        error: 'Původní segment nebyl v content streamu nalezen pro přesnou náhradu.',
+      };
+    }
+  }
+
+  return updatePageContentStream(pdfDocBytes, pageIndex, updatedStream);
+}
+
