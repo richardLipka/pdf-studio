@@ -129,35 +129,104 @@ export const extractPdfHeader = (buffer: ArrayBuffer): string => {
 };
 
 /**
- * Robustly loads a source PDF document with multi-stage fallback options, deep catalog repair,
+ * Trims extraneous bytes before %PDF- header and after last %%EOF marker
+ * which often prevents strict PDF parsers from loading scanner/comic PDFs
+ */
+export const sanitizePdfBuffer = (buffer: ArrayBuffer): ArrayBuffer => {
+  try {
+    const u8 = new Uint8Array(buffer);
+    if (u8.length < 10) return buffer;
+
+    // 1. Find "%PDF-" header offset in first 4096 bytes
+    let startOffset = 0;
+    for (let i = 0; i < Math.min(u8.length - 5, 4096); i++) {
+      if (
+        u8[i] === 0x25 && // %
+        u8[i + 1] === 0x50 && // P
+        u8[i + 2] === 0x44 && // D
+        u8[i + 3] === 0x46 && // F
+        u8[i + 4] === 0x2d // -
+      ) {
+        startOffset = i;
+        break;
+      }
+    }
+
+    // 2. Find last "%%EOF" offset in last 16384 bytes
+    let endOffset = u8.length;
+    for (let i = u8.length - 5; i >= Math.max(0, u8.length - 16384); i--) {
+      if (
+        u8[i] === 0x25 && // %
+        u8[i + 1] === 0x25 && // %
+        u8[i + 2] === 0x45 && // E
+        u8[i + 3] === 0x4f && // O
+        u8[i + 4] === 0x46 // F
+      ) {
+        // Scan past possible whitespace / newlines after %%EOF
+        let e = i + 5;
+        while (e < u8.length && (u8[e] === 0x0a || u8[e] === 0x0d || u8[e] === 0x20 || u8[e] === 0x00)) {
+          e++;
+        }
+        endOffset = e;
+        break;
+      }
+    }
+
+    if (startOffset > 0 || endOffset < u8.length) {
+      return buffer.slice(startOffset, endOffset);
+    }
+    return buffer;
+  } catch {
+    return buffer;
+  }
+};
+
+/**
+ * Robustly loads a source PDF document with multi-stage fallback options, sanitized buffers, deep catalog repair,
  * and comprehensive diagnostic error tracking
  */
 export const loadSourcePdfDocWithDiagnostics = async (
   arrayBuffer: ArrayBuffer
 ): Promise<LoadSourceResult> => {
-  const attempts: Array<Record<string, any>> = [
-    { name: 'Slow + NoThrow + CapNumbers', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true },
-    { name: 'Fastest + NoThrow + CapNumbers', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true },
-    { name: 'NoThrow + CapNumbers', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, capNumbers: true },
-    { name: 'NoThrow + Standard', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false },
-    { name: 'IgnoreEncryption Only', ignoreEncryption: true },
-    { name: 'Standard Default', parseSpeed: ParseSpeeds.Slow },
+  const sanitizedBuffer = sanitizePdfBuffer(arrayBuffer);
+  const wasSanitized = sanitizedBuffer.byteLength !== arrayBuffer.byteLength;
+
+  const rawAttempts: Array<{ name: string; buffer: ArrayBuffer; opt: Record<string, any> }> = [
+    { name: 'Slow + NoThrow + CapNumbers', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true } },
+    { name: 'Fastest + NoThrow + CapNumbers', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true } },
+    { name: 'NoThrow + CapNumbers', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, capNumbers: true } },
+    { name: 'NoThrow + Standard', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false } },
+    { name: 'IgnoreEncryption Only', buffer: arrayBuffer, opt: { ignoreEncryption: true } },
   ];
+
+  if (wasSanitized) {
+    rawAttempts.push(
+      { name: 'Sanitized Buffer + Slow + NoThrow + CapNumbers', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true } },
+      { name: 'Sanitized Buffer + Fastest + NoThrow + CapNumbers', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true } },
+      { name: 'Sanitized Buffer + Standard', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false } }
+    );
+  }
+
+  rawAttempts.push({ name: 'Standard Default', buffer: arrayBuffer, opt: { parseSpeed: ParseSpeeds.Slow } });
 
   const diagnosticAttempts: LoadAttemptDiagnostic[] = [];
   const repairLog: string[] = [];
 
-  for (let i = 0; i < attempts.length; i++) {
-    const opt = attempts[i];
+  if (wasSanitized) {
+    repairLog.push(`Detekovány a oříznuty nadbytečné bajty v bufferu (${arrayBuffer.byteLength} B -> ${sanitizedBuffer.byteLength} B)`);
+  }
+
+  for (let i = 0; i < rawAttempts.length; i++) {
+    const attempt = rawAttempts[i];
     try {
-      const copyBuf = arrayBuffer.slice(0);
-      const doc = await PDFDocument.load(copyBuf, opt);
+      const copyBuf = attempt.buffer.slice(0);
+      const doc = await PDFDocument.load(copyBuf, attempt.opt);
       repairPdfDocCatalog(doc, repairLog);
       const count = doc.getPageCount();
       if (count > 0) {
         diagnosticAttempts.push({
           attempt: i + 1,
-          options: opt,
+          options: { name: attempt.name, ...attempt.opt },
           success: true,
         });
         return { doc, attempts: diagnosticAttempts, repairLog };
@@ -165,7 +234,7 @@ export const loadSourcePdfDocWithDiagnostics = async (
     } catch (err: any) {
       diagnosticAttempts.push({
         attempt: i + 1,
-        options: opt,
+        options: { name: attempt.name, ...attempt.opt },
         success: false,
         errorName: err?.name || 'Error',
         errorMessage: err?.message || String(err),
@@ -590,7 +659,7 @@ export const exportEditedPdf = async (
         try {
           const sourceDoc = sources.find((s) => s.id === pageModel.sourceDocId) || sources[0];
           if (sourceDoc && sourceDoc.arrayBuffer) {
-            const highResDataUrl = await renderPdfPageToDataUrl(sourceDoc, pageModel, 2.0);
+            const highResDataUrl = await renderPdfPageToDataUrl(sourceDoc, pageModel, 2.0, 'image/jpeg', 0.90);
             const embeddedImg = await embedDataUrlImage(outputDoc, highResDataUrl);
             targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
             targetPage.drawImage(embeddedImg, {

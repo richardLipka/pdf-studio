@@ -503,15 +503,20 @@ export const renderPdfPageToCanvas = async (
 };
 
 /**
- * Renders a PDF page to a high-resolution PNG data URL
+ * Renders a PDF page to a high-resolution image data URL (JPEG for photographic/scanned efficiency, or PNG)
  */
 export const renderPdfPageToDataUrl = async (
   sourceDoc: SourceDocument,
   pageModel: PdfPageModel,
-  scale: number = 2.0
+  scale: number = 2.0,
+  format: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  quality: number = 0.88
 ): Promise<string> => {
   const canvas = document.createElement('canvas');
   await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
+  if (format === 'image/jpeg') {
+    return canvas.toDataURL('image/jpeg', quality);
+  }
   return canvas.toDataURL('image/png');
 };
 
