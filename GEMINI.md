@@ -35,36 +35,41 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Named Stamp Library**: Save multiple reusable stamps in browser `localStorage`.
    - **JSON Portability**: Download and restore full stamp collections as JSON packages containing Base64-encoded bitmap images.
 
-4. **Configurable Rasterization & Export Settings**:
+4. **Document Metadata Inspection & Editing**:
+   - **Properties**: Read and edit Title, Author, Subject, Keywords, Creator, and Producer directly in the browser.
+   - **Technical File Inspection**: View source file size, total page count, creation date, modification timestamp, and PDF format version.
+   - **Persistence**: Writes metadata directly to the exported PDF document trailer information dictionary.
+
+5. **Configurable Rasterization & Export Settings**:
    - **Customizable Fallback Parameters**: Full user control over fallback rasterization settings whenever a page cannot be directly vector-copied:
      - Resolution/Scale: `1.0×` (72 DPI), `1.5×` (108 DPI), `2.0×` (144 DPI - default), `3.0×` (216 DPI - high-res print).
      - Image Format: `JPEG` (recommended with DCTDecode compression for scans/comics) or `PNG` (lossless).
      - JPEG Quality: Configurable slider and presets (75%, 85%, 90% default, 95%, 100%).
    - **Persistent Storage**: Saved in `localStorage` and indicated dynamically in StatusBar.
 
-5. **Switchable URL-Encoded Themes**:
+6. **Switchable URL-Encoded Themes**:
    - **Studio (Dark)**: Modern dark glassmorphic interface (`?theme=default`).
    - **Minimal (Light)**: Pure white background, clean black lines, monochrome aesthetic (`?theme=minimal`).
    - **LCARS (Star Trek: TNG)**: 24th-century LCARS interface with amber, lilac, cyan palette and pill buttons (`?theme=lcars`).
 
-6. **Flicker-Free 100-Step Undo/Redo**:
+7. **Flicker-Free 100-Step Undo/Redo**:
    - Deep-cloned immutable history stack (100 snapshots) tracking all page modifications, markups, rotations, and annotations.
    - Memoized canvas rendering without full-screen blinking during history steps.
    - Atomic history snapshots captured on mouse release (`onMouseUp`).
 
-7. **Smart Zoom & Viewport Synchronization**:
+8. **Smart Zoom & Viewport Synchronization**:
    - **Zoom to Selected Page** (`Ctrl + 0` / *"Na vybranou"* button).
    - **Fit Width** and **Fit Page** auto-scaling.
    - Automatic smooth scrolling to centered active page in main viewer and sidebar.
 
-8. **Event Log & Diagnostic Protocol Screen**:
+9. **Event Log & Diagnostic Protocol Screen**:
    - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and system events with timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
    - **Comprehensive PDF-Lib Diagnostics & Sanitization**: Strips pre-header/post-EOF noise, captures 7 parse attempts with stack traces, and catalog/PageTree repair tracking.
    - **Rasterization Fallback Reason, Impact & JPEG Transformation Tracking**: Captures specific reasons, image dimensions, scale factors, data sizes, and JPEG/PNG transformation parameters whenever fallback rasterization is triggered.
    - **Diagnostics & Error Inspection**: Dedicated diagnostic modal with level filtering, instant search, JSON/stack trace expandable blocks, and one-click clipboard copying.
    - **Status Indicators**: Dynamic badge counters in Header and StatusBar indicating warning/error totals.
 
-9. **100% Client-Side Privacy & Native Page Preservation**:
+10. **100% Client-Side Privacy & Native Page Preservation**:
    - Zero file upload to servers. All operations happen in-memory via Web Workers and Web APIs.
    - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
@@ -81,7 +86,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (41 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (42 tests) |
 
 ---
 
@@ -97,7 +102,7 @@ pdf-editor/
 │   ├── components/
 │   │   ├── common/         # Dropzone, Toast, Icons
 │   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel
-│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal
+│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal
 │   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom

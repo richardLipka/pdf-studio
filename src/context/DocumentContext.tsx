@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { PdfPageModel, SourceDocument, RasterizationSettings } from '../types/document';
+import { PdfPageModel, SourceDocument, RasterizationSettings, DocumentMetadata, DEFAULT_DOCUMENT_METADATA } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { exportEditedPdf } from '../services/pdfExporter';
 import { deletePage, reorderPages, rotatePage, insertPagesAtPosition, InsertPosition } from '../services/pageManager';
-import { parsePdfPages, extractPdfAnnotations, clearPdfCache } from '../services/pdfLoader';
+import { parsePdfPages, extractPdfAnnotations, extractPdfMetadata, clearPdfCache } from '../services/pdfLoader';
 import { logger } from '../services/logger';
 
 interface HistorySnapshot {
@@ -29,6 +29,11 @@ interface DocumentContextType {
   canRedo: boolean;
   historyLength: number;
   historyIndex: number;
+
+  // Metadata
+  metadata: DocumentMetadata;
+  setMetadata: React.Dispatch<React.SetStateAction<DocumentMetadata>>;
+  updateMetadata: (fields: Partial<DocumentMetadata>) => void;
   
   // Document Operations
   loadPdfFile: (file: File) => Promise<void>;
@@ -65,7 +70,7 @@ interface DocumentContextType {
   undo: () => void;
   redo: () => void;
   commitHistorySnapshot: () => void;
-  saveAndDownload: (customName?: string, rasterSettings?: RasterizationSettings) => Promise<boolean>;
+  saveAndDownload: (customName?: string, rasterSettings?: RasterizationSettings, metadataOverride?: DocumentMetadata) => Promise<boolean>;
 }
 
 const DocumentContext = createContext<DocumentContextType | null>(null);
@@ -87,6 +92,11 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [scale, setScale] = useState<number>(1.2);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [metadata, setMetadata] = useState<DocumentMetadata>(DEFAULT_DOCUMENT_METADATA);
+
+  const updateMetadata = useCallback((fields: Partial<DocumentMetadata>) => {
+    setMetadata((prev) => ({ ...prev, ...fields }));
+  }, []);
 
   // Undo / Redo history stack
   const [history, setHistory] = useState<HistorySnapshot[]>([]);
@@ -134,6 +144,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const parsedPages = await parsePdfPages(buffer, 'main');
       const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
+      const extractedMeta = await extractPdfMetadata('main', buffer);
+
       setFileName(file.name);
       setSources([mainSource]);
       setPages(parsedPages);
@@ -142,6 +154,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
       setAnnotations(loadedAnnotations);
       setSelectedAnnotationId(null);
+      setMetadata(extractedMeta);
 
       // Initialize history
       setHistory([{
@@ -170,6 +183,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const parsedPages = await parsePdfPages(buffer, 'main');
       const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
+      const sampleMeta: DocumentMetadata = {
+        title: _lang === 'cs' ? 'Ukázková smlouva o dílo' : 'Sample Agreement',
+        author: 'Richard Lipka',
+        subject: _lang === 'cs' ? 'Ukázkový dokument pro PDF Studio' : 'Sample document for PDF Studio',
+        keywords: 'PDF Studio, sample, contract',
+        creator: 'PDF Studio',
+        producer: 'PDF Studio (https://richardlipka.github.io/pdf-studio/)',
+        creationDate: new Date().toISOString(),
+      };
+
       setFileName('sample-contract.pdf');
       setSources([mainSource]);
       setPages(parsedPages);
@@ -178,6 +201,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
       setAnnotations(loadedAnnotations);
       setSelectedAnnotationId(null);
+      setMetadata(sampleMeta);
 
       setHistory([{
         pages: deepClone(parsedPages),
@@ -472,14 +496,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const saveAndDownload = async (
     customName?: string,
-    rasterSettings?: RasterizationSettings
+    rasterSettings?: RasterizationSettings,
+    metadataOverride?: DocumentMetadata
   ): Promise<boolean> => {
     if (pages.length === 0) return false;
     setIsSaving(true);
     try {
       const baseName = customName || fileName.replace(/\.pdf$/i, '');
       const outName = baseName.endsWith('.pdf') ? baseName : `${baseName}-edited.pdf`;
-      const bytes = await exportEditedPdf(sources, pages, annotations, outName, rasterSettings);
+      const metaToApply = metadataOverride || metadata;
+      const bytes = await exportEditedPdf(sources, pages, annotations, outName, rasterSettings, metaToApply);
       return Boolean(bytes && bytes.length > 0);
     } catch (e: any) {
       logger.error('save', `Chyba při exportu dokumentu: ${e?.message || e}`, e);
@@ -575,6 +601,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     canRedo: historyIndex < history.length - 1,
     historyLength: history.length,
     historyIndex,
+    metadata,
+    setMetadata,
+    updateMetadata,
     loadPdfFile,
     loadSamplePdf,
     setActivePageIndex,

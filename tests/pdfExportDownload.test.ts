@@ -197,4 +197,71 @@ describe('PDF Export & Download Reliability', () => {
 
     delete (globalThis as any).document;
   });
+
+  it('should write and persist modified document metadata into exported PDF bytes', async () => {
+    const { DEFAULT_DOCUMENT_METADATA } = await import('../src/types/document');
+    const { extractPdfMetadata } = await import('../src/services/pdfLoader');
+
+    expect(DEFAULT_DOCUMENT_METADATA.creator).toBe('PDF Studio');
+
+    const sampleDoc = await PDFDocument.create();
+    sampleDoc.addPage([500, 700]);
+    const buffer = await sampleDoc.save();
+
+    const sources: SourceDocument[] = [{ id: 'main', name: 'contract.pdf', arrayBuffer: buffer.buffer }];
+    const pages: PdfPageModel[] = [
+      { id: 'p1', sourceDocId: 'main', originalPageIndex: 0, pageNumber: 1, width: 500, height: 700, rotation: 0, sourceType: 'pdf' },
+    ];
+
+    const fakeLink = { href: '', download: '', style: {}, click: vi.fn() };
+    (globalThis as any).document = {
+      createElement: vi.fn().mockReturnValue(fakeLink),
+      body: { appendChild: vi.fn(), removeChild: vi.fn(), contains: vi.fn().mockReturnValue(true) },
+    };
+    globalThis.URL.createObjectURL = vi.fn().mockReturnValue('blob:http://test');
+    globalThis.URL.revokeObjectURL = vi.fn();
+
+    const customMetadata = {
+      title: 'Smlouva o poskytnutí služeb 2026',
+      author: 'Ing. Jan Novák',
+      subject: 'Dodatek č. 1',
+      keywords: 'smlouva, služby, 2026, finance',
+      creator: 'PDF Studio Creator App',
+      producer: 'PDF Studio Producer Engine',
+      creationDate: '2026-05-15T10:30:00.000Z',
+    };
+
+    const pdfBytes = await exportEditedPdf(
+      sources,
+      pages,
+      [],
+      'contract-with-meta.pdf',
+      undefined,
+      customMetadata
+    );
+
+    expect(pdfBytes).toBeDefined();
+    expect(pdfBytes.length).toBeGreaterThan(0);
+
+    // Verify metadata was written into PDF dictionary via pdf-lib
+    const loadedDoc = await PDFDocument.load(pdfBytes, { updateMetadata: false });
+    expect(loadedDoc.getTitle()).toBe('Smlouva o poskytnutí služeb 2026');
+    expect(loadedDoc.getAuthor()).toBe('Ing. Jan Novák');
+    expect(loadedDoc.getSubject()).toBe('Dodatek č. 1');
+    expect(loadedDoc.getKeywords()).toContain('smlouva');
+    expect(loadedDoc.getKeywords()).toContain('služby');
+    expect(loadedDoc.getKeywords()).toContain('finance');
+    expect(loadedDoc.getCreator()).toBe('PDF Studio Creator App');
+    expect(loadedDoc.getProducer()).toBe('PDF Studio Producer Engine');
+    expect(loadedDoc.getCreationDate()?.toISOString()).toBe('2026-05-15T10:30:00.000Z');
+    expect(loadedDoc.getModificationDate()).toBeDefined();
+
+    // Verify metadata extraction via pdfLoader
+    const extracted = await extractPdfMetadata('main', pdfBytes.buffer);
+    expect(extracted.title).toBe('Smlouva o poskytnutí služeb 2026');
+    expect(extracted.author).toBe('Ing. Jan Novák');
+    expect(extracted.subject).toBe('Dodatek č. 1');
+
+    delete (globalThis as any).document;
+  });
 });

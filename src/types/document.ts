@@ -44,3 +44,24 @@ export const DEFAULT_RASTERIZATION_SETTINGS: RasterizationSettings = {
   format: 'image/jpeg',
   jpegQuality: 0.90,
 };
+
+export interface DocumentMetadata {
+  title: string;
+  author: string;
+  subject: string;
+  keywords: string;
+  creator: string;
+  producer: string;
+  creationDate?: string;
+  modificationDate?: string;
+  pdfVersion?: string;
+}
+
+export const DEFAULT_DOCUMENT_METADATA: DocumentMetadata = {
+  title: '',
+  author: '',
+  subject: '',
+  keywords: '',
+  creator: 'PDF Studio',
+  producer: 'PDF Studio (https://richardlipka.github.io/pdf-studio/)',
+};

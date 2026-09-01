@@ -293,4 +293,34 @@ export interface TranslationSchema {
     cancel: string;
     currentConfigBadge: string;
   };
+  metadataModal: {
+    title: string;
+    subtitle: string;
+    sectionDocInfo: string;
+    sectionProperties: string;
+    fieldTitle: string;
+    fieldTitlePlaceholder: string;
+    fieldAuthor: string;
+    fieldAuthorPlaceholder: string;
+    fieldSubject: string;
+    fieldSubjectPlaceholder: string;
+    fieldKeywords: string;
+    fieldKeywordsPlaceholder: string;
+    fieldKeywordsHelp: string;
+    fieldCreator: string;
+    fieldCreatorPlaceholder: string;
+    fieldProducer: string;
+    fieldProducerPlaceholder: string;
+    fieldCreationDate: string;
+    fieldModDate: string;
+    fieldPdfVersion: string;
+    fieldPagesCount: string;
+    fieldFileSize: string;
+    notSpecified: string;
+    save: string;
+    cancel: string;
+    reset: string;
+    toastSaved: string;
+    buttonTooltip: string;
+  };
 }

@@ -11,7 +11,7 @@ import {
   PDFDict,
   ParseSpeeds,
 } from 'pdf-lib';
-import { PdfPageModel, SourceDocument, RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
+import { PdfPageModel, SourceDocument, RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS, DocumentMetadata } from '../types/document';
 import {
   Annotation,
   DrawingAnnotation,
@@ -486,7 +486,8 @@ export const exportEditedPdf = async (
   pages: PdfPageModel[],
   annotations: Annotation[],
   outputFileName: string = 'document-edited.pdf',
-  rasterSettings: RasterizationSettings = DEFAULT_RASTERIZATION_SETTINGS
+  rasterSettings: RasterizationSettings = DEFAULT_RASTERIZATION_SETTINGS,
+  metadata?: DocumentMetadata
 ): Promise<Uint8Array> => {
   const startTime = Date.now();
   logger.info('save', `Zahájen export PDF: "${outputFileName}" (${pages.length} stran)`, {
@@ -495,9 +496,33 @@ export const exportEditedPdf = async (
     sourcesCount: sources.length,
     annotationsCount: annotations.length,
     rasterSettings,
+    metadata,
   });
 
   const outputDoc = await PDFDocument.create();
+
+  // Apply document metadata if provided
+  if (metadata) {
+    if (metadata.title) outputDoc.setTitle(metadata.title);
+    if (metadata.author) outputDoc.setAuthor(metadata.author);
+    if (metadata.subject) outputDoc.setSubject(metadata.subject);
+    if (metadata.keywords) {
+      const kwList = typeof metadata.keywords === 'string'
+        ? metadata.keywords.split(',').map((k) => k.trim()).filter(Boolean)
+        : metadata.keywords;
+      outputDoc.setKeywords(kwList);
+    }
+    if (metadata.creator) outputDoc.setCreator(metadata.creator);
+    if (metadata.producer) outputDoc.setProducer(metadata.producer);
+    if (metadata.creationDate) {
+      try {
+        outputDoc.setCreationDate(new Date(metadata.creationDate));
+      } catch {
+        // ignore invalid date
+      }
+    }
+    outputDoc.setModificationDate(new Date());
+  }
 
   // Pre-load source PDF documents into memory map with automatic catalog repair
   const sourceDocsMap = new Map<string, PDFDocument>();
@@ -960,7 +985,10 @@ export const exportEditedPdf = async (
 
   try {
     // Save document as bytes with PDF 1.5 Object Stream compression
-    const pdfBytes = await outputDoc.save({ useObjectStreams: true });
+    const pdfBytes = await outputDoc.save({
+      useObjectStreams: true,
+      updateInfoDict: false,
+    } as any);
     const elapsed = Date.now() - startTime;
     logger.success('save', `PDF export úspěšně dokončen: ${(pdfBytes.length / 1024).toFixed(1)} KB za ${elapsed} ms`, {
       outputFileName,

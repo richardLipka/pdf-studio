@@ -1,5 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist';
-import { PdfPageModel, SourceDocument } from '../types/document';
+import { PdfPageModel, SourceDocument, DocumentMetadata } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { logger } from './logger';
 import { sanitizePdfBuffer, extractPdfHeader } from './pdfExporter';
@@ -124,6 +124,79 @@ export const parsePdfPages = async (
       pdfHeader: headerStr,
     });
     throw err;
+  }
+};
+
+/**
+ * Extracts document metadata (Title, Author, Subject, Keywords, Creator, Producer, Dates, Version)
+ */
+export const extractPdfMetadata = async (
+  sourceDocId: string,
+  arrayBuffer: ArrayBuffer
+): Promise<DocumentMetadata> => {
+  try {
+    const pdfDoc = await getCachedPdfDocument(sourceDocId, arrayBuffer);
+    const metaDataObj = await pdfDoc.getMetadata().catch(() => null);
+    const info = (metaDataObj?.info as any) || {};
+
+    const parsePdfDate = (dateStr: any): string | undefined => {
+      if (!dateStr || typeof dateStr !== 'string') return undefined;
+      try {
+        if (dateStr.startsWith('D:')) {
+          const clean = dateStr.substring(2);
+          const y = clean.substring(0, 4);
+          const m = clean.substring(4, 6) || '01';
+          const d = clean.substring(6, 8) || '01';
+          const hh = clean.substring(8, 10) || '00';
+          const mm = clean.substring(10, 12) || '00';
+          const ss = clean.substring(12, 14) || '00';
+          return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`).toISOString();
+        }
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) return d.toISOString();
+      } catch {
+        // ignore
+      }
+      return undefined;
+    };
+
+    const metadata: DocumentMetadata = {
+      title: info.Title || '',
+      author: info.Author || '',
+      subject: info.Subject || '',
+      keywords: info.Keywords || '',
+      creator: info.Creator || 'PDF Studio',
+      producer: info.Producer || 'PDF Studio (pdf-lib)',
+      creationDate: parsePdfDate(info.CreationDate),
+      modificationDate: parsePdfDate(info.ModDate),
+      pdfVersion: (pdfDoc as any)._pdfInfo?.version || info.PDFFormatVersion || undefined,
+    };
+
+    logger.info('load', `Extrahována metadata PDF dokumentu "${sourceDocId}"`, {
+      sourceDocId,
+      title: metadata.title || '(neuvedeno)',
+      author: metadata.author || '(neuvedeno)',
+      subject: metadata.subject || '(neuvedeno)',
+      keywords: metadata.keywords || '(neuvedeno)',
+      creator: metadata.creator || '(neuvedeno)',
+      producer: metadata.producer || '(neuvedeno)',
+      pdfVersion: metadata.pdfVersion,
+    });
+
+    return metadata;
+  } catch (err: any) {
+    logger.warn('load', `Nepodařilo se extrahovat metadata ze zdroje "${sourceDocId}": ${err?.message || err}`, {
+      sourceDocId,
+      error: err?.message || String(err),
+    });
+    return {
+      title: '',
+      author: '',
+      subject: '',
+      keywords: '',
+      creator: 'PDF Studio',
+      producer: 'PDF Studio (pdf-lib)',
+    };
   }
 };
 

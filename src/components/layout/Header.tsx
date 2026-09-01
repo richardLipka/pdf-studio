@@ -19,6 +19,7 @@ import {
   Rocket,
   ScrollText,
   Sliders,
+  Info,
 } from 'lucide-react';
 import { logger } from '../../services/logger';
 
@@ -46,6 +47,8 @@ export const Header: React.FC = () => {
     toggleLogModal,
     isSettingsModalOpen,
     toggleSettingsModal,
+    isMetadataModalOpen,
+    toggleMetadataModal,
     rasterSettings,
   } = useEditor();
 
@@ -152,13 +155,17 @@ export const Header: React.FC = () => {
               </span>
             </div>
             {hasDoc && (
-              <p
-                className={`text-xs truncate max-w-[160px] md:max-w-xs ${
-                  isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#cc99cc]' : 'text-slate-400'
+              <button
+                type="button"
+                onClick={toggleMetadataModal}
+                className={`text-xs truncate max-w-[160px] md:max-w-xs flex items-center gap-1 group text-left transition-colors ${
+                  isMinimal ? 'text-neutral-500 hover:text-black' : isLcars ? 'text-[#cc99cc] hover:text-[#ff9900]' : 'text-slate-400 hover:text-sky-300'
                 }`}
+                title={t.metadataModal.buttonTooltip}
               >
-                {fileName}
-              </p>
+                <span className="truncate">{fileName}</span>
+                <Info className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+              </button>
             )}
           </div>
         </div>
@@ -342,6 +349,30 @@ export const Header: React.FC = () => {
             </span>
           )}
         </button>
+
+        {/* Document Metadata Button */}
+        {hasDoc && (
+          <button
+            onClick={toggleMetadataModal}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border transition-all ${
+              isMinimal
+                ? isMetadataModalOpen
+                  ? 'rounded-md bg-black text-white border-black'
+                  : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                : isLcars
+                ? isMetadataModalOpen
+                  ? 'rounded-full bg-[#cc99cc] text-black border-[#cc99cc]'
+                  : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#cc99cc] border-[#ff9900]'
+                : isMetadataModalOpen
+                ? 'rounded-lg bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-sm'
+                : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title={t.metadataModal.buttonTooltip}
+          >
+            <Info className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">{t.metadataModal.title}</span>
+          </button>
+        )}
 
         {/* Settings Button */}
         <button

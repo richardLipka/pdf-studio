@@ -49,6 +49,9 @@ interface EditorContextType {
   isSettingsModalOpen: boolean;
   setIsSettingsModalOpen: (open: boolean) => void;
   toggleSettingsModal: () => void;
+  isMetadataModalOpen: boolean;
+  setIsMetadataModalOpen: (open: boolean) => void;
+  toggleMetadataModal: () => void;
 
   // Rasterization Settings
   rasterSettings: RasterizationSettings;
@@ -96,6 +99,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [deleteMode, setDeleteMode] = useState<'single' | 'multiple'>('single');
   const [isLogModalOpen, setIsLogModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
+  const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
 
   const toggleLogModal = () => {
     setIsLogModalOpen((prev) => !prev);
@@ -103,6 +107,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const toggleSettingsModal = () => {
     setIsSettingsModalOpen((prev) => !prev);
+  };
+
+  const toggleMetadataModal = () => {
+    setIsMetadataModalOpen((prev) => !prev);
   };
 
   // Rasterization Settings State (persisted in localStorage)
@@ -294,6 +302,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isSettingsModalOpen,
     setIsSettingsModalOpen,
     toggleSettingsModal,
+    isMetadataModalOpen,
+    setIsMetadataModalOpen,
+    toggleMetadataModal,
     rasterSettings,
     setRasterSettings,
     resetRasterSettings,

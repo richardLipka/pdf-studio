@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-41%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-42%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -72,30 +72,36 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
   - **Export JSON**: Download your entire stamp library into a portable JSON package with Base64-encoded bitmap images.
   - **Import JSON**: Upload and restore stamps on any device or browser with schema validation.
 
-### 5. ⚙️ Configurable Rasterization & Export Settings
+### 5. 📋 Document Metadata Inspection & Editing
+- **Inspect & Edit Properties**: Direct view and real-time editing of standard PDF document metadata:
+  - **Title (Název dokumentu)**, **Author (Autor)**, **Subject (Předmět / Téma)**, **Keywords (Klíčová slova)**, **Creator (Tvůrce)**, and **Producer (Producent)**.
+- **Technical File Inspection**: Displays source file size, total page count, creation date, last modification timestamp, and PDF format version.
+- **Persistent Export**: All edited metadata is written directly to the exported PDF document trailer info dictionary upon saving.
+
+### 6. ⚙️ Configurable Rasterization & Export Settings
 - **Customizable Fallback Parameters**: Full control over fallback rasterization settings whenever a page cannot be directly vector-copied:
   - **Resolution / Scale**: `1.0×` (72 DPI - fast & compact), `1.5×` (108 DPI - balanced), `2.0×` (144 DPI - default crisp), `3.0×` (216 DPI - ultra high print quality).
   - **Image Format**: `JPEG` (recommended with DCTDecode compression for scans/comics) or `PNG` (lossless).
   - **JPEG Quality**: Configurable slider and quick presets (75%, 85%, 90% default, 95%, 100%).
 - **State Persistence**: Settings are saved in browser `localStorage` and indicated dynamically in the StatusBar.
 
-### 6. 🎨 Switchable Themes (URL-Encoded)
+### 7. 🎨 Switchable Themes (URL-Encoded)
 - **Studio (Dark)**: Sleek glassmorphic dark design with ambient shadows (`?theme=default`).
 - **Minimal (Light)**: Pure white background (`#ffffff`), crisp black lines, zero blue tints, high-contrast monochrome UI (`?theme=minimal`).
 - **LCARS (Star Trek: TNG)**: Authentic 24th-century Federation Starfleet interface with iconic LCARS amber, lilac, cyan palette, pill buttons, and condensed typography (`?theme=lcars`).
 - Theme state is synchronized with URL query parameters for seamless bookmarking and sharing.
 
-### 7. ⚡ Flicker-Free 100-Step Undo & Redo
+### 8. ⚡ Flicker-Free 100-Step Undo & Redo
 - Deep-cloned, immutable history stack with 100 snapshots.
 - `PageCanvas` uses memoized rendering to keep the underlying PDF canvas intact without screen blinking on annotation updates.
 - Atomic history snapshots captured on mouse release (`onMouseUp`) for smooth dragging/resizing.
 
-### 8. 🔍 Smart Zoom & Viewport Synchronization
+### 9. 🔍 Smart Zoom & Viewport Synchronization
 - **Dynamic Zoom to Selected Page** (<kbd>Ctrl + 0</kbd>): Calculates exact aspect-ratio scale for the current page to fit the viewport.
 - **Fit Width** & **Fit Page**: Adaptive scaling to screen width or full height.
 - **Auto-Scrolling**: Selecting any page in the sidebar or via arrow keys immediately scrolls the main viewport and thumbnail bar to center on that page.
 
-### 9. 📜 Event Log & Diagnostic Protocol Screen
+### 10. 📜 Event Log & Diagnostic Protocol Screen
 - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and parsing events with precise timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
 - **Buffer Sanitization & Parse Diagnostics**: Automatically strips pre-header/post-EOF noise, captures 7 parse attempts with stack traces, and logs catalog repair actions.
 - **Rasterization & Transformation Details**: Captures specific reasons, image dimensions, scale factors, data sizes, and JPEG/PNG transformation parameters whenever fallback rasterization is triggered.
