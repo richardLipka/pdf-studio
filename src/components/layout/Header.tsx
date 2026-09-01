@@ -18,6 +18,7 @@ import {
   Sun,
   Rocket,
   ScrollText,
+  Sliders,
 } from 'lucide-react';
 import { logger } from '../../services/logger';
 
@@ -38,7 +39,15 @@ export const Header: React.FC = () => {
     saveAndDownload,
   } = useDocument();
 
-  const { isNotesPanelOpen, toggleNotesPanel, isLogModalOpen, toggleLogModal } = useEditor();
+  const {
+    isNotesPanelOpen,
+    toggleNotesPanel,
+    isLogModalOpen,
+    toggleLogModal,
+    isSettingsModalOpen,
+    toggleSettingsModal,
+    rasterSettings,
+  } = useEditor();
 
   const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
     warns: 0,
@@ -72,7 +81,7 @@ export const Header: React.FC = () => {
 
   const handleSaveAndDownload = async () => {
     if (pages.length === 0) return;
-    const success = await saveAndDownload();
+    const success = await saveAndDownload(undefined, rasterSettings);
     if (success) {
       setShowSuccessToast(true);
       setShowErrorToast(false);
@@ -332,6 +341,28 @@ export const Header: React.FC = () => {
               {issueCount.totalIssues}
             </span>
           )}
+        </button>
+
+        {/* Settings Button */}
+        <button
+          onClick={toggleSettingsModal}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border transition-all ${
+            isMinimal
+              ? isSettingsModalOpen
+                ? 'rounded-md bg-black text-white border-black'
+                : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+              : isLcars
+              ? isSettingsModalOpen
+                ? 'rounded-full bg-[#ff9900] text-black border-[#ff9900]'
+                : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
+              : isSettingsModalOpen
+              ? 'rounded-lg bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-sm'
+              : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+          }`}
+          title={t.settings.title}
+        >
+          <Sliders className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">{t.settings.title}</span>
         </button>
 
         {/* Theme Switcher */}

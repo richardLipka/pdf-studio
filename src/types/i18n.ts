@@ -271,4 +271,26 @@ export interface TranslationSchema {
     viewLogLink: string;
     allOk: string;
   };
+  settings: {
+    title: string;
+    subtitle: string;
+    rasterizationSection: string;
+    rasterizationDesc: string;
+    scaleLabel: string;
+    scale10: string;
+    scale15: string;
+    scale20: string;
+    scale30: string;
+    formatLabel: string;
+    formatJpeg: string;
+    formatJpegDesc: string;
+    formatPng: string;
+    formatPngDesc: string;
+    jpegQualityLabel: string;
+    jpegQualityDesc: string;
+    resetDefaults: string;
+    saveClose: string;
+    cancel: string;
+    currentConfigBadge: string;
+  };
 }

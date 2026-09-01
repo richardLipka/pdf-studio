@@ -2,6 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { PdfPageModel, SourceDocument } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { logger } from './logger';
+import { sanitizePdfBuffer, extractPdfHeader } from './pdfExporter';
 
 // Configure pdfjs worker in Vite for browser
 if (typeof window !== 'undefined') {
@@ -45,40 +46,83 @@ export const parsePdfPages = async (
   sourceDocId: string = 'main'
 ): Promise<PdfPageModel[]> => {
   const startTime = Date.now();
-  logger.info('load', `Zahájeno načítání PDF (${(arrayBuffer.byteLength / 1024).toFixed(1)} KB)`, {
+  const rawSizeKb = (arrayBuffer.byteLength / 1024).toFixed(1);
+  const headerStr = extractPdfHeader(arrayBuffer);
+
+  logger.info('load', `Zahájeno načítání PDF "${sourceDocId}" (${rawSizeKb} KB)`, {
     sourceDocId,
     bytes: arrayBuffer.byteLength,
+    fileSize: `${rawSizeKb} KB`,
+    pdfHeader: headerStr,
   });
+
+  // Check for header/trailing buffer anomalies
+  const sanitizedBuffer = sanitizePdfBuffer(arrayBuffer);
+  if (sanitizedBuffer.byteLength !== arrayBuffer.byteLength) {
+    logger.warn(
+      'load',
+      `Dokument "${sourceDocId}" obsahuje data mimo standardní značky PDF (%PDF- až %%EOF). Buffer byl sanitizován pro kompatibilitu (${arrayBuffer.byteLength} B -> ${sanitizedBuffer.byteLength} B).`,
+      {
+        sourceDocId,
+        originalBytes: arrayBuffer.byteLength,
+        sanitizedBytes: sanitizedBuffer.byteLength,
+        diffBytes: arrayBuffer.byteLength - sanitizedBuffer.byteLength,
+        pdfHeader: headerStr,
+        note: 'Tento stav je běžný u skenovaných PDF a komiksových konvertorů (např. Calibre, cbr2pdf).',
+      }
+    );
+  }
 
   try {
     const pdfDoc = await getCachedPdfDocument(sourceDocId, arrayBuffer);
     const pages: PdfPageModel[] = [];
 
     for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const viewport = page.getViewport({ scale: 1.0 });
+      try {
+        const page = await pdfDoc.getPage(i);
+        const viewport = page.getViewport({ scale: 1.0 });
 
-      pages.push({
-        id: `${sourceDocId}_page_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        originalPageIndex: i - 1,
-        sourceDocId,
-        sourceType: 'pdf',
-        rotation: viewport.rotation || 0,
-        width: viewport.width,
-        height: viewport.height,
-      });
+        pages.push({
+          id: `${sourceDocId}_page_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          originalPageIndex: i - 1,
+          sourceDocId,
+          sourceType: 'pdf',
+          rotation: viewport.rotation || 0,
+          width: viewport.width,
+          height: viewport.height,
+        });
+      } catch (pageErr: any) {
+        logger.warn(
+          'load',
+          `Problém při čtení strany ${i}/${pdfDoc.numPages} ze zdroje "${sourceDocId}": ${pageErr?.message || pageErr}`,
+          {
+            sourceDocId,
+            pageNumber: i,
+            totalPages: pdfDoc.numPages,
+            error: pageErr?.message || String(pageErr),
+            stack: pageErr?.stack,
+          }
+        );
+      }
     }
 
     const elapsed = Date.now() - startTime;
-    logger.success('load', `Načteno ${pages.length} stran za ${elapsed} ms`, {
+    logger.success('load', `Dokument "${sourceDocId}" úspěšně načten (${pages.length} stran za ${elapsed} ms)`, {
       sourceDocId,
       totalPages: pages.length,
       durationMs: elapsed,
+      fileSizeKB: rawSizeKb,
     });
 
     return pages;
   } catch (err: any) {
-    logger.error('load', `Nepodařilo se analyzovat PDF dokument (${sourceDocId}): ${err.message}`, err);
+    logger.error('load', `Kritická chyba při analýze PDF dokumentu "${sourceDocId}": ${err?.message || err}`, {
+      sourceDocId,
+      error: err?.message || String(err),
+      stack: err?.stack,
+      fileSize: `${rawSizeKb} KB`,
+      pdfHeader: headerStr,
+    });
     throw err;
   }
 };
@@ -165,8 +209,23 @@ export const extractPdfAnnotations = async (
       const pageModel = pages[i];
       if (pageModel.sourceType !== 'pdf') continue;
 
-      const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
-      const pdfAnnotations = await page.getAnnotations();
+      let pdfAnnotations: any[] = [];
+      try {
+        const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+        pdfAnnotations = await page.getAnnotations();
+      } catch (pageAnnErr: any) {
+        logger.warn(
+          'load',
+          `Nepodařilo se načíst existující anotace pro stranu ${i + 1} (${pageModel.id}): ${pageAnnErr?.message || pageAnnErr}`,
+          {
+            sourceDocId,
+            pageId: pageModel.id,
+            pageNumber: i + 1,
+            error: pageAnnErr?.message || String(pageAnnErr),
+          }
+        );
+        continue;
+      }
 
       for (const ann of pdfAnnotations) {
         if (!ann.rect || ann.rect.length < 4) continue;

@@ -32,3 +32,15 @@ export interface SourceDocument {
   name: string;
   arrayBuffer: ArrayBuffer;
 }
+
+export interface RasterizationSettings {
+  scale: number; // e.g. 1.0, 1.5, 2.0, 3.0 (default 2.0)
+  format: 'image/jpeg' | 'image/png'; // default 'image/jpeg'
+  jpegQuality: number; // 0.50 to 1.00 (default 0.90)
+}
+
+export const DEFAULT_RASTERIZATION_SETTINGS: RasterizationSettings = {
+  scale: 2.0,
+  format: 'image/jpeg',
+  jpegQuality: 0.90,
+};

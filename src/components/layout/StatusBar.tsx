@@ -12,6 +12,7 @@ import {
   Maximize2,
   ShieldCheck,
   ScrollText,
+  Sliders,
 } from 'lucide-react';
 
 export const StatusBar: React.FC = () => {
@@ -27,7 +28,7 @@ export const StatusBar: React.FC = () => {
     zoomToFitWidth,
   } = useDocument();
 
-  const { toggleLogModal } = useEditor();
+  const { toggleLogModal, toggleSettingsModal, rasterSettings } = useEditor();
 
   const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
     warns: 0,
@@ -233,6 +234,34 @@ export const StatusBar: React.FC = () => {
               : issueCount.warns > 0
               ? `${issueCount.warns} ${t.logModal.tabWarnings.toLowerCase()}`
               : t.logModal.allOk}
+          </span>
+        </button>
+
+        <span
+          className={`hidden md:inline select-none ${
+            isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
+          }`}
+        >
+          •
+        </span>
+
+        {/* Rasterization Settings Quick Status */}
+        <button
+          onClick={toggleSettingsModal}
+          className={`hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+            isMinimal
+              ? 'text-neutral-600 hover:text-black hover:bg-neutral-100'
+              : isLcars
+              ? 'text-[#99ccff] hover:text-[#ff9900] hover:bg-[#222]'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+          title={`${t.settings.title}: ${rasterSettings.format === 'image/jpeg' ? `JPEG ${Math.round(rasterSettings.jpegQuality * 100)}%` : 'PNG'}, ${rasterSettings.scale}×`}
+        >
+          <Sliders className="w-3 h-3" />
+          <span>
+            {rasterSettings.format === 'image/jpeg'
+              ? `Raster: JPG ${Math.round(rasterSettings.jpegQuality * 100)}% (${rasterSettings.scale}×)`
+              : `Raster: PNG (${rasterSettings.scale}×)`}
           </span>
         </button>
       </div>

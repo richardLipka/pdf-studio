@@ -161,4 +161,40 @@ describe('PDF Export & Download Reliability', () => {
     const header = extractPdfHeader(invalidBuffer);
     expect(header).toBeDefined();
   });
+
+  it('should accept custom rasterization settings (scale, format, jpegQuality) during export', async () => {
+    const { DEFAULT_RASTERIZATION_SETTINGS } = await import('../src/types/document');
+    expect(DEFAULT_RASTERIZATION_SETTINGS.scale).toBe(2.0);
+    expect(DEFAULT_RASTERIZATION_SETTINGS.format).toBe('image/jpeg');
+    expect(DEFAULT_RASTERIZATION_SETTINGS.jpegQuality).toBe(0.90);
+
+    const sampleDoc = await PDFDocument.create();
+    sampleDoc.addPage([400, 600]);
+    const buffer = await sampleDoc.save();
+
+    const sources: SourceDocument[] = [{ id: 'src-1', name: 'test.pdf', arrayBuffer: buffer.buffer }];
+    const pages: PdfPageModel[] = [
+      { id: 'p1', sourceDocId: 'src-1', originalPageIndex: 0, pageNumber: 1, width: 400, height: 600, rotation: 0, sourceType: 'pdf' },
+    ];
+
+    const fakeLink = { href: '', download: '', style: {}, click: vi.fn() };
+    (globalThis as any).document = {
+      createElement: vi.fn().mockReturnValue(fakeLink),
+      body: { appendChild: vi.fn(), removeChild: vi.fn(), contains: vi.fn().mockReturnValue(true) },
+    };
+    globalThis.URL.createObjectURL = vi.fn().mockReturnValue('blob:http://test');
+    globalThis.URL.revokeObjectURL = vi.fn();
+
+    const customSettings = {
+      scale: 1.5,
+      format: 'image/jpeg' as const,
+      jpegQuality: 0.85,
+    };
+
+    const pdfBytes = await exportEditedPdf(sources, pages, [], 'custom-settings.pdf', customSettings);
+    expect(pdfBytes).toBeDefined();
+    expect(pdfBytes.length).toBeGreaterThan(0);
+
+    delete (globalThis as any).document;
+  });
 });

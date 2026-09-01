@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { ToolType, ShapeType } from '../types/annotations';
 import { SignatureStamp, StampExportPackage } from '../types/stamp';
+import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
 
 interface EditorContextType {
   activeTool: ToolType;
@@ -45,6 +46,14 @@ interface EditorContextType {
   isLogModalOpen: boolean;
   setIsLogModalOpen: (open: boolean) => void;
   toggleLogModal: () => void;
+  isSettingsModalOpen: boolean;
+  setIsSettingsModalOpen: (open: boolean) => void;
+  toggleSettingsModal: () => void;
+
+  // Rasterization Settings
+  rasterSettings: RasterizationSettings;
+  setRasterSettings: React.Dispatch<React.SetStateAction<RasterizationSettings>>;
+  resetRasterSettings: () => void;
 
   // Stamps & Signatures Library
   stamps: SignatureStamp[];
@@ -58,6 +67,7 @@ const EditorContext = createContext<EditorContextType | null>(null);
 
 const STAMPS_STORAGE_KEY = 'pdf_studio_stamps_library_v2';
 const LEGACY_SIGS_KEY = 'pdf_studio_saved_sigs_v1';
+const RASTER_SETTINGS_STORAGE_KEY = 'pdf_studio_raster_settings_v1';
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeTool, setActiveTool] = useState<ToolType>('select');
@@ -85,9 +95,39 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [deleteTargetPageId, setDeleteTargetPageId] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState<'single' | 'multiple'>('single');
   const [isLogModalOpen, setIsLogModalOpen] = useState<boolean>(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
 
   const toggleLogModal = () => {
     setIsLogModalOpen((prev) => !prev);
+  };
+
+  const toggleSettingsModal = () => {
+    setIsSettingsModalOpen((prev) => !prev);
+  };
+
+  // Rasterization Settings State (persisted in localStorage)
+  const [rasterSettings, setRasterSettings] = useState<RasterizationSettings>(() => {
+    try {
+      const saved = localStorage.getItem(RASTER_SETTINGS_STORAGE_KEY);
+      if (saved) {
+        return { ...DEFAULT_RASTERIZATION_SETTINGS, ...JSON.parse(saved) };
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_RASTERIZATION_SETTINGS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RASTER_SETTINGS_STORAGE_KEY, JSON.stringify(rasterSettings));
+    } catch (e) {
+      console.warn('Failed to save raster settings to localStorage', e);
+    }
+  }, [rasterSettings]);
+
+  const resetRasterSettings = () => {
+    setRasterSettings(DEFAULT_RASTERIZATION_SETTINGS);
   };
 
   // Stamps library state
@@ -251,6 +291,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isLogModalOpen,
     setIsLogModalOpen,
     toggleLogModal,
+    isSettingsModalOpen,
+    setIsSettingsModalOpen,
+    toggleSettingsModal,
+    rasterSettings,
+    setRasterSettings,
+    resetRasterSettings,
     stamps,
     addStamp,
     removeStamp,

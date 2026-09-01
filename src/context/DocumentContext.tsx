@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { PdfPageModel, SourceDocument } from '../types/document';
+import { PdfPageModel, SourceDocument, RasterizationSettings } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { exportEditedPdf } from '../services/pdfExporter';
 import { deletePage, reorderPages, rotatePage, insertPagesAtPosition, InsertPosition } from '../services/pageManager';
@@ -65,7 +65,7 @@ interface DocumentContextType {
   undo: () => void;
   redo: () => void;
   commitHistorySnapshot: () => void;
-  saveAndDownload: (customName?: string) => Promise<boolean>;
+  saveAndDownload: (customName?: string, rasterSettings?: RasterizationSettings) => Promise<boolean>;
 }
 
 const DocumentContext = createContext<DocumentContextType | null>(null);
@@ -470,13 +470,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  const saveAndDownload = async (customName?: string): Promise<boolean> => {
+  const saveAndDownload = async (
+    customName?: string,
+    rasterSettings?: RasterizationSettings
+  ): Promise<boolean> => {
     if (pages.length === 0) return false;
     setIsSaving(true);
     try {
       const baseName = customName || fileName.replace(/\.pdf$/i, '');
       const outName = baseName.endsWith('.pdf') ? baseName : `${baseName}-edited.pdf`;
-      const bytes = await exportEditedPdf(sources, pages, annotations, outName);
+      const bytes = await exportEditedPdf(sources, pages, annotations, outName, rasterSettings);
       return Boolean(bytes && bytes.length > 0);
     } catch (e: any) {
       logger.error('save', `Chyba při exportu dokumentu: ${e?.message || e}`, e);

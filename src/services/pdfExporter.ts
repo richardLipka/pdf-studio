@@ -11,7 +11,7 @@ import {
   PDFDict,
   ParseSpeeds,
 } from 'pdf-lib';
-import { PdfPageModel, SourceDocument } from '../types/document';
+import { PdfPageModel, SourceDocument, RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
 import {
   Annotation,
   DrawingAnnotation,
@@ -485,7 +485,8 @@ export const exportEditedPdf = async (
   sources: SourceDocument[],
   pages: PdfPageModel[],
   annotations: Annotation[],
-  outputFileName: string = 'document-edited.pdf'
+  outputFileName: string = 'document-edited.pdf',
+  rasterSettings: RasterizationSettings = DEFAULT_RASTERIZATION_SETTINGS
 ): Promise<Uint8Array> => {
   const startTime = Date.now();
   logger.info('save', `Zahájen export PDF: "${outputFileName}" (${pages.length} stran)`, {
@@ -493,6 +494,7 @@ export const exportEditedPdf = async (
     totalPages: pages.length,
     sourcesCount: sources.length,
     annotationsCount: annotations.length,
+    rasterSettings,
   });
 
   const outputDoc = await PDFDocument.create();
@@ -659,7 +661,17 @@ export const exportEditedPdf = async (
         try {
           const sourceDoc = sources.find((s) => s.id === pageModel.sourceDocId) || sources[0];
           if (sourceDoc && sourceDoc.arrayBuffer) {
-            const highResDataUrl = await renderPdfPageToDataUrl(sourceDoc, pageModel, 2.0, 'image/jpeg', 0.90);
+            const scale = rasterSettings.scale || 2.0;
+            const format = rasterSettings.format || 'image/jpeg';
+            const quality = rasterSettings.jpegQuality ?? 0.90;
+
+            const highResDataUrl = await renderPdfPageToDataUrl(
+              sourceDoc,
+              pageModel,
+              scale,
+              format,
+              quality
+            );
             const embeddedImg = await embedDataUrlImage(outputDoc, highResDataUrl);
             targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
             targetPage.drawImage(embeddedImg, {
@@ -669,16 +681,22 @@ export const exportEditedPdf = async (
               height: pageModel.height,
             });
             const dataUrlKb = (highResDataUrl.length * 0.75 / 1024).toFixed(1);
+            const isJpeg = format === 'image/jpeg';
             logger.warn(
               'save',
-              `Záchranná rastrizace pro stranu ${pageModel.id} proběhla úspěšně (${dataUrlKb} KB)`,
+              `Záchranná rastrizace pro stranu ${pageModel.id} proběhla úspěšně (${dataUrlKb} KB, ${isJpeg ? `JPEG ${Math.round(quality * 100)} %` : 'PNG'}, ${scale}× měřítko)`,
               {
                 pageId: pageModel.id,
                 pageNumber: (pageModel.originalPageIndex ?? 0) + 1,
                 sourceDocId: pageModel.sourceDocId,
                 dimensions: `${pageModel.width.toFixed(0)} × ${pageModel.height.toFixed(0)} pt`,
-                rasterScale: 2.0,
-                renderedImageSizeKB: dataUrlKb,
+                rasterScale: `${scale}× (${Math.round(scale * 72)} DPI)`,
+                rasterFormat: format,
+                jpegQuality: isJpeg ? `${Math.round(quality * 100)} %` : 'N/A (Lossless PNG)',
+                renderedImageSizeKB: `${dataUrlKb} KB`,
+                transformationNote: isJpeg
+                  ? `Strana byla transformována do optimalizovaného JPEG s nativní DCTDecode kompresí (${Math.round(quality * 100)} % kvalita, měřítko ${scale}×).`
+                  : `Strana byla uložena v bezztrátovém PNG (měřítko ${scale}×).`,
                 reason: sourceDocsMap.has(pageModel.sourceDocId)
                   ? 'Kopírování této konkrétní strany selhalo (např. poškozený obsah strany nebo fonty)'
                   : `Zdrojový PDF dokument "${pageModel.sourceDocId}" se nepodařilo načíst do PDF-lib parseru`,

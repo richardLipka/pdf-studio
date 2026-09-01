@@ -14,6 +14,7 @@ import { SignatureModal } from './components/modals/SignatureModal';
 import { AddPageModal } from './components/modals/AddPageModal';
 import { ConfirmModal } from './components/modals/ConfirmModal';
 import { LogModal } from './components/modals/LogModal';
+import { SettingsModal } from './components/modals/SettingsModal';
 
 const MainWorkspace: React.FC = () => {
   const { theme } = useTheme();
@@ -93,6 +94,7 @@ const MainWorkspace: React.FC = () => {
       <AddPageModal />
       <ConfirmModal />
       <LogModal />
+      <SettingsModal />
     </div>
   );
 };
