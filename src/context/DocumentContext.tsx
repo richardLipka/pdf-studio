@@ -6,10 +6,13 @@ import { deletePage, reorderPages, rotatePage, insertPagesAtPosition, InsertPosi
 import { parsePdfPages, extractPdfAnnotations, extractPdfMetadata, clearPdfCache } from '../services/pdfLoader';
 import { logger } from '../services/logger';
 
+import { replaceTextInPageContentStream, replaceTextInAllPagesContentStream } from '../services/contentStreamEditor';
+
 interface HistorySnapshot {
   pages: PdfPageModel[];
   annotations: Annotation[];
   activePageIndex: number;
+  sources?: SourceDocument[];
 }
 
 const MAX_HISTORY = 100; // Generous 100-step undo/redo stack
@@ -65,6 +68,17 @@ interface DocumentContextType {
   updateAnnotation: (annotation: Annotation, recordHistory?: boolean) => void;
   deleteAnnotation: (id: string) => void;
   setSelectedAnnotationId: (id: string | null) => void;
+
+  // Direct Content Stream Editing
+  applyContentStreamReplacement: (
+    searchText: string,
+    replaceText: string,
+    options?: {
+      pageIndex?: number;
+      replaceAllPages?: boolean;
+      matchCase?: boolean;
+    }
+  ) => Promise<{ success: boolean; totalReplaced: number; error?: string }>;
   
   // Undo / Redo / Export
   undo: () => void;
@@ -103,13 +117,19 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
 
   const pushHistory = useCallback(
-    (newPages: PdfPageModel[], newAnnotations: Annotation[], newActiveIndex: number) => {
+    (
+      newPages: PdfPageModel[],
+      newAnnotations: Annotation[],
+      newActiveIndex: number,
+      newSources?: SourceDocument[]
+    ) => {
       setHistory((prev) => {
         const next = prev.slice(0, historyIndex + 1);
         const snapshot: HistorySnapshot = {
           pages: deepClone(newPages),
           annotations: deepClone(newAnnotations),
           activePageIndex: newActiveIndex,
+          sources: deepClone(newSources || sources),
         };
 
         if (next.length >= MAX_HISTORY) {
@@ -119,7 +139,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
       setHistoryIndex((prev) => Math.min(prev + 1, MAX_HISTORY - 1));
     },
-    [historyIndex]
+    [historyIndex, sources]
   );
 
   const commitHistorySnapshot = useCallback(() => {
@@ -156,11 +176,12 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setSelectedAnnotationId(null);
       setMetadata(extractedMeta);
 
-      // Initialize history
+      // Initialize history with initial source documents
       setHistory([{
         pages: deepClone(parsedPages),
         annotations: deepClone(loadedAnnotations),
         activePageIndex: 0,
+        sources: [deepClone(mainSource)],
       }]);
       setHistoryIndex(0);
       logger.success('load', `Dokument "${file.name}" připraven k úpravám (${parsedPages.length} stran)`);
@@ -207,6 +228,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         pages: deepClone(parsedPages),
         annotations: deepClone(loadedAnnotations),
         activePageIndex: 0,
+        sources: [deepClone(mainSource)],
       }]);
       setHistoryIndex(0);
       logger.success('load', `Ukázkový dokument úspěšně načten (${parsedPages.length} stran)`);
@@ -474,6 +496,10 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setActivePageIndex(targetSnapshot.activePageIndex);
         rangeAnchorIndexRef.current = targetSnapshot.activePageIndex;
         setSelectedAnnotationId(null);
+        if (targetSnapshot.sources) {
+          setSources(deepClone(targetSnapshot.sources));
+          clearPdfCache();
+        }
         setHistoryIndex(targetIndex);
       }
     }
@@ -489,9 +515,93 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setActivePageIndex(targetSnapshot.activePageIndex);
         rangeAnchorIndexRef.current = targetSnapshot.activePageIndex;
         setSelectedAnnotationId(null);
+        if (targetSnapshot.sources) {
+          setSources(deepClone(targetSnapshot.sources));
+          clearPdfCache();
+        }
         setHistoryIndex(targetIndex);
       }
     }
+  };
+
+  const applyContentStreamReplacement = async (
+    searchText: string,
+    replaceText: string,
+    options: {
+      pageIndex?: number;
+      replaceAllPages?: boolean;
+      matchCase?: boolean;
+    } = {}
+  ): Promise<{ success: boolean; totalReplaced: number; error?: string }> => {
+    if (!searchText) {
+      return { success: false, totalReplaced: 0, error: 'Chybí hledaný text' };
+    }
+
+    const {
+      pageIndex = activePageIndex,
+      replaceAllPages = false,
+      matchCase = true,
+    } = options;
+
+    const targetPage = pages[pageIndex];
+    if (!targetPage) {
+      return { success: false, totalReplaced: 0, error: 'Stránka nenalezena' };
+    }
+
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) {
+      return {
+        success: false,
+        totalReplaced: 0,
+        error: 'Zdrojový PDF dokument nenalezen nebo je rastrovým obrázkem',
+      };
+    }
+
+    let result;
+    if (replaceAllPages) {
+      result = await replaceTextInAllPagesContentStream(
+        sourceDoc.arrayBuffer,
+        searchText,
+        replaceText,
+        { matchCase }
+      );
+    } else {
+      const sourcePageIndex =
+        targetPage.originalPageIndex !== undefined
+          ? targetPage.originalPageIndex
+          : pageIndex;
+      result = await replaceTextInPageContentStream(
+        sourceDoc.arrayBuffer,
+        sourcePageIndex,
+        searchText,
+        replaceText,
+        { matchCase }
+      );
+    }
+
+    if (result.occurrencesReplaced > 0) {
+      const updatedSources = sources.map((s) => {
+        if (s.id === sourceDoc.id) {
+          return {
+            ...s,
+            arrayBuffer: result.updatedPdfBytes,
+            updatedAt: Date.now(),
+          };
+        }
+        return s;
+      });
+
+      clearPdfCache();
+      setSources(updatedSources);
+      pushHistory(pages, annotations, activePageIndex, updatedSources);
+      return { success: true, totalReplaced: result.occurrencesReplaced };
+    }
+
+    if (result.error) {
+      return { success: false, totalReplaced: 0, error: result.error };
+    }
+
+    return { success: false, totalReplaced: 0 };
   };
 
   const saveAndDownload = async (
@@ -627,6 +737,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     updateAnnotation,
     deleteAnnotation,
     setSelectedAnnotationId,
+    applyContentStreamReplacement,
     undo,
     redo,
     commitHistorySnapshot,

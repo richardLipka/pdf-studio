@@ -16,8 +16,20 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Reordering**: Drag-and-drop thumbnail grid reordering.
    - **Rotation**: Rotate individual or selected pages by 90° increments.
 
-2. **Document Review & Annotation Suite**:
-   - **Interactive PDF Text Layer & Selection**: Built-in text layer allows natural mouse selection, native clipboard copying (`Ctrl + C`), and floating quick-actions for instant highlighting, underlining, or crossing out selected text.
+2. **Dual-Tab Interface: Review vs Edit**:
+   - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes, Digital signatures & stamps, High-res image cropper, and Eraser.
+   - **Editace (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files with modular expansion capability.
+
+3. **In-Place Content Stream Text & Byte Replacement**:
+   - **Direct Vector Stream Replacement**: Decodes, unescapes, replaces, and re-compresses text operators (`Tj`, `TJ`, `'`, `"`, and hex strings `<...>`) directly inside `/Contents` streams.
+   - **Interactive Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly pre-fills the search query in the replacement dialog for rapid correction.
+   - **Search & Replace Scope**: Replace text in the active page or globally across all document pages with case-sensitivity matching options.
+   - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time.
+   - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
+   - **Logging**: Captures occurrences replaced, duration in ms, and detailed error logs under `'edit'` category.
+
+4. **Document Review & Annotation Suite**:
+   - **Interactive PDF Text Layer & Selection**: Built-in text layer allows natural mouse selection, native clipboard copying (`Ctrl + C`), and floating quick-actions for instant highlighting, underlining, crossing out, or stream replacing selected text.
    - **Right-Side Notes & Reviews Panel**: Hidable side panel listing all document notes, review comments, highlights, underlines, and strikethroughs with full-text instant search and direct click navigation.
    - **Comments on Markups**: Attach review comments and notes to underlines, strikethroughs, and highlights with visual indicator badges on canvas.
    - **Full Line Width Storage & Display (1pt - 12pt)**: Complete support for line thicknesses (1, 2, 4, 6, 8, 12 pt) with ISO 32000-1 Appearance Streams (`/AP /N`) and Border dictionaries (`/BS /W`) ensuring exact line width rendering across all PDF readers.
@@ -28,48 +40,48 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **High-Resolution Image Cropper**: Crop rectangular regions directly from pages to the system clipboard in high quality.
    - **Eraser**: Delete individual annotations.
 
-3. **Digital Signatures & Stamp Library**:
+5. **Digital Signatures & Stamp Library**:
    - **Draw**: Canvas signature pad with touch, mouse, and stylus support.
    - **Upload**: Upload signature/stamp image with background transparency cleaning.
    - **Type**: Generate signature using handwriting-style cursive script fonts.
    - **Named Stamp Library**: Save multiple reusable stamps in browser `localStorage`.
    - **JSON Portability**: Download and restore full stamp collections as JSON packages containing Base64-encoded bitmap images.
 
-4. **Document Metadata Inspection & Editing**:
+6. **Document Metadata Inspection & Editing**:
    - **Properties**: Read and edit Title, Author, Subject, Keywords, Creator, and Producer directly in the browser.
    - **Technical File Inspection**: View source file size, total page count, creation date, modification timestamp, and PDF format version.
    - **Persistence**: Writes metadata directly to the exported PDF document trailer information dictionary.
 
-5. **Configurable Rasterization & Export Settings**:
+7. **Configurable Rasterization & Export Settings**:
    - **Customizable Fallback Parameters**: Full user control over fallback rasterization settings whenever a page cannot be directly vector-copied:
      - Resolution/Scale: `1.0×` (72 DPI), `1.5×` (108 DPI), `2.0×` (144 DPI - default), `3.0×` (216 DPI - high-res print).
      - Image Format: `JPEG` (recommended with DCTDecode compression for scans/comics) or `PNG` (lossless).
      - JPEG Quality: Configurable slider and presets (75%, 85%, 90% default, 95%, 100%).
    - **Persistent Storage**: Saved in `localStorage` and indicated dynamically in StatusBar.
 
-6. **Switchable URL-Encoded Themes**:
+8. **Switchable URL-Encoded Themes**:
    - **Studio (Dark)**: Modern dark glassmorphic interface (`?theme=default`).
    - **Minimal (Light)**: Pure white background, clean black lines, monochrome aesthetic (`?theme=minimal`).
    - **LCARS (Star Trek: TNG)**: 24th-century LCARS interface with amber, lilac, cyan palette and pill buttons (`?theme=lcars`).
 
-7. **Flicker-Free 100-Step Undo/Redo**:
+9. **Flicker-Free 100-Step Undo/Redo**:
    - Deep-cloned immutable history stack (100 snapshots) tracking all page modifications, markups, rotations, and annotations.
    - Memoized canvas rendering without full-screen blinking during history steps.
    - Atomic history snapshots captured on mouse release (`onMouseUp`).
 
-8. **Smart Zoom & Viewport Synchronization**:
+10. **Smart Zoom & Viewport Synchronization**:
    - **Zoom to Selected Page** (`Ctrl + 0` / *"Na vybranou"* button).
    - **Fit Width** and **Fit Page** auto-scaling.
    - Automatic smooth scrolling to centered active page in main viewer and sidebar.
 
-9. **Event Log & Diagnostic Protocol Screen**:
-   - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and system events with timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
+11. **Event Log & Diagnostic Protocol Screen**:
+   - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, editing, and system events with timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
    - **Comprehensive PDF-Lib Diagnostics & Sanitization**: Strips pre-header/post-EOF noise, captures 7 parse attempts with stack traces, and catalog/PageTree repair tracking.
    - **Rasterization Fallback Reason, Impact & JPEG Transformation Tracking**: Captures specific reasons, image dimensions, scale factors, data sizes, and JPEG/PNG transformation parameters whenever fallback rasterization is triggered.
    - **Diagnostics & Error Inspection**: Dedicated diagnostic modal with level filtering, instant search, JSON/stack trace expandable blocks, and one-click clipboard copying.
    - **Status Indicators**: Dynamic badge counters in Header and StatusBar indicating warning/error totals.
 
-10. **100% Client-Side Privacy & Native Page Preservation**:
+12. **100% Client-Side Privacy & Native Page Preservation**:
    - Zero file upload to servers. All operations happen in-memory via Web Workers and Web APIs.
    - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
@@ -86,7 +98,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (42 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (51 tests) |
 
 ---
 

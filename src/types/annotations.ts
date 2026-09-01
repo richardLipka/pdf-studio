@@ -92,6 +92,8 @@ export type Annotation =
   | SignatureAnnotation
   | ShapeAnnotation;
 
+export type EditorTab = 'review' | 'edit';
+
 export type ToolType =
   | 'select'
   | 'textSelect'
@@ -105,4 +107,6 @@ export type ToolType =
   | 'signature'
   | 'shape'
   | 'crop'
-  | 'eraser';
+  | 'eraser'
+  | 'streamReplace';
+

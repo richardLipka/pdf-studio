@@ -16,6 +16,7 @@ import { ConfirmModal } from './components/modals/ConfirmModal';
 import { LogModal } from './components/modals/LogModal';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { MetadataModal } from './components/modals/MetadataModal';
+import { StreamReplaceModal } from './components/modals/StreamReplaceModal';
 
 const MainWorkspace: React.FC = () => {
   const { theme } = useTheme();
@@ -97,6 +98,7 @@ const MainWorkspace: React.FC = () => {
       <LogModal />
       <SettingsModal />
       <MetadataModal />
+      <StreamReplaceModal />
     </div>
   );
 };

@@ -22,6 +22,12 @@ export interface TranslationSchema {
     of: string;
     pages: string;
   };
+  tabs: {
+    review: string;
+    reviewDesc: string;
+    edit: string;
+    editDesc: string;
+  };
   tools: {
     select: string;
     selectDesc: string;
@@ -50,6 +56,8 @@ export interface TranslationSchema {
     eraserDesc: string;
     addPage: string;
     addPageDesc: string;
+    streamReplace: string;
+    streamReplaceDesc: string;
   };
   styles: {
     color: string;
@@ -322,5 +330,25 @@ export interface TranslationSchema {
     reset: string;
     toastSaved: string;
     buttonTooltip: string;
+  };
+  streamReplaceModal: {
+    title: string;
+    subtitle: string;
+    searchLabel: string;
+    searchPlaceholder: string;
+    replaceLabel: string;
+    replacePlaceholder: string;
+    scopeLabel: string;
+    scopeCurrentPage: string;
+    scopeAllPages: string;
+    matchCaseLabel: string;
+    replaceButton: string;
+    replacing: string;
+    closeButton: string;
+    resultsSuccess: string;
+    resultsNone: string;
+    resultsError: string;
+    hintInfo: string;
+    quickReplaceTooltip: string;
   };
 }

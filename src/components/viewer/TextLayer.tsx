@@ -10,7 +10,7 @@ import {
   UnderlineAnnotation,
   StrikethroughAnnotation,
 } from '../../types/annotations';
-import { Copy, Highlighter, Underline as UnderlineIcon, Strikethrough as StrikeIcon, Check, X } from 'lucide-react';
+import { Copy, Highlighter, Underline as UnderlineIcon, Strikethrough as StrikeIcon, Check, X, FileCode2 } from 'lucide-react';
 
 interface TextLayerProps {
   page: PdfPageModel;
@@ -21,7 +21,14 @@ interface TextLayerProps {
 export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) => {
   const { t } = useI18n();
   const { theme } = useTheme();
-  const { activeTool, highlightColor, strokeColor, strokeWidth } = useEditor();
+  const {
+    activeTool,
+    highlightColor,
+    strokeColor,
+    strokeWidth,
+    setIsStreamReplaceModalOpen,
+    setStreamReplaceTargetText,
+  } = useEditor();
   const { addAnnotation } = useDocument();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -237,12 +244,39 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     window.getSelection()?.removeAllRanges();
   };
 
-  const isTextSelectActive = activeTool === 'textSelect' || activeTool === 'select';
+  const handleStreamReplace = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!selectedText) return;
+    setStreamReplaceTargetText(selectedText);
+    setIsStreamReplaceModalOpen(true);
+    setFloatingMenuPos(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
+  const handleLayerClick = (e: React.MouseEvent) => {
+    if (activeTool === 'streamReplace') {
+      const target = e.target as HTMLElement;
+      if (target && target.tagName === 'SPAN' && target.textContent) {
+        const text = target.textContent.trim();
+        if (text) {
+          e.stopPropagation();
+          setStreamReplaceTargetText(text);
+          setIsStreamReplaceModalOpen(true);
+        }
+      }
+    }
+  };
+
+  const isTextSelectActive =
+    activeTool === 'textSelect' ||
+    activeTool === 'select' ||
+    activeTool === 'streamReplace';
 
   return (
     <div
       ref={containerRef}
       onMouseUp={handleMouseUp}
+      onClick={handleLayerClick}
       style={{
         width: `${page.width * scale}px`,
         height: `${page.height * scale}px`,
@@ -253,7 +287,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
         isTextSelectActive
           ? 'pointer-events-auto cursor-text z-20'
           : 'pointer-events-none z-0'
-      }`}
+      } ${activeTool === 'streamReplace' ? 'cursor-pointer hover:bg-sky-500/5' : ''}`}
     >
       {/* Floating Quick Action Selection Toolbar */}
       {floatingMenuPos && (
@@ -294,6 +328,28 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
               >
                 <Copy className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">{t.textSelection.copyText}</span>
+              </button>
+
+              <div
+                className={`h-4 w-px mx-0.5 ${
+                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                }`}
+              />
+
+              {/* Stream Replace Button (Quick Action) */}
+              <button
+                onClick={handleStreamReplace}
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  isMinimal
+                    ? 'hover:bg-purple-50 text-purple-700'
+                    : isLcars
+                    ? 'hover:bg-[#ff9900]/20 text-[#ffff66]'
+                    : 'hover:bg-indigo-950/60 text-indigo-300'
+                }`}
+                title={t.tools.streamReplace}
+              >
+                <FileCode2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t.tools.streamReplace}</span>
               </button>
 
               <div

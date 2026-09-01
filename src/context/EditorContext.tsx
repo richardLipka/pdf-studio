@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { ToolType, ShapeType } from '../types/annotations';
+import { ToolType, ShapeType, EditorTab } from '../types/annotations';
 import { SignatureStamp, StampExportPackage } from '../types/stamp';
 import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
 
 interface EditorContextType {
+  activeTab: EditorTab;
+  setActiveTab: (tab: EditorTab) => void;
   activeTool: ToolType;
   setActiveTool: (tool: ToolType) => void;
   
@@ -52,6 +54,11 @@ interface EditorContextType {
   isMetadataModalOpen: boolean;
   setIsMetadataModalOpen: (open: boolean) => void;
   toggleMetadataModal: () => void;
+  isStreamReplaceModalOpen: boolean;
+  setIsStreamReplaceModalOpen: (open: boolean) => void;
+  toggleStreamReplaceModal: () => void;
+  streamReplaceTargetText: string;
+  setStreamReplaceTargetText: (text: string) => void;
 
   // Rasterization Settings
   rasterSettings: RasterizationSettings;
@@ -73,6 +80,7 @@ const LEGACY_SIGS_KEY = 'pdf_studio_saved_sigs_v1';
 const RASTER_SETTINGS_STORAGE_KEY = 'pdf_studio_raster_settings_v1';
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [activeTab, setActiveTab] = useState<EditorTab>('review');
   const [activeTool, setActiveTool] = useState<ToolType>('select');
   const [strokeColor, setStrokeColor] = useState<string>('#0284c7');
   const [highlightColor, setHighlightColor] = useState<string>('#fde047');
@@ -100,6 +108,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isLogModalOpen, setIsLogModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
+  const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpen] = useState<boolean>(false);
+  const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
 
   const toggleLogModal = () => {
     setIsLogModalOpen((prev) => !prev);
@@ -111,6 +121,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const toggleMetadataModal = () => {
     setIsMetadataModalOpen((prev) => !prev);
+  };
+
+  const toggleStreamReplaceModal = () => {
+    setIsStreamReplaceModalOpen((prev) => !prev);
   };
 
   // Rasterization Settings State (persisted in localStorage)
@@ -263,6 +277,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const value = {
+    activeTab,
+    setActiveTab,
     activeTool,
     setActiveTool,
     strokeColor,
@@ -305,6 +321,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isMetadataModalOpen,
     setIsMetadataModalOpen,
     toggleMetadataModal,
+    isStreamReplaceModalOpen,
+    setIsStreamReplaceModalOpen,
+    toggleStreamReplaceModal,
+    streamReplaceTargetText,
+    setStreamReplaceTargetText,
     rasterSettings,
     setRasterSettings,
     resetRasterSettings,

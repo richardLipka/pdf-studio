@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-42%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-51%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -35,78 +35,66 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
   - Insert blank A4 sheets in Portrait or Landscape orientation.
   - Configurable insertion targets (*At beginning*, *After current page*, *At end*).
 
-### 2. 🔍 Text Layer, Text Selection & Clipboard Support
+### 2. 🎛️ Dual-Tab Architecture: Review & Document Editing
+- **Revize & Anotace (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes, Digital signatures & stamps, High-res image cropper, and Eraser.
+- **Editace PDF (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files with modular expansion capability.
+
+### 3. ⚡ In-Place Content Stream Text & Byte Replacement (`streamReplace`)
+- **Direct Vector Stream Editing**: Parses, decompresses (`FlateDecode` / `pako`), and modifies raw text operators (`Tj`, `TJ`, `'`, `"`, and hex strings `<...>`) directly inside `/Contents` streams.
+- **Interactive Page Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly pre-fills the search query in the replacement dialog for rapid correction.
+- **Search & Replace Scope**: Replace text in the active page or globally across all document pages with case-sensitivity matching options.
+- **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time so users immediately verify the visual result.
+- **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
+- **Comprehensive Logging**: Every stream replacement operation is tracked with occurrence counts, execution duration in milliseconds, and detailed error logs.
+
+### 4. 🔍 Text Layer, Text Selection & Clipboard Support
 - **Interactive PDF Text Layer**: Built-in PDF text layer extraction allows users to select text naturally with the mouse cursor across all vector PDF pages.
 - **Instant Clipboard Copying**: Copy selected text directly to the system clipboard via `Ctrl + C` / `Cmd + C` or one-click floating action button.
-- **Text-Snap Highlighting & Markups**: Floating quick-action menu allows one-click conversion of selected text ranges into exact ISO 32000-1 Highlight, Underline, or Strikethrough markup annotations.
-- **Smart Text Line Alignment (Underline, Strikethrough & Highlight Tools)**: When drawing with the Underline, Strikethrough, or Highlight tools across text, the editor automatically detects intersected lines of text and snaps the markup precisely:
-  - **Underline**: Placed directly under the letters/baseline of each detected line of text.
-  - **Strikethrough**: Centered horizontally across the middle of the letters of each detected line of text.
-  - **Highlight**: Snapped to the exact height and horizontal bounds of the text line.
-  - **Fallback**: Gracefully uses freeform drawn bounds when dragged over non-text regions or images.
+- **Text-Snap Highlighting & Markups**: Floating quick-action menu allows one-click conversion of selected text ranges into exact ISO 32000-1 Highlight, Underline, Strikethrough, or Stream Text Replacement.
+- **Smart Text Line Alignment**: Automatically snaps drawn highlights, underlines, and strikethroughs to the baseline or center of intersected text lines.
 
-### 3. ✍️ Review & Annotation Suite with Notes Panel
+### 5. ✍️ Review & Annotation Suite with Notes Panel
 - **Right-Side Notes & Reviews Panel**: Hidable sidebar listing all document notes, review comments, highlights, underlines, and strikethroughs with real-time text search and click-to-navigate.
 - **Review Comments on Markups**: Add and edit review comments on underlines, strikethroughs, and highlights with visual badge pins on the canvas.
 - **Full Line Width Storage & Display (1pt - 12pt)**:
   - Select from preset line thicknesses (`1pt`, `2pt`, `4pt`, `6pt`, `8pt`, `12pt`) with visual thickness indicators in the Toolbar.
-  - **ISO 32000-1 Appearance Streams (`/AP /N`)**: Exported PDFs contain compiled vector Appearance Streams and Border specifications (`/BS << /W width >>`), ensuring line widths and colors are rendered in **every PDF viewer** (Adobe Acrobat, Chrome, Firefox, Edge, Apple Preview, iOS/Android).
-  - **Smart Loading**: Automatically parses line widths from existing PDF annotations (`borderStyle.width`, `borderWidth`, `lineWidth`, `/Border`, `/BS /W`).
+  - **ISO 32000-1 Appearance Streams (`/AP /N`)**: Exported PDFs contain compiled vector Appearance Streams and Border specifications (`/BS << /W width >>`), ensuring line widths and colors are rendered in **every PDF viewer**.
+  - **Smart Loading**: Automatically parses line widths from existing PDF annotations.
 - **PDF Annotation Extraction**: Automatically imports and renders pre-existing comments, shapes, lines, and annotations from loaded PDF documents.
 - **Text Box & Typography**: Freehand text insertion with live font family selection (Inter, Caveat, Dancing Script, Courier, Times New Roman, Georgia, Arial), custom font sizes, and immediate color changes.
-- **Highlight, Underline & Strikethrough**: Live drawing feedback with instant color palette selection and thickness adjustment.
-- **Sticky Notes**: Clickable review pins with expanding notes and author timestamps.
-- **Freehand Pen & Shapes**: Smooth vector drawing tool (pen, lines, rectangles, ellipses) with configurable stroke width and color palette.
 - **High-Resolution Image Cropper**: Select any rectangular region on any page to crop and copy high-resolution image data directly to your system clipboard.
-- **Eraser**: One-click removal of individual annotations.
 
-### 4. 📑 Signature & Stamp Library with JSON Portability
-- **3 Signature Modes**:
-  - **Draw**: Canvas signature pad with touch, stylus, and mouse smoothing.
-  - **Type**: Generate script signatures with elegant cursive handwriting fonts.
-  - **Upload**: Upload signature image with automatic white-background transparency cleaning.
-- **Named Stamp Library**:
-  - Save reusable stamps (e.g., *"Schváleno / Approved"*, *"Zaplaceno / Paid"*, *"Podpis Novák"*).
-  - Stored in browser `localStorage`.
-- **JSON Export & Import**:
-  - **Export JSON**: Download your entire stamp library into a portable JSON package with Base64-encoded bitmap images.
-  - **Import JSON**: Upload and restore stamps on any device or browser with schema validation.
+### 6. 📑 Signature & Stamp Library with JSON Portability
+- **3 Signature Modes**: Draw (canvas signature pad), Type (handwriting cursive fonts), and Upload (with automated white-background transparency cleaning).
+- **Named Stamp Library**: Save reusable stamps stored in browser `localStorage`.
+- **JSON Export & Import**: Download and restore full stamp collections as JSON packages containing Base64-encoded bitmap images.
 
-### 5. 📋 Document Metadata Inspection & Editing
-- **Inspect & Edit Properties**: Direct view and real-time editing of standard PDF document metadata:
-  - **Title (Název dokumentu)**, **Author (Autor)**, **Subject (Předmět / Téma)**, **Keywords (Klíčová slova)**, **Creator (Tvůrce)**, and **Producer (Producent)**.
+### 7. 📋 Document Metadata Inspection & Editing
+- **Inspect & Edit Properties**: Direct view and real-time editing of standard PDF document metadata (Title, Author, Subject, Keywords, Creator, Producer).
 - **Technical File Inspection**: Displays source file size, total page count, creation date, last modification timestamp, and PDF format version.
 - **Persistent Export**: All edited metadata is written directly to the exported PDF document trailer info dictionary upon saving.
 
-### 6. ⚙️ Configurable Rasterization & Export Settings
-- **Customizable Fallback Parameters**: Full control over fallback rasterization settings whenever a page cannot be directly vector-copied:
-  - **Resolution / Scale**: `1.0×` (72 DPI - fast & compact), `1.5×` (108 DPI - balanced), `2.0×` (144 DPI - default crisp), `3.0×` (216 DPI - ultra high print quality).
-  - **Image Format**: `JPEG` (recommended with DCTDecode compression for scans/comics) or `PNG` (lossless).
-  - **JPEG Quality**: Configurable slider and quick presets (75%, 85%, 90% default, 95%, 100%).
-- **State Persistence**: Settings are saved in browser `localStorage` and indicated dynamically in the StatusBar.
+### 8. ⚙️ Configurable Rasterization & Export Settings
+- **Customizable Fallback Parameters**: Full control over fallback rasterization settings (Scale: 1.0×, 1.5×, 2.0×, 3.0×; Format: JPEG with DCTDecode or PNG; JPEG Quality: 75% - 100%).
+- **State Persistence**: Saved in browser `localStorage` and indicated dynamically in the StatusBar.
 
-### 7. 🎨 Switchable Themes (URL-Encoded)
+### 9. 🎨 Switchable Themes (URL-Encoded)
 - **Studio (Dark)**: Sleek glassmorphic dark design with ambient shadows (`?theme=default`).
 - **Minimal (Light)**: Pure white background (`#ffffff`), crisp black lines, zero blue tints, high-contrast monochrome UI (`?theme=minimal`).
 - **LCARS (Star Trek: TNG)**: Authentic 24th-century Federation Starfleet interface with iconic LCARS amber, lilac, cyan palette, pill buttons, and condensed typography (`?theme=lcars`).
-- Theme state is synchronized with URL query parameters for seamless bookmarking and sharing.
 
-### 8. ⚡ Flicker-Free 100-Step Undo & Redo
-- Deep-cloned, immutable history stack with 100 snapshots.
+### 10. ⚡ Flicker-Free 100-Step Undo & Redo
+- Deep-cloned, immutable history stack with 100 snapshots tracking annotations, page order, and source document byte buffers.
 - `PageCanvas` uses memoized rendering to keep the underlying PDF canvas intact without screen blinking on annotation updates.
-- Atomic history snapshots captured on mouse release (`onMouseUp`) for smooth dragging/resizing.
 
-### 9. 🔍 Smart Zoom & Viewport Synchronization
+### 11. 🔍 Smart Zoom & Viewport Synchronization
 - **Dynamic Zoom to Selected Page** (<kbd>Ctrl + 0</kbd>): Calculates exact aspect-ratio scale for the current page to fit the viewport.
 - **Fit Width** & **Fit Page**: Adaptive scaling to screen width or full height.
-- **Auto-Scrolling**: Selecting any page in the sidebar or via arrow keys immediately scrolls the main viewport and thumbnail bar to center on that page.
 
-### 10. 📜 Event Log & Diagnostic Protocol Screen
-- **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and parsing events with precise timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
+### 12. 📜 Event Log & Diagnostic Protocol Screen
+- **Real-Time Operation Tracking**: Captures all loading, saving, rendering, editing, and parsing events with precise timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
 - **Buffer Sanitization & Parse Diagnostics**: Automatically strips pre-header/post-EOF noise, captures 7 parse attempts with stack traces, and logs catalog repair actions.
-- **Rasterization & Transformation Details**: Captures specific reasons, image dimensions, scale factors, data sizes, and JPEG/PNG transformation parameters whenever fallback rasterization is triggered.
 - **Diagnostics Inspection Modal**: Dedicated diagnostic screen with level filtering, live search, JSON/stack trace expandable inspection, and one-click clipboard copying.
-- **Status Indicators**: Active badge counters in Header and StatusBar indicating warning/error totals with direct modal access.
 
 ---
 

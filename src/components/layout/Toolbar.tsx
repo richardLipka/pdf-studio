@@ -19,6 +19,8 @@ import {
   Trash2,
   MessageSquare,
   Crop,
+  FileCode2,
+  Replace,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -40,6 +42,8 @@ export const Toolbar: React.FC = () => {
   const { t } = useI18n();
   const { theme } = useTheme();
   const {
+    activeTab,
+    setActiveTab,
     activeTool,
     setActiveTool,
     strokeColor,
@@ -57,6 +61,7 @@ export const Toolbar: React.FC = () => {
     setIsSignatureModalOpen,
     setIsAddPageModalOpen,
     setIsNotesPanelOpen,
+    setIsStreamReplaceModalOpen,
   } = useEditor();
 
   const {
@@ -243,84 +248,217 @@ export const Toolbar: React.FC = () => {
           : 'bg-slate-900 border-slate-800 text-white'
       }`}
     >
-      {/* Primary Tool Buttons */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-        {tools.map((tool) => {
-          const isActive = activeTool === tool.id;
-          return (
-            <button
-              key={tool.id}
-              onClick={() => setActiveTool(tool.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                isMinimal
-                  ? isActive
-                    ? 'rounded-md bg-black text-white border border-black shadow-none'
-                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+      {/* Tab Switcher & Primary Tool Buttons */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        {/* Mode / Tab Segmented Control */}
+        <div
+          className={`flex items-center p-0.5 rounded-lg border mr-1 ${
+            isMinimal
+              ? 'bg-neutral-100 border-neutral-300'
+              : isLcars
+              ? 'bg-black border-[#ff9900] rounded-full'
+              : 'bg-slate-950/80 border-slate-800'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('review');
+              if (activeTool === 'streamReplace') {
+                setActiveTool('select');
+              }
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold transition-all ${
+              activeTab === 'review'
+                ? isMinimal
+                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300'
                   : isLcars
-                  ? isActive
-                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900]'
-                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                  : isActive
-                  ? 'rounded-lg bg-sky-600 text-white shadow-md shadow-sky-600/30'
-                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
-              }`}
-              title={tool.desc}
-            >
-              {tool.icon}
-              <span className="hidden sm:inline">{tool.label}</span>
-            </button>
-          );
-        })}
+                  ? 'bg-[#ff9900] text-black font-bold rounded-full'
+                  : 'bg-sky-600 text-white rounded-md shadow-xs shadow-sky-500/20'
+                : isMinimal
+                ? 'text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'text-[#ff9966] hover:text-[#ff9900]'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.tabs.reviewDesc}
+          >
+            <Highlighter className="w-3.5 h-3.5" />
+            <span>{t.tabs.review}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('edit');
+              setActiveTool('streamReplace');
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold transition-all ${
+              activeTab === 'edit'
+                ? isMinimal
+                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300'
+                  : isLcars
+                  ? 'bg-[#ff9900] text-black font-bold rounded-full'
+                  : 'bg-indigo-600 text-white rounded-md shadow-xs shadow-indigo-500/20'
+                : isMinimal
+                ? 'text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'text-[#ff9966] hover:text-[#ff9900]'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.tabs.editDesc}
+          >
+            <FileCode2 className="w-3.5 h-3.5" />
+            <span>{t.tabs.edit}</span>
+          </button>
+        </div>
 
         <div
-          className={`h-6 w-px mx-1 ${
+          className={`h-6 w-px mx-0.5 ${
             isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
           }`}
         />
 
-        {/* Signature Action Button */}
-        <button
-          onClick={() => setIsSignatureModalOpen(true)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
-            isMinimal
-              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
-              : isLcars
-              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
-              : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
-          }`}
-          title={t.tools.signatureDesc}
-        >
-          <FileSignature
-            className={`w-4 h-4 ${
-              isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-emerald-400'
-            }`}
-          />
-          <span>{t.tools.signature}</span>
-        </button>
+        {/* Tab 1: Review & Annotate Tools */}
+        {activeTab === 'review' && (
+          <div className="flex items-center gap-1">
+            {tools.map((tool) => {
+              const isActive = activeTool === tool.id;
+              return (
+                <button
+                  key={tool.id}
+                  onClick={() => setActiveTool(tool.id)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                    isMinimal
+                      ? isActive
+                        ? 'rounded-md bg-black text-white border border-black shadow-none'
+                        : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                      : isLcars
+                      ? isActive
+                        ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900]'
+                        : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                      : isActive
+                      ? 'rounded-lg bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                      : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                  }`}
+                  title={tool.desc}
+                >
+                  {tool.icon}
+                  <span className="hidden sm:inline">{tool.label}</span>
+                </button>
+              );
+            })}
 
-        {/* Add Page Action Button */}
-        <button
-          onClick={() => setIsAddPageModalOpen(true)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
-            isMinimal
-              ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
-              : isLcars
-              ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border border-[#99ccff] uppercase'
-              : 'rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50'
-          }`}
-          title={t.tools.addPageDesc}
-        >
-          <FilePlus2
-            className={`w-4 h-4 ${
-              isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-indigo-400'
-            }`}
-          />
-          <span>{t.tools.addPage}</span>
-        </button>
+            <div
+              className={`h-6 w-px mx-1 ${
+                isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
+              }`}
+            />
+
+            {/* Signature Action Button */}
+            <button
+              onClick={() => setIsSignatureModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+                isMinimal
+                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
+                  : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
+              }`}
+              title={t.tools.signatureDesc}
+            >
+              <FileSignature
+                className={`w-4 h-4 ${
+                  isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-emerald-400'
+                }`}
+              />
+              <span>{t.tools.signature}</span>
+            </button>
+
+            {/* Add Page Action Button */}
+            <button
+              onClick={() => setIsAddPageModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+                isMinimal
+                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border border-[#99ccff] uppercase'
+                  : 'rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50'
+              }`}
+              title={t.tools.addPageDesc}
+            >
+              <FilePlus2
+                className={`w-4 h-4 ${
+                  isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-indigo-400'
+                }`}
+              />
+              <span>{t.tools.addPage}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Tab 2: Document Editing Suite */}
+        {activeTab === 'edit' && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTool('streamReplace')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+                isMinimal
+                  ? activeTool === 'streamReplace'
+                    ? 'rounded-md bg-black text-white border border-black shadow-none'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
+                  : isLcars
+                  ? activeTool === 'streamReplace'
+                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900]'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                  : activeTool === 'streamReplace'
+                  ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+              }`}
+              title={t.tools.streamReplaceDesc}
+            >
+              <FileCode2 className="w-4 h-4" />
+              <span>{t.tools.streamReplace}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsStreamReplaceModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+                isMinimal
+                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66]'
+                  : 'rounded-lg bg-gradient-to-r from-sky-500/20 to-indigo-500/20 hover:from-sky-500/30 hover:to-indigo-500/30 text-sky-300 border border-sky-500/30 hover:border-sky-400/50'
+              }`}
+              title={t.streamReplaceModal.subtitle}
+            >
+              <Replace className="w-4 h-4" />
+              <span>{t.streamReplaceModal.title}</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Contextual Style Controls (dynamically matches selected element or active tool) */}
+      {/* Contextual Style Controls (or Edit hint if in Edit tab) */}
       <div className="flex items-center gap-3">
+        {activeTab === 'edit' && (
+          <div className="flex items-center gap-2">
+            <span
+              className={`hidden md:inline-block px-2.5 py-1 rounded-md text-[11px] font-medium border ${
+                isMinimal
+                  ? 'bg-neutral-100 border-neutral-300 text-neutral-700'
+                  : isLcars
+                  ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+                  : 'bg-slate-800/80 border-slate-700/80 text-slate-300'
+              }`}
+            >
+              {t.streamReplaceModal.hintInfo}
+            </span>
+          </div>
+        )}
+
         {/* Highlight Color Pickers */}
         {showHighlightStyles && (
           <div
