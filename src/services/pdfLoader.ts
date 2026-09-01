@@ -38,6 +38,14 @@ export const getCachedPdfDocument = async (
 };
 
 export const clearPdfCache = () => {
+  for (const doc of docCache.values()) {
+    try {
+      doc.cleanup();
+      doc.destroy();
+    } catch {
+      // ignore
+    }
+  }
   docCache.clear();
 };
 

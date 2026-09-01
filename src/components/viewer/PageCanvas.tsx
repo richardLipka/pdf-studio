@@ -68,6 +68,7 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
 export const PageCanvas = memo(PageCanvasComponent, (prev, next) => {
   return (
     prev.page.id === next.page.id &&
+    prev.page.originalPageIndex === next.page.originalPageIndex &&
     prev.page.rotation === next.page.rotation &&
     prev.page.sourceType === next.page.sourceType &&
     prev.page.imageDataUrl === next.page.imageDataUrl &&

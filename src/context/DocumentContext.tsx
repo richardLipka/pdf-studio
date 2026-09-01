@@ -166,7 +166,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           pages: deepClone(newPages),
           annotations: deepClone(newAnnotations),
           activePageIndex: newActiveIndex,
-          sources: cloneSources(newSources || sources),
+          sources: newSources ? cloneSources(newSources) : sources,
         };
 
         if (next.length >= MAX_HISTORY) {

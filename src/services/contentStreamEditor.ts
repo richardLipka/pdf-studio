@@ -994,7 +994,7 @@ export async function getPageImages(
     // 2. Correlate with streamText to find layout coordinates (cm /Do)
     if (streamText) {
       const doRegex =
-        /(?:([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm[\s\S]*?)?\/([A-Za-z0-9_\-+]+)\s+Do/g;
+        /(?:(?:([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm\s+)|(?:[^\r\n]{0,100}))?\/([A-Za-z0-9_\-+]+)\s+Do/g;
       let doMatch: RegExpExecArray | null;
       while ((doMatch = doRegex.exec(streamText)) !== null) {
         const cleanName = doMatch[7];
@@ -1149,7 +1149,7 @@ export async function removeMultipleElementsFromPage(
         // Delete from content stream (/Im1 Do and optional transformation wrapper q ... cm ... /Im1 Do Q)
         const escapedName = escapeRegex(cleanName);
         const wrappedRegex = new RegExp(
-          `(?:q[\\s\\r\\n]+)?(?:[0-9.-]+[\\s\\r\\n]+){6}cm[\\s\\S]*?\\/${escapedName}[\\s\\r\\n]+Do(?:[\\s\\r\\n]+Q)?|\\/${escapedName}[\\s\\r\\n]+Do`,
+          `(?:q[\\s\\r\\n]+)?(?:[0-9.-]+[\\s\\r\\n]+){6}cm[\\s\\r\\n]*\\/${escapedName}[\\s\\r\\n]+Do(?:[\\s\\r\\n]+Q)?|\\/${escapedName}[\\s\\r\\n]+Do`,
           'g'
         );
 

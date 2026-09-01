@@ -68,13 +68,13 @@ export const Sidebar: React.FC = () => {
       const canvas = canvasRefs.current[page.id];
       if (!canvas) return;
 
-      const pageRenderKey = `${page.id}_${page.rotation}_${page.sourceType}_${page.imageDataUrl ? page.imageDataUrl.length : ''}`;
+      const sourceDoc = sources.find((s) => s.id === page.sourceDocId) || sources[0];
+      if (!sourceDoc && page.sourceType === 'pdf') return;
+
+      const pageRenderKey = `${page.id}_${page.rotation}_${page.sourceType}_${sourceDoc?.updatedAt || 0}_${page.imageDataUrl ? page.imageDataUrl.length : ''}`;
       if (renderedThumbnailsRef.current[page.id] === pageRenderKey) {
         return; // Already rendered this exact page state
       }
-
-      const sourceDoc = sources.find((s) => s.id === page.sourceDocId) || sources[0];
-      if (!sourceDoc && page.sourceType === 'pdf') return;
 
       renderPdfPageToCanvas(sourceDoc, page, canvas, 0.22)
         .then(() => {

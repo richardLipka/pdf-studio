@@ -83,13 +83,16 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   const [dragStartAnnPos, setDragStartAnnPos] = useState<Point>({ x: 0, y: 0 });
   const [resizingAnnId, setResizingAnnId] = useState<string | null>(null);
 
+  const annotationsRef = useRef<Annotation[]>(annotations);
+  annotationsRef.current = annotations;
+
   // Window-level mouse listeners for seamless dragging and resizing
   React.useEffect(() => {
     if (!draggingAnnId && !resizingAnnId) return;
 
     const handleWindowMouseMove = (e: MouseEvent) => {
       if (draggingAnnId) {
-        const target = annotations.find((a) => a.id === draggingAnnId);
+        const target = annotationsRef.current.find((a) => a.id === draggingAnnId);
         if (target) {
           const dx = (e.clientX - dragStartMouse.x) / scale;
           const dy = (e.clientY - dragStartMouse.y) / scale;
@@ -127,7 +130,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           }
         }
       } else if (resizingAnnId) {
-        const target = annotations.find((a) => a.id === resizingAnnId);
+        const target = annotationsRef.current.find((a) => a.id === resizingAnnId);
         if (target) {
           const dw = (e.clientX - dragStartMouse.x) / scale;
           const dh = (e.clientY - dragStartMouse.y) / scale;
@@ -149,12 +152,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
     const handleWindowMouseUp = () => {
       if (draggingAnnId) {
-        const target = annotations.find((a) => a.id === draggingAnnId);
+        const target = annotationsRef.current.find((a) => a.id === draggingAnnId);
         if (target) updateAnnotation(target, true);
         setDraggingAnnId(null);
       }
       if (resizingAnnId) {
-        const target = annotations.find((a) => a.id === resizingAnnId);
+        const target = annotationsRef.current.find((a) => a.id === resizingAnnId);
         if (target) updateAnnotation(target, true);
         setResizingAnnId(null);
       }
@@ -167,7 +170,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       window.removeEventListener('mousemove', handleWindowMouseMove);
       window.removeEventListener('mouseup', handleWindowMouseUp);
     };
-  }, [draggingAnnId, resizingAnnId, dragStartMouse, dragStartAnnPos, annotations, page.width, page.height, scale, updateAnnotation]);
+  }, [draggingAnnId, resizingAnnId, dragStartMouse, dragStartAnnPos, page.width, page.height, scale, updateAnnotation]);
 
   // Open note card modal/popover
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
