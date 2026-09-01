@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-38%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-39%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -39,6 +39,11 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 - **Interactive PDF Text Layer**: Built-in PDF text layer extraction allows users to select text naturally with the mouse cursor across all vector PDF pages.
 - **Instant Clipboard Copying**: Copy selected text directly to the system clipboard via `Ctrl + C` / `Cmd + C` or one-click floating action button.
 - **Text-Snap Highlighting & Markups**: Floating quick-action menu allows one-click conversion of selected text ranges into exact ISO 32000-1 Highlight, Underline, or Strikethrough markup annotations.
+- **Smart Text Line Alignment (Underline, Strikethrough & Highlight Tools)**: When drawing with the Underline, Strikethrough, or Highlight tools across text, the editor automatically detects intersected lines of text and snaps the markup precisely:
+  - **Underline**: Placed directly under the letters/baseline of each detected line of text.
+  - **Strikethrough**: Centered horizontally across the middle of the letters of each detected line of text.
+  - **Highlight**: Snapped to the exact height and horizontal bounds of the text line.
+  - **Fallback**: Gracefully uses freeform drawn bounds when dragged over non-text regions or images.
 
 ### 3. ✍️ Review & Annotation Suite with Notes Panel
 - **Right-Side Notes & Reviews Panel**: Hidable sidebar listing all document notes, review comments, highlights, underlines, and strikethroughs with real-time text search and click-to-navigate.

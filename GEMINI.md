@@ -22,7 +22,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Comments on Markups**: Attach review comments and notes to underlines, strikethroughs, and highlights with visual indicator badges on canvas.
    - **Full Line Width Storage & Display (1pt - 12pt)**: Complete support for line thicknesses (1, 2, 4, 6, 8, 12 pt) with ISO 32000-1 Appearance Streams (`/AP /N`) and Border dictionaries (`/BS /W`) ensuring exact line width rendering across all PDF readers.
    - **PDF Annotation Extraction**: Automatically parses and loads existing comments, sticky notes, shapes, lines, and text markups from imported PDF files via `pdfjs-dist`.
-   - **Text Markups**: Highlight, Underline, Strikethrough (Crossing text) with customizable colors and line widths.
+   - **Text Markups & Smart Text Line Alignment**: Highlight, Underline, Strikethrough (Crossing text) with customizable colors and line widths. Automatically detects text lines when drawn across text, snapping underlines under letters/baseline and strikethroughs across the center of letters.
    - **Text Insertion & Typography**: Add custom text boxes with immediate font family selection (Inter, Caveat, Dancing Script, Courier, Times New Roman, Georgia, Arial), custom font sizes, and instant color changes.
    - **Freehand Drawing & Shapes**: Pen tool, lines, rectangles, and ellipses with color palette and stroke width adjustment.
    - **High-Resolution Image Cropper**: Crop rectangular regions directly from pages to the system clipboard in high quality.
@@ -72,7 +72,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (38 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (39 tests) |
 
 ---
 
@@ -110,7 +110,8 @@ pdf-editor/
 │   │   └── stamp.ts        # Stamp data model & JSON export schema
 │   ├── utils/
 │   │   ├── coordinate.ts   # Screen-to-PDF coordinate mapping
-│   │   └── file.ts         # File drag/drop, reading and background cleaning helpers
+│   │   ├── file.ts         # File drag/drop, reading and background cleaning helpers
+│   │   └── textSnap.ts     # Smart text line detection & baseline snapping
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx

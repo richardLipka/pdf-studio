@@ -18,6 +18,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useI18n } from '../../i18n/context';
 import { screenToPdfPoint } from '../../utils/coordinate';
 import { cropPageRegionToClipboard, CropResult } from '../../services/imageCropper';
+import { findIntersectedTextLines } from '../../utils/textSnap';
 import { NoteDialog } from '../common/NoteDialog';
 import {
   MessageSquare,
@@ -343,71 +344,153 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       } else if (startPoint) {
         const x = Math.min(startPoint.x, endPoint.x);
         const y = Math.min(startPoint.y, endPoint.y);
-        const width = Math.max(12, Math.abs(endPoint.x - startPoint.x));
-        const height = Math.max(10, Math.abs(endPoint.y - startPoint.y));
+        const width = Math.max(8, Math.abs(endPoint.x - startPoint.x));
+        const height = Math.max(8, Math.abs(endPoint.y - startPoint.y));
+        const dragBox = { x, y, width, height };
+
+        // Check if drawn over text lines on this page
+        const pageContainer = containerRef.current?.parentElement || containerRef.current;
+        const textLines = findIntersectedTextLines(pageContainer, dragBox, scale);
 
         if (activeTool === 'highlight') {
-          const newHighlight: HighlightAnnotation = {
-            id: `hl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            pageId: page.id,
-            type: 'highlight',
-            x,
-            y,
-            width,
-            height,
-            color: highlightColor,
-            opacity: 0.4,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-          addAnnotation(newHighlight);
-          setSelectedAnnotationId(newHighlight.id);
-          if (isNotesPanelOpen) {
-            setActiveCommentAnnId(newHighlight.id);
+          if (textLines.length > 0) {
+            let lastId = '';
+            textLines.forEach((line, idx) => {
+              const newHighlight: HighlightAnnotation = {
+                id: `hl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${idx}`,
+                pageId: page.id,
+                type: 'highlight',
+                x: line.x,
+                y: line.y,
+                width: line.width,
+                height: line.height,
+                color: highlightColor,
+                opacity: 0.4,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              };
+              addAnnotation(newHighlight);
+              lastId = newHighlight.id;
+            });
+            if (lastId) setSelectedAnnotationId(lastId);
           } else {
-            setActiveCommentAnnId(null);
+            const newHighlight: HighlightAnnotation = {
+              id: `hl_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              pageId: page.id,
+              type: 'highlight',
+              x,
+              y,
+              width,
+              height,
+              color: highlightColor,
+              opacity: 0.4,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            addAnnotation(newHighlight);
+            setSelectedAnnotationId(newHighlight.id);
+            if (isNotesPanelOpen) {
+              setActiveCommentAnnId(newHighlight.id);
+            } else {
+              setActiveCommentAnnId(null);
+            }
           }
         } else if (activeTool === 'underline') {
           const uColor = strokeColor || '#0284c7';
-          const newUnderline: UnderlineAnnotation = {
-            id: `ul_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            pageId: page.id,
-            type: 'underline',
-            x: Math.min(startPoint.x, endPoint.x),
-            y: startPoint.y,
-            width,
-            height: strokeWidth || 2,
-            color: uColor,
-            opacity: 0.9,
-            strokeWidth: strokeWidth || 2,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-          addAnnotation(newUnderline);
-          setSelectedAnnotationId(newUnderline.id);
-          if (isNotesPanelOpen) {
-            setActiveCommentAnnId(newUnderline.id);
+          const lineThickness = strokeWidth || 2;
+
+          if (textLines.length > 0) {
+            let lastId = '';
+            textLines.forEach((line, idx) => {
+              const newUnderline: UnderlineAnnotation = {
+                id: `ul_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${idx}`,
+                pageId: page.id,
+                type: 'underline',
+                x: line.x,
+                y: line.bottom - lineThickness,
+                width: line.width,
+                height: lineThickness,
+                color: uColor,
+                opacity: 0.9,
+                strokeWidth: lineThickness,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              };
+              addAnnotation(newUnderline);
+              lastId = newUnderline.id;
+            });
+            if (lastId) setSelectedAnnotationId(lastId);
           } else {
-            setActiveCommentAnnId(null);
+            const newUnderline: UnderlineAnnotation = {
+              id: `ul_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              pageId: page.id,
+              type: 'underline',
+              x: Math.min(startPoint.x, endPoint.x),
+              y: startPoint.y,
+              width,
+              height: lineThickness,
+              color: uColor,
+              opacity: 0.9,
+              strokeWidth: lineThickness,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            addAnnotation(newUnderline);
+            setSelectedAnnotationId(newUnderline.id);
+            if (isNotesPanelOpen) {
+              setActiveCommentAnnId(newUnderline.id);
+            } else {
+              setActiveCommentAnnId(null);
+            }
           }
         } else if (activeTool === 'strikethrough') {
           const sColor = strokeColor === '#0284c7' ? '#dc2626' : (strokeColor || '#dc2626');
-          const newStrike: StrikethroughAnnotation = {
-            id: `st_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-            pageId: page.id,
-            type: 'strikethrough',
-            x: Math.min(startPoint.x, endPoint.x),
-            y: startPoint.y,
-            width,
-            height: strokeWidth || 2,
-            color: sColor,
-            opacity: 0.9,
-            strokeWidth: strokeWidth || 2,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-          addAnnotation(newStrike);
-          setSelectedAnnotationId(newStrike.id);
+          const lineThickness = strokeWidth || 2;
+
+          if (textLines.length > 0) {
+            let lastId = '';
+            textLines.forEach((line, idx) => {
+              const newStrike: StrikethroughAnnotation = {
+                id: `st_${Date.now()}_${Math.random().toString(36).substring(2, 6)}_${idx}`,
+                pageId: page.id,
+                type: 'strikethrough',
+                x: line.x,
+                y: line.top + line.height * 0.5 - lineThickness / 2,
+                width: line.width,
+                height: lineThickness,
+                color: sColor,
+                opacity: 0.9,
+                strokeWidth: lineThickness,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              };
+              addAnnotation(newStrike);
+              lastId = newStrike.id;
+            });
+            if (lastId) setSelectedAnnotationId(lastId);
+          } else {
+            const newStrike: StrikethroughAnnotation = {
+              id: `st_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              pageId: page.id,
+              type: 'strikethrough',
+              x: Math.min(startPoint.x, endPoint.x),
+              y: startPoint.y,
+              width,
+              height: lineThickness,
+              color: sColor,
+              opacity: 0.9,
+              strokeWidth: lineThickness,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            addAnnotation(newStrike);
+            setSelectedAnnotationId(newStrike.id);
+            if (isNotesPanelOpen) {
+              setActiveCommentAnnId(newStrike.id);
+            } else {
+              setActiveCommentAnnId(null);
+            }
+          }
         } else if (activeTool === 'crop') {
           const cropW = Math.abs(endPoint.x - startPoint.x);
           const cropH = Math.abs(endPoint.y - startPoint.y);

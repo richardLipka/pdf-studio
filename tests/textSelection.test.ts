@@ -6,6 +6,7 @@ import {
   UnderlineAnnotation,
   StrikethroughAnnotation,
 } from '../src/types/annotations';
+import { findIntersectedTextLines } from '../src/utils/textSnap';
 
 describe('Text Selection, Layer Rendering & Clipboard Support', () => {
   it('should extract text items, positions and glyph streams from PDF document for text layer', async () => {
@@ -135,5 +136,61 @@ describe('Text Selection, Layer Rendering & Clipboard Support', () => {
     expect(strikethrough.y).toBe(109); // 100 + 10 - 1
     expect(strikethrough.width).toBe(200);
     expect(strikethrough.strokeWidth).toBe(2);
+  });
+
+  it('should detect intersected text lines and snap underline and strikethrough over drawn text regions', () => {
+    // Mock DOM page container with textLayer spans
+    const pageContainer = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 1000 }),
+      classList: {
+        contains: (cls: string) => cls === 'pageContainer',
+      },
+      querySelector: (selector: string) => {
+        if (selector === '.textLayer') {
+          return {
+            querySelectorAll: (sub: string) => {
+              if (sub === 'span') {
+                return [
+                  // Line 1: y: 100..120, x: 50..250 (Text: "Agreement on terms")
+                  {
+                    textContent: 'Agreement on terms',
+                    getBoundingClientRect: () => ({ left: 50, top: 100, width: 200, height: 20 }),
+                  },
+                  // Line 2: y: 130..150, x: 50..300 (Text: "Signed and verified by customer")
+                  {
+                    textContent: 'Signed and verified by customer',
+                    getBoundingClientRect: () => ({ left: 50, top: 130, width: 250, height: 20 }),
+                  },
+                ];
+              }
+              return [];
+            },
+          };
+        }
+        return null;
+      },
+    } as any;
+
+    // Dragged across line 1: x: 40..260, y: 95..125
+    const dragBox1 = { x: 40, y: 95, width: 220, height: 30 };
+    const lines1 = findIntersectedTextLines(pageContainer, dragBox1, 1.0);
+
+    expect(lines1).toHaveLength(1);
+    expect(lines1[0].text).toBe('Agreement on terms');
+    expect(lines1[0].top).toBe(100);
+    expect(lines1[0].bottom).toBe(120);
+
+    // Verify underline calculation: lineBottom - strokeWidth (120 - 2 = 118)
+    const underlineY = lines1[0].bottom - 2;
+    expect(underlineY).toBe(118);
+
+    // Verify strikethrough calculation: lineTop + lineH * 0.5 - strokeWidth / 2 (100 + 10 - 1 = 109)
+    const strikeY = lines1[0].top + lines1[0].height * 0.5 - 2 / 2;
+    expect(strikeY).toBe(109);
+
+    // Dragged across empty margin: x: 500..600, y: 800..900 (No text)
+    const emptyDrag = { x: 500, y: 800, width: 100, height: 100 };
+    const emptyLines = findIntersectedTextLines(pageContainer, emptyDrag, 1.0);
+    expect(emptyLines).toHaveLength(0);
   });
 });
