@@ -72,13 +72,15 @@ export const createBlankPage = (
 export const createImagePage = (
   imageDataUrl: string,
   imgWidth: number,
-  imgHeight: number
+  imgHeight: number,
+  imageBytes?: Uint8Array,
+  imageMimeType?: string
 ): PdfPageModel => {
   // Normalize size to standard A4 ratio if huge, or fit nicely
   let width = imgWidth;
   let height = imgHeight;
 
-  // Max dimension 1200pt for crispness without exploding size
+  // Max dimension 842pt (A4) for crispness without exploding size
   const maxDim = 842;
   if (width > maxDim || height > maxDim) {
     const ratio = width / height;
@@ -97,6 +99,8 @@ export const createImagePage = (
     sourceDocId: `img_${Date.now()}`,
     sourceType: 'image',
     imageDataUrl,
+    imageBytes,
+    imageMimeType,
     rotation: 0,
     width,
     height,

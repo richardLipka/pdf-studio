@@ -132,8 +132,10 @@ export const AddPageModal: React.FC = () => {
         insertPages([blankPage], position);
       } else if (activeTab === 'image' && selectedFile) {
         const dataUrl = await readFileAsDataUrl(selectedFile);
+        const arrayBuf = await readFileAsArrayBuffer(selectedFile);
         const { width, height } = await getImageDimensions(dataUrl);
-        const imagePage = createImagePage(dataUrl, width, height);
+        const imageBytes = new Uint8Array(arrayBuf);
+        const imagePage = createImagePage(dataUrl, width, height, imageBytes, selectedFile.type);
         insertPages([imagePage], position);
       } else if (activeTab === 'pdf' && selectedFile) {
         const arrayBuffer = await readFileAsArrayBuffer(selectedFile);

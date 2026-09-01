@@ -325,8 +325,21 @@ export const exportEditedPdf = async (
   for (const pageModel of pages) {
     let targetPage: PDFPage | null = null;
 
-    if (pageModel.sourceType === 'image' && pageModel.imageDataUrl) {
-      const embeddedImage = await embedDataUrlImage(outputDoc, pageModel.imageDataUrl);
+    if (pageModel.sourceType === 'image' && (pageModel.imageBytes || pageModel.imageDataUrl)) {
+      let embeddedImage: PDFImage;
+      if (pageModel.imageBytes) {
+        if (pageModel.imageMimeType === 'image/png') {
+          embeddedImage = await outputDoc.embedPng(pageModel.imageBytes);
+        } else {
+          try {
+            embeddedImage = await outputDoc.embedJpg(pageModel.imageBytes);
+          } catch {
+            embeddedImage = await outputDoc.embedPng(pageModel.imageBytes);
+          }
+        }
+      } else {
+        embeddedImage = await embedDataUrlImage(outputDoc, pageModel.imageDataUrl!);
+      }
 
       targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
       targetPage.drawImage(embeddedImage, {

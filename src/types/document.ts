@@ -9,7 +9,9 @@ export interface PdfPageModel {
   originalPageIndex: number; // 0-based index in original source or created page
   sourceDocId: string;    // 'main' or uuid of merged file / image
   sourceType: 'pdf' | 'image' | 'blank';
-  imageDataUrl?: string;  // if source is image or blank
+  imageDataUrl?: string;  // for viewport preview
+  imageBytes?: Uint8Array; // original binary image bytes to preserve original compression
+  imageMimeType?: string;  // original mime type e.g. 'image/jpeg', 'image/png'
   rotation: number;       // page rotation in degrees (0, 90, 180, 270)
   width: number;          // unscaled point width (e.g. 595.28 for A4)
   height: number;         // unscaled point height (e.g. 841.89 for A4)
