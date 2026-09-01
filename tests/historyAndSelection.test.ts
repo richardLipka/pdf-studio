@@ -128,5 +128,38 @@ describe('Undo/Redo History & Multi-Selection Engine', () => {
     const rangeToEnd = allPageIds.slice(currentAnchor);
     expect(rangeToEnd).toEqual(['p3', 'p4', 'p5']);
   });
+
+  it('should preserve and deeply clone binary ArrayBuffer data across undo/redo snapshots', () => {
+    const buffer1 = new Uint8Array([1, 2, 3, 4, 5]).buffer;
+    const buffer2 = new Uint8Array([10, 20, 30]).buffer;
+
+    const source1 = { id: 'main', name: 'test.pdf', arrayBuffer: buffer1, updatedAt: 1000 };
+    const source2 = { id: 'main', name: 'test.pdf', arrayBuffer: buffer2, updatedAt: 2000 };
+
+    interface FullHistorySnapshot {
+      sources: { id: string; name: string; arrayBuffer?: ArrayBuffer; updatedAt?: number }[];
+    }
+
+    const historyStack: FullHistorySnapshot[] = [
+      {
+        sources: [{ ...source1, arrayBuffer: source1.arrayBuffer.slice(0) }],
+      },
+    ];
+
+    // Push edit state
+    historyStack.push({
+      sources: [{ ...source2, arrayBuffer: source2.arrayBuffer.slice(0) }],
+    });
+
+    expect(historyStack.length).toBe(2);
+    expect(new Uint8Array(historyStack[0].sources[0].arrayBuffer!)).toEqual(new Uint8Array([1, 2, 3, 4, 5]));
+    expect(new Uint8Array(historyStack[1].sources[0].arrayBuffer!)).toEqual(new Uint8Array([10, 20, 30]));
+
+    // Revert to history[0] (Undo)
+    const reverted = historyStack[0].sources[0];
+    expect(reverted.arrayBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(reverted.arrayBuffer?.byteLength).toBe(5);
+    expect(new Uint8Array(reverted.arrayBuffer!)[0]).toBe(1);
+  });
 });
 

@@ -98,9 +98,25 @@ interface DocumentContextType {
 
 const DocumentContext = createContext<DocumentContextType | null>(null);
 
-// Deep clone helper for immutable history snapshots
+// Deep clone helper for immutable history snapshots (JSON-serializable objects)
 const deepClone = <T,>(obj: T): T => {
   return JSON.parse(JSON.stringify(obj));
+};
+
+// Specialized clone helper for SourceDocument preserving binary ArrayBuffer data
+export const cloneSourceDocument = (source: SourceDocument, timestamp?: number): SourceDocument => {
+  const clonedBuffer: ArrayBuffer = source.arrayBuffer
+    ? source.arrayBuffer.slice(0)
+    : new ArrayBuffer(0);
+  return {
+    ...source,
+    arrayBuffer: clonedBuffer,
+    updatedAt: timestamp !== undefined ? timestamp : (source.updatedAt || Date.now()),
+  };
+};
+
+export const cloneSources = (sourcesList: SourceDocument[], timestamp?: number): SourceDocument[] => {
+  return sourcesList.map((s) => cloneSourceDocument(s, timestamp));
 };
 
 export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -138,7 +154,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           pages: deepClone(newPages),
           annotations: deepClone(newAnnotations),
           activePageIndex: newActiveIndex,
-          sources: deepClone(newSources || sources),
+          sources: cloneSources(newSources || sources),
         };
 
         if (next.length >= MAX_HISTORY) {
@@ -169,6 +185,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         id: 'main',
         name: file.name,
         arrayBuffer: buffer,
+        updatedAt: Date.now(),
       };
 
       const parsedPages = await parsePdfPages(buffer, 'main');
@@ -185,12 +202,12 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setSelectedAnnotationId(null);
       setMetadata(extractedMeta);
 
-      // Initialize history with initial source documents
+      // Initialize history with initial source documents (proper binary clone)
       setHistory([{
         pages: deepClone(parsedPages),
         annotations: deepClone(loadedAnnotations),
         activePageIndex: 0,
-        sources: [deepClone(mainSource)],
+        sources: cloneSources([mainSource]),
       }]);
       setHistoryIndex(0);
       logger.success('load', `Dokument "${file.name}" připraven k úpravám (${parsedPages.length} stran)`);
@@ -209,6 +226,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         id: 'main',
         name: 'sample-contract.pdf',
         arrayBuffer: buffer,
+        updatedAt: Date.now(),
       };
 
       const parsedPages = await parsePdfPages(buffer, 'main');
@@ -237,7 +255,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         pages: deepClone(parsedPages),
         annotations: deepClone(loadedAnnotations),
         activePageIndex: 0,
-        sources: [deepClone(mainSource)],
+        sources: cloneSources([mainSource]),
       }]);
       setHistoryIndex(0);
       logger.success('load', `Ukázkový dokument úspěšně načten (${parsedPages.length} stran)`);
@@ -505,11 +523,13 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setActivePageIndex(targetSnapshot.activePageIndex);
         rangeAnchorIndexRef.current = targetSnapshot.activePageIndex;
         setSelectedAnnotationId(null);
-        if (targetSnapshot.sources) {
-          setSources(deepClone(targetSnapshot.sources));
+        if (targetSnapshot.sources && targetSnapshot.sources.length > 0) {
           clearPdfCache();
+          const restoredSources = cloneSources(targetSnapshot.sources, Date.now());
+          setSources(restoredSources);
         }
         setHistoryIndex(targetIndex);
+        logger.info('system', `Krok Zpět (Undo): obnoven stav #${targetIndex + 1}`);
       }
     }
   };
@@ -524,11 +544,13 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setActivePageIndex(targetSnapshot.activePageIndex);
         rangeAnchorIndexRef.current = targetSnapshot.activePageIndex;
         setSelectedAnnotationId(null);
-        if (targetSnapshot.sources) {
-          setSources(deepClone(targetSnapshot.sources));
+        if (targetSnapshot.sources && targetSnapshot.sources.length > 0) {
           clearPdfCache();
+          const restoredSources = cloneSources(targetSnapshot.sources, Date.now());
+          setSources(restoredSources);
         }
         setHistoryIndex(targetIndex);
+        logger.info('system', `Krok Vpřed (Redo): obnoven stav #${targetIndex + 1}`);
       }
     }
   };

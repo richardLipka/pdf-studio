@@ -31,6 +31,7 @@ export interface SourceDocument {
   id: string;
   name: string;
   arrayBuffer: ArrayBuffer;
+  updatedAt?: number;
 }
 
 export interface RasterizationSettings {

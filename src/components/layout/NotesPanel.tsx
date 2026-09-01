@@ -151,7 +151,7 @@ export const NotesPanel: React.FC = () => {
 
   return (
     <aside
-      className={`w-80 border-l flex flex-col h-full select-none z-20 shadow-2xl animate-in slide-in-from-right duration-200 transition-colors ${
+      className={`w-80 border-r flex flex-col h-full select-none z-20 shadow-2xl animate-in slide-in-from-left duration-200 transition-colors ${
         isMinimal
           ? 'bg-white border-neutral-200 text-black'
           : isLcars

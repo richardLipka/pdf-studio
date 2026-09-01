@@ -76,11 +76,11 @@ const MainWorkspace: React.FC = () => {
           {/* Secondary Action Toolbar */}
           <Toolbar />
 
-          {/* Core Body: Left Sidebar + Main PDF Canvas + Right Notes Panel */}
+          {/* Core Body: Left Sidebar + Notes Panel + Main PDF Canvas */}
           <div className="flex-1 flex overflow-hidden relative">
             <Sidebar />
-            <PdfViewer />
             <NotesPanel />
+            <PdfViewer />
           </div>
         </>
       ) : (

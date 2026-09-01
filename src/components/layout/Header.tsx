@@ -242,6 +242,7 @@ export const Header: React.FC = () => {
                   : 'rounded-lg text-slate-600 border-transparent cursor-not-allowed'
               }`}
               title={t.app.undo}
+              aria-label={t.app.undo}
             >
               <Undo2 className="w-4 h-4" />
             </button>
@@ -263,64 +264,64 @@ export const Header: React.FC = () => {
                   : 'rounded-lg text-slate-600 border-transparent cursor-not-allowed'
               }`}
               title={t.app.redo}
+              aria-label={t.app.redo}
             >
               <Redo2 className="w-4 h-4" />
+            </button>
+
+            {/* Notes & Reviews Panel Toggle (Moved to Left Side) */}
+            <button
+              onClick={toggleNotesPanel}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 ml-1 text-xs font-medium border transition-all ${
+                isMinimal
+                  ? isNotesPanelOpen
+                    ? 'rounded-md bg-black text-white border-black'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                  : isLcars
+                  ? isNotesPanelOpen
+                    ? 'rounded-full bg-[#ff9900] text-black border-[#ff9900]'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
+                  : isNotesPanelOpen
+                  ? 'rounded-lg bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
+                  : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+              title={t.notesPanel.togglePanel}
+              aria-label={t.notesPanel.title}
+            >
+              <MessageSquare
+                className={`w-3.5 h-3.5 ${
+                  isMinimal
+                    ? isNotesPanelOpen ? 'text-white' : 'text-black'
+                    : isLcars
+                    ? isNotesPanelOpen ? 'text-black' : 'text-[#ff9900]'
+                    : 'text-amber-400'
+                }`}
+              />
+              <span className="hidden lg:inline">{t.notesPanel.title}</span>
+              {notesCount > 0 && (
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    isMinimal
+                      ? isNotesPanelOpen ? 'bg-white text-black' : 'bg-neutral-200 text-black'
+                      : isLcars
+                      ? 'bg-black text-[#ff9900] border border-[#ff9900]'
+                      : 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
+                  }`}
+                >
+                  {notesCount}
+                </span>
+              )}
             </button>
           </div>
         )}
       </div>
 
-      {/* Right Side: Notes Panel Toggle, Theme Switcher, Language switcher & Save/Download button */}
-      <div className="flex items-center gap-2 sm:gap-2.5">
-        {/* Notes & Reviews Panel Toggle */}
-        {hasDoc && (
-          <button
-            onClick={toggleNotesPanel}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border transition-all ${
-              isMinimal
-                ? isNotesPanelOpen
-                  ? 'rounded-md bg-black text-white border-black'
-                  : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
-                : isLcars
-                ? isNotesPanelOpen
-                  ? 'rounded-full bg-[#ff9900] text-black border-[#ff9900]'
-                  : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
-                : isNotesPanelOpen
-                ? 'rounded-lg bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-            }`}
-            title={t.notesPanel.togglePanel}
-          >
-            <MessageSquare
-              className={`w-3.5 h-3.5 ${
-                isMinimal
-                  ? isNotesPanelOpen ? 'text-white' : 'text-black'
-                  : isLcars
-                  ? isNotesPanelOpen ? 'text-black' : 'text-[#ff9900]'
-                  : 'text-amber-400'
-              }`}
-            />
-            <span className="hidden md:inline">{t.notesPanel.title}</span>
-            {notesCount > 0 && (
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                  isMinimal
-                    ? isNotesPanelOpen ? 'bg-white text-black' : 'bg-neutral-200 text-black'
-                    : isLcars
-                    ? 'bg-black text-[#ff9900] border border-[#ff9900]'
-                    : 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
-                }`}
-              >
-                {notesCount}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* Diagnostic Log Button */}
+      {/* Right Side: Protocol, Metadata, Settings, Theme, Language & Save/Download */}
+      <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Diagnostic Log Button (Icon only with Tooltip) */}
         <button
           onClick={toggleLogModal}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border transition-all ${
+          className={`p-2 relative border transition-all ${
             isMinimal
               ? isLogModalOpen
                 ? 'rounded-md bg-black text-white border-black'
@@ -333,16 +334,16 @@ export const Header: React.FC = () => {
               ? 'rounded-lg bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-sm'
               : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
           }`}
-          title={t.logModal.buttonTooltip}
+          title={t.logModal.buttonTooltip || t.logModal.title}
+          aria-label={t.logModal.title}
         >
-          <ScrollText className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">{t.logModal.title}</span>
+          <ScrollText className="w-4 h-4" />
           {(issueCount.warns > 0 || issueCount.errors > 0) && (
             <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+              className={`absolute -top-1 -right-1 px-1 min-w-[16px] h-4 flex items-center justify-center rounded-full text-[9px] font-bold ${
                 issueCount.errors > 0
                   ? 'bg-rose-500 text-white animate-pulse'
-                  : 'bg-amber-500 text-slate-950 font-bold'
+                  : 'bg-amber-500 text-slate-950'
               }`}
             >
               {issueCount.totalIssues}
@@ -350,11 +351,11 @@ export const Header: React.FC = () => {
           )}
         </button>
 
-        {/* Document Metadata Button */}
+        {/* Document Metadata Button (Icon only with Tooltip) */}
         {hasDoc && (
           <button
             onClick={toggleMetadataModal}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border transition-all ${
+            className={`p-2 border transition-all ${
               isMinimal
                 ? isMetadataModalOpen
                   ? 'rounded-md bg-black text-white border-black'
@@ -367,17 +368,17 @@ export const Header: React.FC = () => {
                 ? 'rounded-lg bg-indigo-500/20 text-indigo-300 border-indigo-500/40 shadow-sm'
                 : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
             }`}
-            title={t.metadataModal.buttonTooltip}
+            title={t.metadataModal.buttonTooltip || t.metadataModal.title}
+            aria-label={t.metadataModal.title}
           >
-            <Info className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">{t.metadataModal.title}</span>
+            <Info className="w-4 h-4" />
           </button>
         )}
 
-        {/* Settings Button */}
+        {/* Settings Button (Icon only with Tooltip) */}
         <button
           onClick={toggleSettingsModal}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border transition-all ${
+          className={`p-2 border transition-all ${
             isMinimal
               ? isSettingsModalOpen
                 ? 'rounded-md bg-black text-white border-black'
@@ -391,9 +392,9 @@ export const Header: React.FC = () => {
               : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
           }`}
           title={t.settings.title}
+          aria-label={t.settings.title}
         >
-          <Sliders className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">{t.settings.title}</span>
+          <Sliders className="w-4 h-4" />
         </button>
 
         {/* Theme Switcher */}

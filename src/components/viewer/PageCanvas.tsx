@@ -44,7 +44,7 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [page.id, page.rotation, page.sourceDocId, page.sourceType, page.imageDataUrl, page.width, page.height, sourceDoc, scale]);
+  }, [page.id, page.rotation, page.sourceDocId, page.sourceType, page.imageDataUrl, page.width, page.height, sourceDoc, sourceDoc?.updatedAt, scale]);
 
   return (
     <div
@@ -74,6 +74,7 @@ export const PageCanvas = memo(PageCanvasComponent, (prev, next) => {
     prev.page.width === next.page.width &&
     prev.page.height === next.page.height &&
     prev.sourceDoc === next.sourceDoc &&
+    prev.sourceDoc?.updatedAt === next.sourceDoc?.updatedAt &&
     prev.scale === next.scale
   );
 });
