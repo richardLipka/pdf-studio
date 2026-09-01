@@ -29,7 +29,7 @@ import { logger } from './logger';
 /**
  * Safely repairs broken or indirect catalog /Pages pointers in third-party PDFs
  */
-const repairPdfDocCatalog = (doc: PDFDocument) => {
+const repairPdfDocCatalog = (doc: PDFDocument, repairLog: string[] = []) => {
   try {
     const catalog = doc.catalog as any;
     let pagesObj: any;
@@ -66,36 +66,120 @@ const repairPdfDocCatalog = (doc: PDFDocument) => {
 
       if (rootPageTreeRef) {
         catalog.dict.set(PDFName.of('Pages'), rootPageTreeRef);
+        repairLog.push('Opraven kořenový uzel /Pages v katalogu dokumentu.');
+      } else {
+        // Deep reconstruction: find all orphan /Type /Page objects and construct a new root /Pages
+        const pageRefs: any[] = [];
+        for (const [ref, obj] of indirectObjects) {
+          if (obj instanceof PDFDict && obj.lookup(PDFName.of('Type')) === PDFName.of('Page')) {
+            pageRefs.push(ref);
+          }
+        }
+        if (pageRefs.length > 0) {
+          const newPagesDict = doc.context.obj({
+            Type: 'Pages',
+            Kids: pageRefs,
+            Count: pageRefs.length,
+          });
+          const newPagesRef = doc.context.register(newPagesDict);
+          catalog.dict.set(PDFName.of('Pages'), newPagesRef);
+          for (const pRef of pageRefs) {
+            const pObj = doc.context.lookup(pRef);
+            if (pObj instanceof PDFDict) {
+              pObj.set(PDFName.of('Parent'), newPagesRef);
+            }
+          }
+          repairLog.push(`Hloubkově rekonstruován strom /Pages z ${pageRefs.length} nalezených stran.`);
+        }
       }
     }
-  } catch (e) {
+  } catch (e: any) {
+    repairLog.push(`Chyba při pokusu o opravu katalogu: ${e?.message || e}`);
     console.warn('Could not repair PDF catalog:', e);
   }
 };
 
+export interface LoadAttemptDiagnostic {
+  attempt: number;
+  options: Record<string, any>;
+  success: boolean;
+  errorName?: string;
+  errorMessage?: string;
+  errorStack?: string;
+}
+
+export interface LoadSourceResult {
+  doc: PDFDocument | null;
+  attempts: LoadAttemptDiagnostic[];
+  repairLog: string[];
+}
+
 /**
- * Robustly loads a source PDF document with multi-stage options and catalog repair
+ * Extracts printable ASCII header (first 32 bytes) for diagnostics
  */
-const loadSourcePdfDoc = async (arrayBuffer: ArrayBuffer): Promise<PDFDocument | null> => {
-  const attempts = [
-    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true },
-    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true },
-    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, capNumbers: true },
-    { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false },
+export const extractPdfHeader = (buffer: ArrayBuffer): string => {
+  try {
+    const bytes = new Uint8Array(buffer.slice(0, Math.min(32, buffer.byteLength)));
+    return Array.from(bytes)
+      .map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.'))
+      .join('');
+  } catch {
+    return 'N/A';
+  }
+};
+
+/**
+ * Robustly loads a source PDF document with multi-stage fallback options, deep catalog repair,
+ * and comprehensive diagnostic error tracking
+ */
+export const loadSourcePdfDocWithDiagnostics = async (
+  arrayBuffer: ArrayBuffer
+): Promise<LoadSourceResult> => {
+  const attempts: Array<Record<string, any>> = [
+    { name: 'Slow + NoThrow + CapNumbers', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true },
+    { name: 'Fastest + NoThrow + CapNumbers', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true },
+    { name: 'NoThrow + CapNumbers', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, capNumbers: true },
+    { name: 'NoThrow + Standard', ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false },
+    { name: 'IgnoreEncryption Only', ignoreEncryption: true },
+    { name: 'Standard Default', parseSpeed: ParseSpeeds.Slow },
   ];
 
-  for (const opt of attempts) {
+  const diagnosticAttempts: LoadAttemptDiagnostic[] = [];
+  const repairLog: string[] = [];
+
+  for (let i = 0; i < attempts.length; i++) {
+    const opt = attempts[i];
     try {
       const copyBuf = arrayBuffer.slice(0);
       const doc = await PDFDocument.load(copyBuf, opt);
-      repairPdfDocCatalog(doc);
-      doc.getPageCount();
-      return doc;
-    } catch {
-      // Try next option
+      repairPdfDocCatalog(doc, repairLog);
+      const count = doc.getPageCount();
+      if (count > 0) {
+        diagnosticAttempts.push({
+          attempt: i + 1,
+          options: opt,
+          success: true,
+        });
+        return { doc, attempts: diagnosticAttempts, repairLog };
+      }
+    } catch (err: any) {
+      diagnosticAttempts.push({
+        attempt: i + 1,
+        options: opt,
+        success: false,
+        errorName: err?.name || 'Error',
+        errorMessage: err?.message || String(err),
+        errorStack: err?.stack,
+      });
     }
   }
-  return null;
+
+  return { doc: null, attempts: diagnosticAttempts, repairLog };
+};
+
+export const loadSourcePdfDoc = async (arrayBuffer: ArrayBuffer): Promise<PDFDocument | null> => {
+  const res = await loadSourcePdfDocWithDiagnostics(arrayBuffer);
+  return res.doc;
 };
 
 /**
@@ -348,17 +432,42 @@ export const exportEditedPdf = async (
   const sourceDocsMap = new Map<string, PDFDocument>();
   for (const src of sources) {
     if (src.arrayBuffer) {
-      const doc = await loadSourcePdfDoc(src.arrayBuffer);
-      if (doc) {
-        sourceDocsMap.set(src.id, doc);
+      const loadResult = await loadSourcePdfDocWithDiagnostics(src.arrayBuffer);
+      if (loadResult.doc) {
+        sourceDocsMap.set(src.id, loadResult.doc);
         logger.info('save', `Načten zdrojový dokument "${src.name || src.id}" pro vektorové kopírování`, {
           sourceId: src.id,
           name: src.name,
           bytes: src.arrayBuffer.byteLength,
+          fileSizeKB: (src.arrayBuffer.byteLength / 1024).toFixed(1),
+          header: extractPdfHeader(src.arrayBuffer),
+          attemptsUsed: loadResult.attempts.length,
+          repairsApplied: loadResult.repairLog,
         });
       } else {
-        logger.warn('save', `PDF-lib nemohl načíst zdrojový dokument ${src.id}, bude použita záchranná rastrizace.`);
-        console.warn(`PDF-lib could not strictly parse source doc ${src.id}, will use high-res rendering fallback.`);
+        const errorSummaries = loadResult.attempts.map((a) => ({
+          attempt: a.attempt,
+          strategy: a.options.name || JSON.stringify(a.options),
+          errorType: a.errorName,
+          message: a.errorMessage,
+          stack: a.errorStack ? a.errorStack.split('\n').slice(0, 4).join('\n') : undefined,
+        }));
+
+        logger.warn(
+          'save',
+          `PDF-lib nemohl načíst zdrojový dokument "${src.name || src.id}". Bude použita záchranná rastrizace stránek.`,
+          {
+            sourceId: src.id,
+            name: src.name,
+            fileSize: `${(src.arrayBuffer.byteLength / 1024).toFixed(1)} KB (${src.arrayBuffer.byteLength} B)`,
+            pdfHeader: extractPdfHeader(src.arrayBuffer),
+            diagnosticMessage: 'Dokument obsahuje syntaktické chyby, poškozené xref tabulky, nestandardní kompresi objektů nebo nepodporované kódování v PDF-lib.',
+            attemptsCount: loadResult.attempts.length,
+            attemptErrors: errorSummaries,
+            impact: 'Stránky z tohoto zdroje budou uloženy jako rastrové obrázky, což může výrazně zvýšit velikost výsledného PDF.',
+          }
+        );
+        console.warn(`PDF-lib could not parse source doc ${src.id}. Detailed diagnostics:`, errorSummaries);
       }
     }
   }
@@ -384,7 +493,11 @@ export const exportEditedPdf = async (
           pagesCopied: copiedList.length,
         });
       } catch (err: any) {
-        logger.warn('save', `Chyba při hromadném kopírování stran ze zdroje ${src.id}: ${err?.message || err}`, err);
+        logger.warn('save', `Chyba při hromadném kopírování stran ze zdroje ${src.id}: ${err?.message || err}`, {
+          sourceId: src.id,
+          error: err?.message || String(err),
+          stack: err?.stack,
+        });
         console.warn(`Error batch copying pages from source ${src.id}:`, err);
       }
     }
@@ -460,7 +573,12 @@ export const exportEditedPdf = async (
             const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageIdx]);
             targetPage = outputDoc.addPage(copiedPage);
           } catch (copyErr: any) {
-            logger.warn('save', `Kopírování strany ${pageModel.id} selhalo, bude použita záchranná rastrizace: ${copyErr?.message || copyErr}`);
+            logger.warn('save', `Kopírování strany ${pageModel.id} selhalo, bude použita záchranná rastrizace: ${copyErr?.message || copyErr}`, {
+              pageId: pageModel.id,
+              sourceDocId: pageModel.sourceDocId,
+              error: copyErr?.message || String(copyErr),
+              stack: copyErr?.stack,
+            });
             console.warn(`copyPages failed for page ${pageModel.id}, falling back to high-res render:`, copyErr);
             targetPage = null;
           }
@@ -481,10 +599,34 @@ export const exportEditedPdf = async (
               width: pageModel.width,
               height: pageModel.height,
             });
-            logger.info('save', `Záchranná rastrizace pro stranu ${pageModel.id} proběhla úspěšně`);
+            const dataUrlKb = (highResDataUrl.length * 0.75 / 1024).toFixed(1);
+            logger.warn(
+              'save',
+              `Záchranná rastrizace pro stranu ${pageModel.id} proběhla úspěšně (${dataUrlKb} KB)`,
+              {
+                pageId: pageModel.id,
+                pageNumber: (pageModel.originalPageIndex ?? 0) + 1,
+                sourceDocId: pageModel.sourceDocId,
+                dimensions: `${pageModel.width.toFixed(0)} × ${pageModel.height.toFixed(0)} pt`,
+                rasterScale: 2.0,
+                renderedImageSizeKB: dataUrlKb,
+                reason: sourceDocsMap.has(pageModel.sourceDocId)
+                  ? 'Kopírování této konkrétní strany selhalo (např. poškozený obsah strany nebo fonty)'
+                  : `Zdrojový PDF dokument "${pageModel.sourceDocId}" se nepodařilo načíst do PDF-lib parseru`,
+                note: 'Výsledný PDF soubor je větší z důvodu rastrového uložení této strany.',
+              }
+            );
           }
         } catch (renderErr: any) {
-          logger.error('save', `Záchranné vykreslení strany ${pageModel.id} selhalo: ${renderErr?.message || renderErr}`, renderErr);
+          logger.error(
+            'save',
+            `Záchranné vykreslení strany ${pageModel.id} selhalo: ${renderErr?.message || renderErr}`,
+            {
+              pageId: pageModel.id,
+              error: renderErr?.message || String(renderErr),
+              stack: renderErr?.stack,
+            }
+          );
           console.error(`High-res render fallback failed for page ${pageModel.id}:`, renderErr);
           targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
         }

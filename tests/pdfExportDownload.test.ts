@@ -147,4 +147,18 @@ describe('PDF Export & Download Reliability', () => {
 
     delete (globalThis as any).document;
   });
+
+  it('should capture structured diagnostics and attempts when loading unparseable buffers', async () => {
+    const invalidBuffer = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer;
+    const { loadSourcePdfDocWithDiagnostics, extractPdfHeader } = await import('../src/services/pdfExporter');
+
+    const result = await loadSourcePdfDocWithDiagnostics(invalidBuffer);
+    expect(result.doc).toBeNull();
+    expect(result.attempts.length).toBeGreaterThan(0);
+    expect(result.attempts[0].success).toBe(false);
+    expect(result.attempts[0].errorMessage).toBeDefined();
+
+    const header = extractPdfHeader(invalidBuffer);
+    expect(header).toBeDefined();
+  });
 });

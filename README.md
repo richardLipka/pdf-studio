@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-39%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-40%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -90,7 +90,9 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 
 ### 7. 📜 Event Log & Diagnostic Protocol Screen
 - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and parsing events with precise timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
-- **Comprehensive Diagnostics**: Dedicated diagnostic modal with level filtering, live search, JSON/stack trace expandable inspection, and one-click clipboard copying.
+- **Comprehensive PDF-Lib Diagnostics**: Tracks multi-strategy parse attempts, PDF header versions, byte lengths, exact stack traces, and catalog/PageTree repair logs for complex or third-party PDF files.
+- **Rasterization Impact Tracking**: Logs specific reasons, dimensions, scale factors, and data sizes whenever high-res fallback rasterization is triggered.
+- **Diagnostics Inspection Modal**: Dedicated diagnostic screen with level filtering, live search, JSON/stack trace expandable inspection, and one-click clipboard copying.
 - **Status Indicators**: Active badge counters in Header and StatusBar indicating warning/error totals with direct modal access.
 
 ---

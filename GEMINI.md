@@ -52,6 +52,8 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 
 7. **Event Log & Diagnostic Protocol Screen**:
    - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and system events with timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
+   - **Comprehensive PDF-Lib Diagnostics**: Multi-strategy parse attempts, PDF header extraction, detailed error types, stack traces, and catalog/PageTree repair tracking.
+   - **Rasterization Fallback Reason & Impact Tracking**: Captures specific reasons, image dimensions, scale factors, and data sizes whenever fallback rasterization is triggered.
    - **Diagnostics & Error Inspection**: Dedicated diagnostic modal with level filtering, instant search, JSON/stack trace expandable blocks, and one-click clipboard copying.
    - **Status Indicators**: Dynamic badge counters in Header and StatusBar indicating warning/error totals.
 
@@ -72,7 +74,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (39 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (40 tests) |
 
 ---
 
