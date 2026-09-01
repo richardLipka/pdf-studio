@@ -14,9 +14,11 @@ import {
 } from '../../types/annotations';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useI18n } from '../../i18n/context';
 import { screenToPdfPoint } from '../../utils/coordinate';
 import { cropPageRegionToClipboard, CropResult } from '../../services/imageCropper';
+import { NoteDialog } from '../common/NoteDialog';
 import {
   MessageSquare,
   Trash2,
@@ -34,6 +36,9 @@ interface AnnotationLayerProps {
 
 export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale }) => {
   const { t } = useI18n();
+  const { theme } = useTheme();
+  const isMinimal = theme === 'minimal';
+  const isLcars = theme === 'lcars';
   const {
     activeTool,
     strokeColor,
@@ -76,11 +81,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
   // Open note card modal/popover
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [noteEditText, setNoteEditText] = useState<string>('');
 
-  // Inline comment popover for highlights, underlines, and strikethroughs
+  // Inline comment popover for markups, lines, shapes, drawings
   const [activeCommentAnnId, setActiveCommentAnnId] = useState<string | null>(null);
-  const [commentDraftText, setCommentDraftText] = useState<string>('');
 
   // Page annotations
   const pageAnnotations = annotations.filter((a) => a.pageId === page.id);
@@ -149,10 +152,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         // DO NOT add new element! Open comment/note on this existing element!
         if (hitAnnotation.type === 'note') {
           setActiveNoteId(hitAnnotation.id);
-          setNoteEditText((hitAnnotation as NoteAnnotation).text || '');
         } else {
           setActiveCommentAnnId(hitAnnotation.id);
-          setCommentDraftText(hitAnnotation.comment || '');
         }
         return;
       }
@@ -195,7 +196,6 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       addAnnotation(newNote);
       setActiveNoteId(newNote.id);
       setSelectedAnnotationId(newNote.id);
-      setNoteEditText('');
     } else if (activeTool === 'text') {
       // Place a new text box
       const newText: TextAnnotation = {
@@ -364,7 +364,6 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           setSelectedAnnotationId(newHighlight.id);
           if (isNotesPanelOpen) {
             setActiveCommentAnnId(newHighlight.id);
-            setCommentDraftText('');
           } else {
             setActiveCommentAnnId(null);
           }
@@ -388,7 +387,6 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           setSelectedAnnotationId(newUnderline.id);
           if (isNotesPanelOpen) {
             setActiveCommentAnnId(newUnderline.id);
-            setCommentDraftText('');
           } else {
             setActiveCommentAnnId(null);
           }
@@ -451,10 +449,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       // User clicked existing markup with note tool -> open comment editing on THIS element!
       if (ann.type === 'note') {
         setActiveNoteId(ann.id);
-        setNoteEditText((ann as NoteAnnotation).text || '');
       } else {
         setActiveCommentAnnId(ann.id);
-        setCommentDraftText(ann.comment || '');
       }
       return;
     }
@@ -466,16 +462,15 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
 
     if (ann.type === 'note') {
       setActiveNoteId(ann.id);
-      setNoteEditText((ann as NoteAnnotation).text || '');
     }
   };
 
-  const handleSaveNote = (noteId: string) => {
+  const handleSaveNote = (noteId: string, textToSave: string = '') => {
     const note = annotations.find((a) => a.id === noteId) as NoteAnnotation;
     if (note) {
       updateAnnotation({
         ...note,
-        text: noteEditText,
+        text: textToSave,
         updatedAt: Date.now(),
       });
     }
@@ -1075,61 +1070,41 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             >
               {/* Note Badge Icon */}
               <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedAnnotationId(note.id);
+                  if (isNoteOpen) {
+                    setActiveNoteId(null);
+                  } else {
+                    setActiveNoteId(note.id);
+                  }
+                }}
                 style={{ backgroundColor: note.color || '#f59e0b' }}
-                className="w-7 h-7 rounded-full text-slate-950 flex items-center justify-center shadow-lg border-2 border-white/60 transition-transform active:scale-95"
+                className="w-7 h-7 rounded-full text-slate-950 flex items-center justify-center shadow-lg border-2 border-white/60 transition-transform active:scale-95 hover:scale-105"
                 title={note.text || t.tools.note}
               >
                 <MessageSquare className="w-4 h-4 fill-slate-950/20" />
               </button>
 
-              {/* Popover Card */}
+              {/* Unified NoteDialog Popover Card */}
               {isNoteOpen && (
-                <div
-                  className="absolute left-8 -top-2 w-64 bg-slate-900 border border-amber-500/40 rounded-xl shadow-2xl p-3 z-40 text-slate-100 backdrop-blur-md"
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-amber-400">
-                      {t.annotations.noteBy}
-                    </span>
-                    <button
-                      onClick={() => deleteAnnotation(note.id)}
-                      className="p-1 text-slate-400 hover:text-rose-400 transition-colors"
-                      title={t.annotations.deleteAnnotation}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <textarea
-                    value={noteEditText}
-                    onChange={(e) => setNoteEditText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSaveNote(note.id);
-                      } else if (e.key === 'Escape') {
-                        e.preventDefault();
-                        setActiveNoteId(null);
-                      }
-                    }}
-                    placeholder={t.annotations.notePlaceholder}
-                    rows={3}
-                    className="w-full text-xs bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-200 placeholder-slate-500 outline-none focus:border-amber-500 resize-none"
-                    autoFocus
-                  />
-
-                  <div className="flex items-center justify-end gap-1.5 mt-2">
-                    <button
-                      onClick={() => handleSaveNote(note.id)}
-                      className="flex items-center gap-1 px-3 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs transition-colors"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>{t.annotations.saveNote}</span>
-                    </button>
-                  </div>
-                </div>
+                <NoteDialog
+                  title={t.annotations.noteBy}
+                  initialText={note.text || ''}
+                  placeholder={t.annotations.notePlaceholder}
+                  onSave={(txt) => {
+                    handleSaveNote(note.id, txt);
+                  }}
+                  onCancel={() => {
+                    setActiveNoteId(null);
+                  }}
+                  onDelete={() => {
+                    deleteAnnotation(note.id);
+                    setActiveNoteId(null);
+                  }}
+                  positionClassName="absolute left-8 -top-2"
+                  widthClassName="w-64"
+                />
               )}
             </div>
           );
@@ -1138,12 +1113,14 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         return null;
       })}
 
-      {/* Comment Badges & Inline Popovers on Highlights, Underlines, and Strikethroughs */}
+      {/* Comment Badges & Inline Popovers on Markups, Shapes, Lines, and Drawings */}
       {pageAnnotations.map((ann) => {
         if (
           ann.type !== 'highlight' &&
           ann.type !== 'underline' &&
-          ann.type !== 'strikethrough'
+          ann.type !== 'strikethrough' &&
+          ann.type !== 'shape' &&
+          ann.type !== 'drawing'
         ) {
           return null;
         }
@@ -1154,16 +1131,39 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         const left = (ann.x + ann.width) * scale;
         const top = ann.y * scale;
         const isCommentOpen = activeCommentAnnId === ann.id;
+        const isSelected = selectedAnnotationId === ann.id;
 
         return (
           <div
             key={`comment_group_${ann.id}`}
-            className="annotation-item absolute z-30 pointer-events-auto"
+            className="annotation-item absolute z-30 pointer-events-auto flex flex-col items-start gap-1"
             style={{ left: `${left + 4}px`, top: `${top - 8}px` }}
             onMouseDown={(e) => e.stopPropagation()}
             onMouseUp={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
+            {/* For line & markup elements: Garbage bin button available above Add Note / Comment button */}
+            {(isSelected || isCommentOpen) && (
+              <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteAnnotation(ann.id);
+                  setActiveCommentAnnId(null);
+                }}
+                className={`p-1 rounded-full shadow-lg transition-transform hover:scale-110 flex items-center justify-center ${
+                  isMinimal
+                    ? 'bg-white text-neutral-500 hover:text-red-600 border border-neutral-300 hover:border-red-300'
+                    : isLcars
+                    ? 'bg-black text-[#cc3333] border border-[#cc3333] hover:bg-[#cc3333] hover:text-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-rose-400 border border-slate-700 hover:border-rose-500/50 shadow-slate-950/40'
+                }`}
+                title={t.annotations.deleteAnnotation}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
+
             {/* Comment Indicator Badge */}
             <button
               onMouseDown={(e) => e.stopPropagation()}
@@ -1174,7 +1174,6 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                   setActiveCommentAnnId(null);
                 } else {
                   setActiveCommentAnnId(ann.id);
-                  setCommentDraftText(ann.comment || '');
                 }
               }}
               className={`px-1.5 py-0.5 rounded-full shadow-lg transition-transform hover:scale-110 flex items-center gap-1 text-[10px] font-bold ${
@@ -1196,90 +1195,29 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
               )}
             </button>
 
-            {/* Inline Comment Editor Popover */}
+            {/* Unified NoteDialog Inline Popover */}
             {isCommentOpen && (
-              <div
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onMouseUp={(e) => e.stopPropagation()}
-                className="comment-popover absolute left-0 top-7 w-64 bg-slate-900 border border-amber-500/80 rounded-xl p-2.5 shadow-2xl z-40 animate-in fade-in zoom-in-95 duration-150"
-              >
-                <div className="flex items-center justify-between mb-1.5 text-xs text-amber-400 font-semibold">
-                  <span className="flex items-center gap-1">
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>{t.notesPanel.addComment} (PDF)</span>
-                  </span>
-
-                  {ann.comment && (
-                    <button
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        updateAnnotation({ ...ann, comment: undefined, updatedAt: Date.now() }, true);
-                        setActiveCommentAnnId(null);
-                      }}
-                      className="p-0.5 rounded text-slate-400 hover:text-rose-400"
-                      title={t.notesPanel.deleteItem}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-
-                <textarea
-                  value={commentDraftText}
-                  onChange={(e) => setCommentDraftText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      updateAnnotation(
-                        { ...ann, comment: commentDraftText.trim() || undefined, updatedAt: Date.now() },
-                        true
-                      );
-                      setActiveCommentAnnId(null);
-                    } else if (e.key === 'Escape') {
-                      e.preventDefault();
-                      setActiveCommentAnnId(null);
-                    }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onMouseUp={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  placeholder={t.notesPanel.commentPlaceholder}
-                  rows={3}
-                  className="w-full text-xs bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-100 placeholder-slate-500 outline-none focus:border-amber-500 resize-none"
-                  autoFocus
-                />
-
-                <div className="flex items-center justify-end gap-1.5 mt-2">
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveCommentAnnId(null);
-                    }}
-                    className="px-2 py-1 rounded text-[11px] text-slate-400 hover:text-white"
-                  >
-                    {t.addPageModal.cancel}
-                  </button>
-
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateAnnotation(
-                        { ...ann, comment: commentDraftText.trim() || undefined, updatedAt: Date.now() },
-                        true
-                      );
-                      setActiveCommentAnnId(null);
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-[11px] transition-colors"
-                  >
-                    <Check className="w-3 h-3" />
-                    <span>{t.annotations.saveNote}</span>
-                  </button>
-                </div>
-              </div>
+              <NoteDialog
+                title={`${t.notesPanel.addComment} (PDF)`}
+                initialText={ann.comment || ''}
+                placeholder={t.notesPanel.commentPlaceholder}
+                onSave={(txt) => {
+                  updateAnnotation(
+                    { ...ann, comment: txt.trim() || undefined, updatedAt: Date.now() },
+                    true
+                  );
+                  setActiveCommentAnnId(null);
+                }}
+                onCancel={() => {
+                  setActiveCommentAnnId(null);
+                }}
+                onDelete={() => {
+                  deleteAnnotation(ann.id);
+                  setActiveCommentAnnId(null);
+                }}
+                positionClassName="absolute left-0 top-12"
+                widthClassName="w-64"
+              />
             )}
           </div>
         );

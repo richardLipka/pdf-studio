@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
 import { Annotation, NoteAnnotation, TextAnnotation } from '../../types/annotations';
+import { NoteDialog } from '../common/NoteDialog';
 import {
   MessageSquare,
   Search,
@@ -13,7 +14,6 @@ import {
   Underline as UnderlineIcon,
   Strikethrough as StrikeIcon,
   Type,
-  Check,
   ChevronRight,
   Sparkles,
   Plus,
@@ -38,7 +38,6 @@ export const NotesPanel: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
-  const [commentDraft, setCommentDraft] = useState<string>('');
 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
@@ -103,29 +102,10 @@ export const NotesPanel: React.FC = () => {
     addAnnotation(newNote);
     setSelectedAnnotationId(newNote.id);
     setEditingCommentId(newNote.id);
-    setCommentDraft('');
   };
 
   const handleStartEditComment = (ann: Annotation) => {
     setEditingCommentId(ann.id);
-    const currentText =
-      ann.type === 'note'
-        ? (ann as NoteAnnotation).text || ''
-        : ann.type === 'text'
-        ? (ann as TextAnnotation).text || ''
-        : ann.comment || '';
-    setCommentDraft(currentText);
-  };
-
-  const handleSaveComment = (ann: Annotation) => {
-    if (ann.type === 'note') {
-      updateAnnotation({ ...ann, text: commentDraft, updatedAt: Date.now() }, true);
-    } else if (ann.type === 'text') {
-      updateAnnotation({ ...ann, text: commentDraft, updatedAt: Date.now() }, true);
-    } else {
-      updateAnnotation({ ...ann, comment: commentDraft, updatedAt: Date.now() }, true);
-    }
-    setEditingCommentId(null);
   };
 
   const getItemTypeBadge = (type: string) => {
@@ -359,54 +339,29 @@ export const NotesPanel: React.FC = () => {
 
                 {/* Comment / Note Content */}
                 {isEditing ? (
-                  <div className="space-y-2 mt-1" onClick={(e) => e.stopPropagation()}>
-                    <textarea
-                      value={commentDraft}
-                      onChange={(e) => setCommentDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSaveComment(ann);
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault();
-                          setEditingCommentId(null);
-                        }
-                      }}
+                  <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                    <NoteDialog
+                      title={`${badge.label} • ${t.notesPanel.pageLabel} ${pageIdx + 1}`}
+                      initialText={contentText}
                       placeholder={t.notesPanel.commentPlaceholder}
-                      rows={3}
-                      className={`w-full text-xs p-2 outline-none resize-none border ${
-                        isMinimal
-                          ? 'rounded-md bg-white border-black text-black placeholder-neutral-400'
-                          : isLcars
-                          ? 'rounded-lg bg-black border-[#ff9900] text-[#ff9900] placeholder-[#aa6633]'
-                          : 'rounded-lg bg-slate-900 border-amber-500/60 text-slate-100 placeholder-slate-500'
-                      }`}
-                      autoFocus
+                      onSave={(txt) => {
+                        if (ann.type === 'note' || ann.type === 'text') {
+                          updateAnnotation({ ...ann, text: txt, updatedAt: Date.now() }, true);
+                        } else {
+                          updateAnnotation({ ...ann, comment: txt.trim() || undefined, updatedAt: Date.now() }, true);
+                        }
+                        setEditingCommentId(null);
+                      }}
+                      onCancel={() => {
+                        setEditingCommentId(null);
+                      }}
+                      onDelete={() => {
+                        deleteAnnotation(ann.id);
+                        setEditingCommentId(null);
+                      }}
+                      positionClassName="relative"
+                      widthClassName="w-full"
                     />
-
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button
-                        onClick={() => setEditingCommentId(null)}
-                        className={`px-2.5 py-1 text-[11px] ${
-                          isMinimal ? 'text-neutral-500 hover:text-black' : isLcars ? 'text-[#ff9966]' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        {t.addPageModal.cancel}
-                      </button>
-                      <button
-                        onClick={() => handleSaveComment(ann)}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                          isMinimal
-                            ? 'rounded-md bg-black hover:bg-neutral-800 text-white border border-black'
-                            : isLcars
-                            ? 'rounded-full bg-[#ff9900] hover:bg-[#ffcc00] text-black font-bold'
-                            : 'rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950'
-                        }`}
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>{t.annotations.saveNote}</span>
-                      </button>
-                    </div>
                   </div>
                 ) : (
                   <div
