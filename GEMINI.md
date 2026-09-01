@@ -48,7 +48,12 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Fit Width** and **Fit Page** auto-scaling.
    - Automatic smooth scrolling to centered active page in main viewer and sidebar.
 
-7. **100% Client-Side Privacy & Native Page Preservation**:
+7. **Event Log & Diagnostic Protocol Screen**:
+   - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and system events with timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
+   - **Diagnostics & Error Inspection**: Dedicated diagnostic modal with level filtering, instant search, JSON/stack trace expandable blocks, and one-click clipboard copying.
+   - **Status Indicators**: Dynamic badge counters in Header and StatusBar indicating warning/error totals.
+
+8. **100% Client-Side Privacy & Native Page Preservation**:
    - Zero file upload to servers. All operations happen in-memory via Web Workers and Web APIs.
    - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
@@ -65,7 +70,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (31 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (34 tests) |
 
 ---
 
@@ -81,17 +86,18 @@ pdf-editor/
 │   ├── components/
 │   │   ├── common/         # Dropzone, Toast, Icons
 │   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel
-│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal
+│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal
 │   │   └── viewer/         # PdfViewer, PageCanvas, AnnotationLayer
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom
-│   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library
+│   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library, modal states
 │   │   └── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
 │   ├── i18n/
 │   │   ├── cs.ts           # Czech translations
 │   │   ├── en.ts           # English translations
 │   │   └── context.tsx     # i18n Provider and translation hooks
 │   ├── services/
+│   │   ├── logger.ts       # Structured logging, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures)
 │   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist
 │   │   └── pageManager.ts  # Adds, deletes, reorders, and rotates pages

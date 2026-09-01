@@ -24,6 +24,7 @@ import {
   UnderlineAnnotation,
 } from '../types/annotations';
 import { renderPdfPageToDataUrl } from './pdfLoader';
+import { logger } from './logger';
 
 /**
  * Safely repairs broken or indirect catalog /Pages pointers in third-party PDFs
@@ -261,6 +262,14 @@ export const exportEditedPdf = async (
   annotations: Annotation[],
   outputFileName: string = 'document-edited.pdf'
 ): Promise<Uint8Array> => {
+  const startTime = Date.now();
+  logger.info('save', `Zahájen export PDF: "${outputFileName}" (${pages.length} stran)`, {
+    outputFileName,
+    totalPages: pages.length,
+    sourcesCount: sources.length,
+    annotationsCount: annotations.length,
+  });
+
   const outputDoc = await PDFDocument.create();
 
   // Pre-load source PDF documents into memory map with automatic catalog repair
@@ -270,7 +279,13 @@ export const exportEditedPdf = async (
       const doc = await loadSourcePdfDoc(src.arrayBuffer);
       if (doc) {
         sourceDocsMap.set(src.id, doc);
+        logger.info('save', `Načten zdrojový dokument "${src.name || src.id}" pro vektorové kopírování`, {
+          sourceId: src.id,
+          name: src.name,
+          bytes: src.arrayBuffer.byteLength,
+        });
       } else {
+        logger.warn('save', `PDF-lib nemohl načíst zdrojový dokument ${src.id}, bude použita záchranná rastrizace.`);
         console.warn(`PDF-lib could not strictly parse source doc ${src.id}, will use high-res rendering fallback.`);
       }
     }
@@ -292,7 +307,12 @@ export const exportEditedPdf = async (
         );
         const copiedList = await outputDoc.copyPages(srcDoc, indicesToCopy);
         copiedPagesMap.set(src.id, copiedList);
-      } catch (err) {
+        logger.info('save', `Zkopírováno ${copiedList.length} originálních vektorových stran ze zdroje "${src.name || src.id}"`, {
+          sourceId: src.id,
+          pagesCopied: copiedList.length,
+        });
+      } catch (err: any) {
+        logger.warn('save', `Chyba při hromadném kopírování stran ze zdroje ${src.id}: ${err?.message || err}`, err);
         console.warn(`Error batch copying pages from source ${src.id}:`, err);
       }
     }
@@ -367,7 +387,8 @@ export const exportEditedPdf = async (
             );
             const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageIdx]);
             targetPage = outputDoc.addPage(copiedPage);
-          } catch (copyErr) {
+          } catch (copyErr: any) {
+            logger.warn('save', `Kopírování strany ${pageModel.id} selhalo, bude použita záchranná rastrizace: ${copyErr?.message || copyErr}`);
             console.warn(`copyPages failed for page ${pageModel.id}, falling back to high-res render:`, copyErr);
             targetPage = null;
           }
@@ -388,8 +409,10 @@ export const exportEditedPdf = async (
               width: pageModel.width,
               height: pageModel.height,
             });
+            logger.info('save', `Záchranná rastrizace pro stranu ${pageModel.id} proběhla úspěšně`);
           }
-        } catch (renderErr) {
+        } catch (renderErr: any) {
+          logger.error('save', `Záchranné vykreslení strany ${pageModel.id} selhalo: ${renderErr?.message || renderErr}`, renderErr);
           console.error(`High-res render fallback failed for page ${pageModel.id}:`, renderErr);
           targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
         }
@@ -626,30 +649,42 @@ export const exportEditedPdf = async (
     }
   }
 
-  // Save document as bytes with PDF 1.5 Object Stream compression
-  const pdfBytes = await outputDoc.save({ useObjectStreams: true });
+  try {
+    // Save document as bytes with PDF 1.5 Object Stream compression
+    const pdfBytes = await outputDoc.save({ useObjectStreams: true });
+    const elapsed = Date.now() - startTime;
+    logger.success('save', `PDF export úspěšně dokončen: ${(pdfBytes.length / 1024).toFixed(1)} KB za ${elapsed} ms`, {
+      outputFileName,
+      sizeBytes: pdfBytes.length,
+      durationMs: elapsed,
+      totalPages: pages.length,
+    });
 
-  // Create client-side download link if in browser environment
-  if (typeof document !== 'undefined') {
-    const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
-    const downloadUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = outputFileName;
-    link.style.position = 'fixed';
-    link.style.top = '-9999px';
-    link.style.left = '-9999px';
-    link.style.opacity = '0';
-    document.body.appendChild(link);
-    link.click();
+    // Create client-side download link if in browser environment
+    if (typeof document !== 'undefined') {
+      const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = outputFileName;
+      link.style.position = 'fixed';
+      link.style.top = '-9999px';
+      link.style.left = '-9999px';
+      link.style.opacity = '0';
+      document.body.appendChild(link);
+      link.click();
 
-    setTimeout(() => {
-      if (document.body.contains(link)) {
-        document.body.removeChild(link);
-      }
-      URL.revokeObjectURL(downloadUrl);
-    }, 1500);
+      setTimeout(() => {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        URL.revokeObjectURL(downloadUrl);
+      }, 1500);
+    }
+
+    return pdfBytes;
+  } catch (err: any) {
+    logger.error('save', `Uložení PDF dokumentu selhalo: ${err?.message || err}`, err);
+    throw err;
   }
-
-  return pdfBytes;
 };

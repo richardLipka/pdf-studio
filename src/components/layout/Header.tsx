@@ -17,7 +17,9 @@ import {
   Palette,
   Sun,
   Rocket,
+  ScrollText,
 } from 'lucide-react';
+import { logger } from '../../services/logger';
 
 export const Header: React.FC = () => {
   const { language, setLanguage, t } = useI18n();
@@ -36,7 +38,19 @@ export const Header: React.FC = () => {
     saveAndDownload,
   } = useDocument();
 
-  const { isNotesPanelOpen, toggleNotesPanel } = useEditor();
+  const { isNotesPanelOpen, toggleNotesPanel, isLogModalOpen, toggleLogModal } = useEditor();
+
+  const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
+    warns: 0,
+    errors: 0,
+    totalIssues: 0,
+  });
+
+  React.useEffect(() => {
+    return logger.subscribe(() => {
+      setIssueCount(logger.getWarningAndErrorCount());
+    });
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -286,6 +300,39 @@ export const Header: React.FC = () => {
             )}
           </button>
         )}
+
+        {/* Diagnostic Log Button */}
+        <button
+          onClick={toggleLogModal}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border transition-all ${
+            isMinimal
+              ? isLogModalOpen
+                ? 'rounded-md bg-black text-white border-black'
+                : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+              : isLcars
+              ? isLogModalOpen
+                ? 'rounded-full bg-[#99ccff] text-black border-[#99ccff]'
+                : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border-[#ff9900]'
+              : isLogModalOpen
+              ? 'rounded-lg bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-sm'
+              : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+          }`}
+          title={t.logModal.buttonTooltip}
+        >
+          <ScrollText className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">{t.logModal.title}</span>
+          {(issueCount.warns > 0 || issueCount.errors > 0) && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                issueCount.errors > 0
+                  ? 'bg-rose-500 text-white animate-pulse'
+                  : 'bg-amber-500 text-slate-950 font-bold'
+              }`}
+            >
+              {issueCount.totalIssues}
+            </span>
+          )}
+        </button>
 
         {/* Theme Switcher */}
         <div

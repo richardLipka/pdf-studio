@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { PdfPageModel, SourceDocument } from '../types/document';
 import { Annotation } from '../types/annotations';
+import { logger } from './logger';
 
 // Configure pdfjs worker in Vite
 try {
@@ -10,6 +11,7 @@ try {
   ).toString();
 } catch (e) {
   console.warn('Falling back to CDN worker for pdf.js', e);
+  logger.warn('load', 'Použit záložní CDN worker pro pdf.js', e);
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 }
 
@@ -40,25 +42,43 @@ export const parsePdfPages = async (
   arrayBuffer: ArrayBuffer,
   sourceDocId: string = 'main'
 ): Promise<PdfPageModel[]> => {
-  const pdfDoc = await getCachedPdfDocument(sourceDocId, arrayBuffer);
-  const pages: PdfPageModel[] = [];
+  const startTime = Date.now();
+  logger.info('load', `Zahájeno načítání PDF (${(arrayBuffer.byteLength / 1024).toFixed(1)} KB)`, {
+    sourceDocId,
+    bytes: arrayBuffer.byteLength,
+  });
 
-  for (let i = 1; i <= pdfDoc.numPages; i++) {
-    const page = await pdfDoc.getPage(i);
-    const viewport = page.getViewport({ scale: 1.0 });
+  try {
+    const pdfDoc = await getCachedPdfDocument(sourceDocId, arrayBuffer);
+    const pages: PdfPageModel[] = [];
 
-    pages.push({
-      id: `${sourceDocId}_page_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      originalPageIndex: i - 1,
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const viewport = page.getViewport({ scale: 1.0 });
+
+      pages.push({
+        id: `${sourceDocId}_page_${i}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        originalPageIndex: i - 1,
+        sourceDocId,
+        sourceType: 'pdf',
+        rotation: viewport.rotation || 0,
+        width: viewport.width,
+        height: viewport.height,
+      });
+    }
+
+    const elapsed = Date.now() - startTime;
+    logger.success('load', `Načteno ${pages.length} stran za ${elapsed} ms`, {
       sourceDocId,
-      sourceType: 'pdf',
-      rotation: viewport.rotation || 0,
-      width: viewport.width,
-      height: viewport.height,
+      totalPages: pages.length,
+      durationMs: elapsed,
     });
-  }
 
-  return pages;
+    return pages;
+  } catch (err: any) {
+    logger.error('load', `Nepodařilo se analyzovat PDF dokument (${sourceDocId}): ${err.message}`, err);
+    throw err;
+  }
 };
 
 /**
@@ -316,9 +336,16 @@ export const extractPdfAnnotations = async (
       }
     }
 
+    if (loadedAnnotations.length > 0) {
+      logger.info('load', `Extrahováno ${loadedAnnotations.length} existujících anotací / poznámek z PDF`, {
+        sourceDocId,
+        annotationsCount: loadedAnnotations.length,
+      });
+    }
+
     return loadedAnnotations;
-  } catch (err) {
-    console.warn('Could not extract PDF annotations:', err);
+  } catch (err: any) {
+    logger.warn('load', `Nepodařilo se extrahovat existující anotace: ${err?.message || err}`, err);
     return [];
   }
 };
@@ -427,6 +454,7 @@ export const renderPdfPageToCanvas = async (
     if (err?.name === 'RenderingCancelledException') {
       return; // Normal cancellation when zooming / navigating
     }
+    logger.error('render', `Chyba při vykreslování strany ${pageModel.id} na plátno: ${err?.message || err}`, err);
     throw err;
   } finally {
     if (activeRenderTasks.get(canvas) === renderTask) {

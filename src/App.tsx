@@ -13,6 +13,7 @@ import { Dropzone } from './components/common/Dropzone';
 import { SignatureModal } from './components/modals/SignatureModal';
 import { AddPageModal } from './components/modals/AddPageModal';
 import { ConfirmModal } from './components/modals/ConfirmModal';
+import { LogModal } from './components/modals/LogModal';
 
 const MainWorkspace: React.FC = () => {
   const { theme } = useTheme();
@@ -91,6 +92,7 @@ const MainWorkspace: React.FC = () => {
       <SignatureModal />
       <AddPageModal />
       <ConfirmModal />
+      <LogModal />
     </div>
   );
 };

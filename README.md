@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-31%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-34%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -73,6 +73,11 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 - **Dynamic Zoom to Selected Page** (<kbd>Ctrl + 0</kbd>): Calculates exact aspect-ratio scale for the current page to fit the viewport.
 - **Fit Width** & **Fit Page**: Adaptive scaling to screen width or full height.
 - **Auto-Scrolling**: Selecting any page in the sidebar or via arrow keys immediately scrolls the main viewport and thumbnail bar to center on that page.
+
+### 7. 📜 Event Log & Diagnostic Protocol Screen
+- **Real-Time Operation Tracking**: Captures all loading, saving, rendering, and parsing events with precise timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
+- **Comprehensive Diagnostics**: Dedicated diagnostic modal with level filtering, live search, JSON/stack trace expandable inspection, and one-click clipboard copying.
+- **Status Indicators**: Active badge counters in Header and StatusBar indicating warning/error totals with direct modal access.
 
 ---
 

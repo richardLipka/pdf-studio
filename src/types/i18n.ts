@@ -236,4 +236,29 @@ export interface TranslationSchema {
     minimal: string;
     lcars: string;
   };
+  logModal: {
+    title: string;
+    subtitle: string;
+    tabAll: string;
+    tabErrors: string;
+    tabWarnings: string;
+    tabInfo: string;
+    searchPlaceholder: string;
+    emptyTitle: string;
+    emptyDesc: string;
+    clearLogs: string;
+    copyLogs: string;
+    copied: string;
+    levelInfo: string;
+    levelWarn: string;
+    levelError: string;
+    levelSuccess: string;
+    categoryLoad: string;
+    categorySave: string;
+    categoryRender: string;
+    categorySystem: string;
+    buttonTooltip: string;
+    viewLogLink: string;
+    allOk: string;
+  };
 }

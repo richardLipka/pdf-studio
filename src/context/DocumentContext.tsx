@@ -4,6 +4,7 @@ import { Annotation } from '../types/annotations';
 import { exportEditedPdf } from '../services/pdfExporter';
 import { deletePage, reorderPages, rotatePage, insertPagesAtPosition, InsertPosition } from '../services/pageManager';
 import { parsePdfPages, extractPdfAnnotations, clearPdfCache } from '../services/pdfLoader';
+import { logger } from '../services/logger';
 
 interface HistorySnapshot {
   pages: PdfPageModel[];
@@ -116,6 +117,12 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [pages, annotations, activePageIndex, pushHistory]);
 
   const loadPdfFile = async (file: File) => {
+    logger.info('load', `Otevřen soubor: "${file.name}" (${(file.size / 1024).toFixed(1)} KB, type: ${file.type || 'unknown'})`, {
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+      lastModified: file.lastModified,
+    });
     try {
       const buffer = await file.arrayBuffer();
       clearPdfCache();
@@ -143,37 +150,46 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         activePageIndex: 0,
       }]);
       setHistoryIndex(0);
-    } catch (e) {
+      logger.success('load', `Dokument "${file.name}" připraven k úpravám (${parsedPages.length} stran)`);
+    } catch (e: any) {
+      logger.error('load', `Chyba při otevírání souboru "${file.name}": ${e?.message || e}`, e);
       console.error('Failed to load PDF file:', e);
       throw e;
     }
   };
 
   const loadSamplePdf = async (buffer: ArrayBuffer, _lang: string) => {
-    clearPdfCache();
-    const mainSource: SourceDocument = {
-      id: 'main',
-      name: 'sample-contract.pdf',
-      arrayBuffer: buffer,
-    };
+    logger.info('load', 'Otevírání ukázkového PDF dokumentu');
+    try {
+      clearPdfCache();
+      const mainSource: SourceDocument = {
+        id: 'main',
+        name: 'sample-contract.pdf',
+        arrayBuffer: buffer,
+      };
 
-    const parsedPages = await parsePdfPages(buffer, 'main');
-    const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
-    setFileName('sample-contract.pdf');
-    setSources([mainSource]);
-    setPages(parsedPages);
-    setActivePageIndex(0);
-    rangeAnchorIndexRef.current = 0;
-    setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
-    setAnnotations(loadedAnnotations);
-    setSelectedAnnotationId(null);
+      const parsedPages = await parsePdfPages(buffer, 'main');
+      const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
+      setFileName('sample-contract.pdf');
+      setSources([mainSource]);
+      setPages(parsedPages);
+      setActivePageIndex(0);
+      rangeAnchorIndexRef.current = 0;
+      setSelectedPageIds(parsedPages.length > 0 ? [parsedPages[0].id] : []);
+      setAnnotations(loadedAnnotations);
+      setSelectedAnnotationId(null);
 
-    setHistory([{
-      pages: deepClone(parsedPages),
-      annotations: deepClone(loadedAnnotations),
-      activePageIndex: 0,
-    }]);
-    setHistoryIndex(0);
+      setHistory([{
+        pages: deepClone(parsedPages),
+        annotations: deepClone(loadedAnnotations),
+        activePageIndex: 0,
+      }]);
+      setHistoryIndex(0);
+      logger.success('load', `Ukázkový dokument úspěšně načten (${parsedPages.length} stran)`);
+    } catch (e: any) {
+      logger.error('load', `Chyba při načítání ukázkového dokumentu: ${e?.message || e}`, e);
+      throw e;
+    }
   };
 
   // Zoom Operations
@@ -462,7 +478,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const outName = baseName.endsWith('.pdf') ? baseName : `${baseName}-edited.pdf`;
       const bytes = await exportEditedPdf(sources, pages, annotations, outName);
       return Boolean(bytes && bytes.length > 0);
-    } catch (e) {
+    } catch (e: any) {
+      logger.error('save', `Chyba při exportu dokumentu: ${e?.message || e}`, e);
       console.error('Failed to export PDF:', e);
       return false;
     } finally {

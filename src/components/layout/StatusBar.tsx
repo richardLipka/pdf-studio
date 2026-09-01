@@ -2,6 +2,8 @@ import React from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
+import { useEditor } from '../../context/EditorContext';
+import { logger } from '../../services/logger';
 import {
   ZoomIn,
   ZoomOut,
@@ -9,6 +11,7 @@ import {
   ChevronRight,
   Maximize2,
   ShieldCheck,
+  ScrollText,
 } from 'lucide-react';
 
 export const StatusBar: React.FC = () => {
@@ -23,6 +26,20 @@ export const StatusBar: React.FC = () => {
     zoomToFitPage,
     zoomToFitWidth,
   } = useDocument();
+
+  const { toggleLogModal } = useEditor();
+
+  const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
+    warns: 0,
+    errors: 0,
+    totalIssues: 0,
+  });
+
+  React.useEffect(() => {
+    return logger.subscribe(() => {
+      setIssueCount(logger.getWarningAndErrorCount());
+    });
+  }, []);
 
   const handlePrevPage = () => {
     if (activePageIndex > 0) setActivePageIndex(activePageIndex - 1);
@@ -176,6 +193,48 @@ export const StatusBar: React.FC = () => {
         >
           <span>lipka@fav.zcu.cz</span>
         </a>
+
+        <span
+          className={`hidden sm:inline select-none ${
+            isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
+          }`}
+        >
+          •
+        </span>
+
+        {/* Log / Diagnostics Quick Status */}
+        <button
+          onClick={toggleLogModal}
+          className={`hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+            issueCount.errors > 0
+              ? isMinimal
+                ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                : isLcars
+                ? 'bg-rose-950/60 text-rose-400 border border-rose-500 hover:bg-rose-900/60'
+                : 'bg-rose-950/40 text-rose-300 border border-rose-800/60 hover:bg-rose-900/60'
+              : issueCount.warns > 0
+              ? isMinimal
+                ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                : isLcars
+                ? 'bg-amber-950/60 text-amber-400 border border-amber-500 hover:bg-amber-900/60'
+                : 'bg-amber-950/40 text-amber-300 border border-amber-800/60 hover:bg-amber-900/60'
+              : isMinimal
+              ? 'text-neutral-500 hover:text-black hover:bg-neutral-100'
+              : isLcars
+              ? 'text-[#99ccff] hover:text-[#ffff66] hover:bg-[#222]'
+              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+          }`}
+          title={t.logModal.buttonTooltip}
+        >
+          <ScrollText className="w-3 h-3" />
+          <span>
+            {issueCount.errors > 0
+              ? `${issueCount.errors} ${t.logModal.tabErrors.toLowerCase()}`
+              : issueCount.warns > 0
+              ? `${issueCount.warns} ${t.logModal.tabWarnings.toLowerCase()}`
+              : t.logModal.allOk}
+          </span>
+        </button>
       </div>
 
       {/* Right: Zoom Controls when doc loaded, or subtle status on first page */}

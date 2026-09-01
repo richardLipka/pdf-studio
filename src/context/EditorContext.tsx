@@ -42,6 +42,9 @@ interface EditorContextType {
   setDeleteTargetPageId: (pageId: string | null) => void;
   deleteMode: 'single' | 'multiple';
   setDeleteMode: (mode: 'single' | 'multiple') => void;
+  isLogModalOpen: boolean;
+  setIsLogModalOpen: (open: boolean) => void;
+  toggleLogModal: () => void;
 
   // Stamps & Signatures Library
   stamps: SignatureStamp[];
@@ -81,6 +84,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState<boolean>(false);
   const [deleteTargetPageId, setDeleteTargetPageId] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState<'single' | 'multiple'>('single');
+  const [isLogModalOpen, setIsLogModalOpen] = useState<boolean>(false);
+
+  const toggleLogModal = () => {
+    setIsLogModalOpen((prev) => !prev);
+  };
 
   // Stamps library state
   const [stamps, setStamps] = useState<SignatureStamp[]>(() => {
@@ -240,6 +248,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setDeleteTargetPageId,
     deleteMode,
     setDeleteMode,
+    isLogModalOpen,
+    setIsLogModalOpen,
+    toggleLogModal,
     stamps,
     addStamp,
     removeStamp,
