@@ -129,6 +129,10 @@ export interface TranslationSchema {
     noteBy: string;
     saveNote: string;
     clickToEdit: string;
+    confirmEdit: string;
+    done: string;
+    dragToMove: string;
+    resize: string;
   };
   signatureModal: {
     title: string;

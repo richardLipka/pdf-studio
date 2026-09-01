@@ -29,6 +29,7 @@ import {
   X,
   Camera,
   BookmarkPlus,
+  GripHorizontal,
 } from 'lucide-react';
 
 interface AnnotationLayerProps {
@@ -81,6 +82,92 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   const [dragStartMouse, setDragStartMouse] = useState<Point>({ x: 0, y: 0 });
   const [dragStartAnnPos, setDragStartAnnPos] = useState<Point>({ x: 0, y: 0 });
   const [resizingAnnId, setResizingAnnId] = useState<string | null>(null);
+
+  // Window-level mouse listeners for seamless dragging and resizing
+  React.useEffect(() => {
+    if (!draggingAnnId && !resizingAnnId) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      if (draggingAnnId) {
+        const target = annotations.find((a) => a.id === draggingAnnId);
+        if (target) {
+          const dx = (e.clientX - dragStartMouse.x) / scale;
+          const dy = (e.clientY - dragStartMouse.y) / scale;
+          const newX = Math.max(0, Math.min(page.width - target.width, dragStartAnnPos.x + dx));
+          const newY = Math.max(0, Math.min(page.height - target.height, dragStartAnnPos.y + dy));
+
+          if (target.type === 'drawing') {
+            const drawAnn = target as DrawingAnnotation;
+            const shiftX = newX - target.x;
+            const shiftY = newY - target.y;
+            const updatedPoints = drawAnn.points.map((p) => ({
+              x: p.x + shiftX,
+              y: p.y + shiftY,
+            }));
+            updateAnnotation(
+              {
+                ...drawAnn,
+                x: newX,
+                y: newY,
+                points: updatedPoints,
+                updatedAt: Date.now(),
+              },
+              false
+            );
+          } else {
+            updateAnnotation(
+              {
+                ...target,
+                x: newX,
+                y: newY,
+                updatedAt: Date.now(),
+              },
+              false
+            );
+          }
+        }
+      } else if (resizingAnnId) {
+        const target = annotations.find((a) => a.id === resizingAnnId);
+        if (target) {
+          const dw = (e.clientX - dragStartMouse.x) / scale;
+          const dh = (e.clientY - dragStartMouse.y) / scale;
+          const newWidth = Math.max(30, dragStartAnnPos.x + dw);
+          const newHeight = Math.max(16, dragStartAnnPos.y + dh);
+
+          updateAnnotation(
+            {
+              ...target,
+              width: newWidth,
+              height: newHeight,
+              updatedAt: Date.now(),
+            },
+            false
+          );
+        }
+      }
+    };
+
+    const handleWindowMouseUp = () => {
+      if (draggingAnnId) {
+        const target = annotations.find((a) => a.id === draggingAnnId);
+        if (target) updateAnnotation(target, true);
+        setDraggingAnnId(null);
+      }
+      if (resizingAnnId) {
+        const target = annotations.find((a) => a.id === resizingAnnId);
+        if (target) updateAnnotation(target, true);
+        setResizingAnnId(null);
+      }
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [draggingAnnId, resizingAnnId, dragStartMouse, dragStartAnnPos, annotations, page.width, page.height, scale, updateAnnotation]);
 
   // Open note card modal/popover
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
@@ -570,14 +657,21 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       return;
     }
 
-    const pt = getPdfCoords(e);
     setDraggingAnnId(ann.id);
-    setDragStartMouse(pt);
+    setDragStartMouse({ x: e.clientX, y: e.clientY });
     setDragStartAnnPos({ x: ann.x, y: ann.y });
 
     if (ann.type === 'note') {
       setActiveNoteId(ann.id);
     }
+  };
+
+  const handleStartResizeAnn = (ann: Annotation, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedAnnotationId(ann.id);
+    setResizingAnnId(ann.id);
+    setDragStartMouse({ x: e.clientX, y: e.clientY });
+    setDragStartAnnPos({ x: ann.width, y: ann.height });
   };
 
   const handleSaveNote = (noteId: string, textToSave: string = '') => {
@@ -1230,10 +1324,10 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           return (
             <div
               key={wo.id}
-              className={`annotation-item absolute group cursor-move transition-shadow ${
+              className={`annotation-item absolute group transition-all ${
                 isSelected
-                  ? 'ring-2 ring-indigo-500 rounded shadow-md z-30'
-                  : 'hover:ring-1 hover:ring-indigo-400/60 z-20'
+                  ? 'ring-2 ring-indigo-500 rounded-sm shadow-xl z-30'
+                  : 'hover:ring-1 hover:ring-indigo-400/60 rounded-none z-20 cursor-pointer'
               }`}
               style={{
                 left: `${left}px`,
@@ -1243,60 +1337,146 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 backgroundColor: bgCol,
                 opacity: wo.opacity ?? 1.0,
               }}
-              onMouseDown={(e) => handleStartDragAnn(wo, e)}
-            >
-              <textarea
-                value={wo.text || ''}
-                onChange={(e) => {
-                  updateAnnotation({
-                    ...wo,
-                    text: e.target.value,
-                    updatedAt: Date.now(),
-                  });
-                }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isSelected) {
                   setSelectedAnnotationId(wo.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    (e.target as HTMLTextAreaElement).blur();
-                    setSelectedAnnotationId(null);
-                  }
-                }}
-                style={{
-                  fontSize: `${fontSz}px`,
-                  fontFamily: fontFm,
-                  color: txtCol,
-                  backgroundColor: 'transparent',
-                  resize: 'none',
-                }}
-                className="w-full h-full border-none outline-none font-medium px-1 py-0.5 shadow-none overflow-hidden"
-                placeholder={isSelected && !wo.text ? t.tools.whiteoutPlaceholder : ''}
-                autoFocus={isSelected && !wo.text}
-              />
-
+                }
+              }}
+            >
+              {/* TOP ACTION & CONFIRMATION BAR (Explicit confirmation that editing is over) */}
               {isSelected && (
-                <>
+                <div
+                  className={`absolute -top-10 left-0 flex items-center gap-1.5 px-2 py-1 rounded-lg shadow-xl border backdrop-blur-md z-50 select-none animate-in fade-in zoom-in-95 duration-100 ${
+                    isMinimal
+                      ? 'bg-white/95 border-neutral-300 text-black shadow-neutral-400/50'
+                      : isLcars
+                      ? 'bg-black/95 border border-[#ff9900] text-[#ff9900]'
+                      : 'bg-slate-900/95 border-indigo-500/60 text-slate-100 shadow-slate-950/80'
+                  }`}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Drag Handle to Move the Frame */}
+                  <div
+                    onMouseDown={(e) => handleStartDragAnn(wo, e)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded cursor-grab active:cursor-grabbing hover:bg-slate-800 text-slate-300 hover:text-white transition-colors"
+                    title={t.annotations.dragToMove}
+                  >
+                    <GripHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+                    <span className="text-[11px] font-semibold hidden sm:inline">{t.annotations.dragToMove}</span>
+                  </div>
+
+                  <div className="h-3.5 w-px bg-slate-700 mx-0.5" />
+
+                  {/* Explicit Confirmation / Done Button */}
                   <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateAnnotation(wo, true);
+                      setSelectedAnnotationId(null);
+                    }}
+                    className={`flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold rounded shadow-xs transition-all ${
+                      isMinimal
+                        ? 'bg-black text-white hover:bg-neutral-800'
+                        : isLcars
+                        ? 'bg-[#ff9900] text-black hover:bg-[#ffaa22]'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/40'
+                    }`}
+                    title={t.annotations.confirmEdit}
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{t.annotations.done}</span>
+                  </button>
+
+                  <div className="h-3.5 w-px bg-slate-700 mx-0.5" />
+
+                  {/* Delete Button */}
+                  <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       deleteAnnotation(wo.id);
                     }}
-                    className="absolute -top-3 -right-3 p-1 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-md z-40 transition-transform hover:scale-110"
+                    className="p-1 rounded hover:bg-rose-600/30 text-rose-400 hover:text-rose-200 transition-colors"
                     title={t.annotations.deleteAnnotation}
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
+                </div>
+              )}
 
+              {/* Textarea during editing or clean text display when finished */}
+              {isSelected ? (
+                <textarea
+                  value={wo.text || ''}
+                  onChange={(e) => {
+                    updateAnnotation(
+                      {
+                        ...wo,
+                        text: e.target.value,
+                        updatedAt: Date.now(),
+                      },
+                      false
+                    );
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+                      e.preventDefault();
+                      (e.target as HTMLTextAreaElement).blur();
+                      updateAnnotation(wo, true);
+                      setSelectedAnnotationId(null);
+                    }
+                  }}
+                  style={{
+                    fontSize: `${fontSz}px`,
+                    fontFamily: fontFm,
+                    color: txtCol,
+                    backgroundColor: 'transparent',
+                    resize: 'none',
+                    lineHeight: '1.2',
+                  }}
+                  className="w-full h-full border-none outline-none font-medium px-1 py-0.5 shadow-none overflow-hidden cursor-text"
+                  placeholder={!wo.text ? t.tools.whiteoutPlaceholder : ''}
+                  autoFocus
+                />
+              ) : (
+                <div
+                  style={{
+                    fontSize: `${fontSz}px`,
+                    fontFamily: fontFm,
+                    color: txtCol,
+                    lineHeight: '1.2',
+                  }}
+                  className="w-full h-full font-medium px-1 py-0.5 whitespace-pre-wrap break-words select-none overflow-hidden"
+                >
+                  {wo.text || ''}
+                </div>
+              )}
+
+              {/* Resize Handles (Only shown when selected) */}
+              {isSelected && (
+                <>
+                  {/* SE Corner Resize Handle */}
                   <div
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      setResizingAnnId(wo.id);
-                    }}
-                    className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-indigo-500 border-2 border-white rounded-full cursor-se-resize shadow z-40"
-                    title="Změnit velikost"
+                    onMouseDown={(e) => handleStartResizeAnn(wo, e)}
+                    className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-indigo-600 border-2 border-white rounded-full cursor-se-resize shadow-md z-40 hover:scale-125 transition-transform"
+                    title={t.annotations.resize}
+                  />
+
+                  {/* Right Edge Resize Handle */}
+                  <div
+                    onMouseDown={(e) => handleStartResizeAnn(wo, e)}
+                    className="absolute top-1/2 -right-1.5 -translate-y-1/2 w-2 h-4 bg-indigo-500 border border-white rounded-sm cursor-e-resize shadow-xs z-40 hover:scale-110"
+                    title={t.annotations.resize}
+                  />
+
+                  {/* Bottom Edge Resize Handle */}
+                  <div
+                    onMouseDown={(e) => handleStartResizeAnn(wo, e)}
+                    className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-2 bg-indigo-500 border border-white rounded-sm cursor-s-resize shadow-xs z-40 hover:scale-110"
+                    title={t.annotations.resize}
                   />
                 </>
               )}

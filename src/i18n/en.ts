@@ -129,6 +129,10 @@ export const en: TranslationSchema = {
     noteBy: 'Note',
     saveNote: 'Save note',
     clickToEdit: 'Double click to edit text',
+    confirmEdit: 'Confirm edit',
+    done: 'Done',
+    dragToMove: 'Drag to move',
+    resize: 'Resize',
   },
   signatureModal: {
     title: 'Signatures & Stamps',

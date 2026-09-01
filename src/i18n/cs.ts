@@ -129,6 +129,10 @@ export const cs: TranslationSchema = {
     noteBy: 'Poznámka',
     saveNote: 'Uložit poznámku',
     clickToEdit: 'Dvojklikem upravte text',
+    confirmEdit: 'Potvrdit úpravu',
+    done: 'Hotovo',
+    dragToMove: 'Uchopit a posunout',
+    resize: 'Změnit velikost',
   },
   signatureModal: {
     title: 'Digitální podpis a razítka',
