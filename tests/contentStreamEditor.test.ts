@@ -11,6 +11,9 @@ import {
   extractPreviewTextFromBlock,
   updatePageContentStream,
   updateStreamSegmentInPage,
+  hexToString,
+  normalizeTextForSearch,
+  findBestMatchingBlock,
 } from '../src/services/contentStreamEditor';
 import { logger } from '../src/services/logger';
 
@@ -32,6 +35,22 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
       // Octal 101 is 'A' (65)
       const octalStr = '\\101\\102\\103';
       expect(unescapePdfLiteralString(octalStr)).toBe('ABC');
+    });
+
+    it('should decode standard hex and UTF-16BE hex strings without null bytes', () => {
+      const standardHex = '48656c6c6f'; // Hello
+      expect(hexToString(standardHex)).toBe('Hello');
+
+      const utf16Hex = '0053006d006c006f007500760061'; // Smlouva
+      expect(hexToString(utf16Hex)).toBe('Smlouva');
+
+      const utf16WithBom = 'feff004100420043'; // ABC
+      expect(hexToString(utf16WithBom)).toBe('ABC');
+    });
+
+    it('should normalize strings for robust search and matching', () => {
+      expect(normalizeTextForSearch('Článek 1. Úvodní ustanovení')).toBe('clanek 1 uvodni ustanoveni');
+      expect(normalizeTextForSearch('Smlouva o dílo (2025/2026)')).toBe('smlouva o dilo 2025 2026');
     });
   });
 
@@ -102,7 +121,7 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
   });
 
   describe('parseStreamSegments & extractPreviewTextFromBlock', () => {
-    it('should correctly parse BT ... ET text blocks and extract human readable preview text', () => {
+    it('should correctly parse BT ... ET text blocks and extract human readable preview text and coordinates', () => {
       const stream = `
         q 1 0 0 1 0 0 cm
         BT
@@ -128,11 +147,15 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
       expect(textBlocks[0].previewText).toContain('Smlouva o dilo');
       expect(textBlocks[0].fontInfo).toBe('/F1 14pt');
       expect(textBlocks[0].positionInfo).toBe('X: 72.0, Y: 712.0');
+      expect(textBlocks[0].x).toBe(72);
+      expect(textBlocks[0].y).toBe(712);
 
       expect(textBlocks[1].id).toBe('block_2');
       expect(textBlocks[1].previewText).toContain('Cena 2500 CZK');
       expect(textBlocks[1].fontInfo).toBe('/TT2 12pt');
       expect(textBlocks[1].positionInfo).toBe('X: 100.0, Y: 200.0');
+      expect(textBlocks[1].x).toBe(100);
+      expect(textBlocks[1].y).toBe(200);
     });
 
     it('should extract text from hex and quote operators', () => {
@@ -147,6 +170,79 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
       const preview = extractPreviewTextFromBlock(block);
       expect(preview).toContain('Hello World');
       expect(preview).toContain('Dalsi radek');
+    });
+  });
+
+  describe('findBestMatchingBlock (Smart text block targeting)', () => {
+    const stream = `
+      BT
+      /F1 16 Tf
+      1 0 0 1 72 750 Tm
+      (SMLOUVA O POSKYTNUTI SLUZEB) Tj
+      ET
+      BT
+      /F2 12 Tf
+      1 0 0 1 72 650 Tm
+      (Clanek 1. Uvodni ustanoveni a vymezeni pojmu) Tj
+      ET
+      BT
+      /F2 12 Tf
+      1 0 0 1 72 500 Tm
+      (Cena za provedeni dila cini 50 000 CZK bez DPH.) Tj
+      ET
+      BT
+      /F2 10 Tf
+      1 0 0 1 72 200 Tm
+      (V Praze dne 1. ledna 2026) Tj
+      ET
+    `;
+
+    const segments = parseStreamSegments(stream);
+    const textBlocks = segments.filter((s) => s.type === 'text');
+
+    it('should accurately target block by exact text', () => {
+      const match = findBestMatchingBlock(textBlocks, 'SMLOUVA O POSKYTNUTI SLUZEB');
+      expect(match?.id).toBe('block_1');
+    });
+
+    it('should accurately target block with Czech diacritics / accents normalized', () => {
+      const match = findBestMatchingBlock(textBlocks, 'Článek 1. Úvodní ustanovení');
+      expect(match?.id).toBe('block_2');
+    });
+
+    it('should accurately target block by partial word match', () => {
+      const match = findBestMatchingBlock(textBlocks, '50 000 CZK');
+      expect(match?.id).toBe('block_3');
+    });
+
+    it('should accurately target block by clicked spatial coordinates (X, Y)', () => {
+      // In A4 (height 842), Y=200 in PDF is 842 - 200 = 642 from top
+      const match = findBestMatchingBlock(textBlocks, '', { x: 75, y: 640 }, 842);
+      expect(match?.id).toBe('block_4');
+    });
+
+    it('should break ties using spatial distance when text is generic', () => {
+      const streamWithDuplicates = `
+        BT
+        /F1 12 Tf
+        1 0 0 1 72 700 Tm
+        (Podpis:) Tj
+        ET
+        BT
+        /F1 12 Tf
+        1 0 0 1 72 200 Tm
+        (Podpis:) Tj
+        ET
+      `;
+      const dupeBlocks = parseStreamSegments(streamWithDuplicates).filter((s) => s.type === 'text');
+
+      // Clicked on bottom signature (842 - 200 = 642 from top)
+      const matchBottom = findBestMatchingBlock(dupeBlocks, 'Podpis', { x: 72, y: 640 }, 842);
+      expect(matchBottom?.id).toBe('block_2');
+
+      // Clicked on top signature (842 - 700 = 142 from top)
+      const matchTop = findBestMatchingBlock(dupeBlocks, 'Podpis', { x: 72, y: 140 }, 842);
+      expect(matchTop?.id).toBe('block_1');
     });
   });
 

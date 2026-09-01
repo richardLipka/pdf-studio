@@ -59,6 +59,8 @@ interface EditorContextType {
   toggleStreamReplaceModal: () => void;
   streamReplaceTargetText: string;
   setStreamReplaceTargetText: (text: string) => void;
+  streamReplaceTargetPosition: { x: number; y: number } | null;
+  setStreamReplaceTargetPosition: (pos: { x: number; y: number } | null) => void;
 
   // Rasterization Settings
   rasterSettings: RasterizationSettings;
@@ -110,6 +112,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
   const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpen] = useState<boolean>(false);
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
+  const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
 
   const toggleLogModal = () => {
     setIsLogModalOpen((prev) => !prev);
@@ -326,6 +329,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     toggleStreamReplaceModal,
     streamReplaceTargetText,
     setStreamReplaceTargetText,
+    streamReplaceTargetPosition,
+    setStreamReplaceTargetPosition,
     rasterSettings,
     setRasterSettings,
     resetRasterSettings,

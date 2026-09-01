@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import {
   parseStreamSegments,
-  StreamSegment,
+  findBestMatchingBlock,
 } from '../../services/contentStreamEditor';
 
 export const StreamReplaceModal: React.FC = () => {
@@ -27,6 +27,8 @@ export const StreamReplaceModal: React.FC = () => {
     setIsStreamReplaceModalOpen,
     streamReplaceTargetText,
     setStreamReplaceTargetText,
+    streamReplaceTargetPosition,
+    setStreamReplaceTargetPosition,
   } = useEditor();
 
   const {
@@ -94,21 +96,19 @@ export const StreamReplaceModal: React.FC = () => {
         const parsed = parseStreamSegments(res.streamText);
         const texts = parsed.filter((s) => s.type === 'text');
 
-        // Check if there is a target text to preselect
-        let matchedBlock: StreamSegment | undefined;
-        if (streamReplaceTargetText) {
-          const target = streamReplaceTargetText.trim().toLowerCase();
-          matchedBlock = texts.find(
-            (b) =>
-              b.previewText.toLowerCase().includes(target) ||
-              b.rawContent.toLowerCase().includes(target)
-          );
-        }
+        const activePage = pages[activePageIndex];
+        const matchedBlock = findBestMatchingBlock(
+          texts,
+          streamReplaceTargetText,
+          streamReplaceTargetPosition,
+          activePage?.height
+        );
 
         const initialBlock = matchedBlock || texts[0];
         if (initialBlock) {
           setSelectedBlockId(initialBlock.id);
           setEditorContent(initialBlock.rawContent);
+          setActiveTab('segment');
         } else {
           setEditorContent(res.streamText);
           setActiveTab('fullStream');
@@ -123,7 +123,7 @@ export const StreamReplaceModal: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [isStreamReplaceModalOpen, activePageIndex, streamReplaceTargetText]);
+  }, [isStreamReplaceModalOpen, activePageIndex, streamReplaceTargetText, streamReplaceTargetPosition, pages, getPageStream]);
 
   // Update editor content when selecting a different text block
   const handleSelectBlock = (blockId: string) => {
@@ -222,6 +222,7 @@ export const StreamReplaceModal: React.FC = () => {
   const handleClose = () => {
     setIsStreamReplaceModalOpen(false);
     setStreamReplaceTargetText('');
+    setStreamReplaceTargetPosition(null);
     setStatusMessage({ type: 'idle' });
   };
 

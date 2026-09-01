@@ -28,6 +28,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     strokeWidth,
     setIsStreamReplaceModalOpen,
     setStreamReplaceTargetText,
+    setStreamReplaceTargetPosition,
   } = useEditor();
   const { addAnnotation } = useDocument();
 
@@ -247,6 +248,14 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   const handleStreamReplace = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!selectedText) return;
+    const container = containerRef.current;
+    if (container && selectedRects.length > 0) {
+      const containerRect = container.getBoundingClientRect();
+      const rect = selectedRects[0];
+      const pdfX = (rect.left - containerRect.left) / scale;
+      const pdfY = (rect.top - containerRect.top) / scale;
+      setStreamReplaceTargetPosition({ x: pdfX, y: pdfY });
+    }
     setStreamReplaceTargetText(selectedText);
     setIsStreamReplaceModalOpen(true);
     setFloatingMenuPos(null);
@@ -255,15 +264,24 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
 
   const handleLayerClick = (e: React.MouseEvent) => {
     if (activeTool === 'streamReplace') {
+      const container = containerRef.current;
+      if (!container) return;
+      const containerRect = container.getBoundingClientRect();
+      const clickPdfX = (e.clientX - containerRect.left) / scale;
+      const clickPdfY = (e.clientY - containerRect.top) / scale;
+
       const target = e.target as HTMLElement;
+      let text = '';
       if (target && target.tagName === 'SPAN' && target.textContent) {
-        const text = target.textContent.trim();
-        if (text) {
-          e.stopPropagation();
-          setStreamReplaceTargetText(text);
-          setIsStreamReplaceModalOpen(true);
-        }
+        text = target.textContent.trim();
+      } else if (target && target.closest('span')) {
+        text = target.closest('span')?.textContent?.trim() || '';
       }
+
+      e.stopPropagation();
+      setStreamReplaceTargetPosition({ x: clickPdfX, y: clickPdfY });
+      setStreamReplaceTargetText(text);
+      setIsStreamReplaceModalOpen(true);
     }
   };
 

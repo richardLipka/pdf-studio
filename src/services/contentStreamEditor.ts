@@ -27,6 +27,8 @@ export interface StreamSegment {
   previewText: string;
   fontInfo?: string;
   positionInfo?: string;
+  x?: number;
+  y?: number;
   startIndex: number;
   endIndex: number;
 }
@@ -58,14 +60,50 @@ export function escapePdfLiteralString(str: string): string {
 }
 
 /**
- * Convert a hex string (e.g. 48656c6c6f) to a text string
+ * Convert a hex string (e.g. 48656c6c6f or 00480065) to a text string
  */
 export function hexToString(hex: string): string {
-  let str = '';
   const cleanHex = hex.replace(/\s+/g, '');
+  if (cleanHex.length === 0) return '';
+
+  // Check if UTF-16BE BOM (FEFF)
+  if (cleanHex.startsWith('feff') || cleanHex.startsWith('FEFF')) {
+    let str = '';
+    for (let i = 4; i < cleanHex.length; i += 4) {
+      const code = parseInt(cleanHex.substring(i, i + 4), 16);
+      if (!isNaN(code)) {
+        str += String.fromCharCode(code);
+      }
+    }
+    return str;
+  }
+
+  // Check if every even byte is 00 (e.g. 0053 006D ...)
+  if (cleanHex.length >= 4 && cleanHex.length % 4 === 0) {
+    let isUtf16 = true;
+    for (let i = 0; i < cleanHex.length; i += 4) {
+      if (cleanHex.substring(i, i + 2) !== '00') {
+        isUtf16 = false;
+        break;
+      }
+    }
+    if (isUtf16) {
+      let str = '';
+      for (let i = 0; i < cleanHex.length; i += 4) {
+        const code = parseInt(cleanHex.substring(i, i + 4), 16);
+        if (!isNaN(code)) {
+          str += String.fromCharCode(code);
+        }
+      }
+      return str;
+    }
+  }
+
+  // Standard 1-byte ASCII / Latin-1
+  let str = '';
   for (let i = 0; i < cleanHex.length; i += 2) {
     const byte = parseInt(cleanHex.substring(i, i + 2), 16);
-    if (!isNaN(byte)) {
+    if (!isNaN(byte) && byte !== 0) {
       str += String.fromCharCode(byte);
     }
   }
@@ -549,7 +587,10 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
     const rawBlock = match[0];
     const extractedText = extractPreviewTextFromBlock(rawBlock);
     const fontInfo = extractFontInfoFromBlock(rawBlock);
-    const positionInfo = extractPositionInfoFromBlock(rawBlock);
+    const coords = extractCoordinatesFromBlock(rawBlock);
+    const positionInfo = coords.x !== undefined && coords.y !== undefined
+      ? `X: ${coords.x.toFixed(1)}, Y: ${coords.y.toFixed(1)}`
+      : undefined;
 
     segments.push({
       id: `block_${blockIndex}`,
@@ -558,6 +599,8 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
       previewText: extractedText || `[Textový blok #${blockIndex}]`,
       fontInfo,
       positionInfo,
+      x: coords.x,
+      y: coords.y,
       startIndex,
       endIndex,
     });
@@ -652,16 +695,125 @@ export function extractFontInfoFromBlock(rawBlock: string): string | undefined {
   return undefined;
 }
 
-export function extractPositionInfoFromBlock(rawBlock: string): string | undefined {
+export function extractCoordinatesFromBlock(rawBlock: string): { x?: number; y?: number } {
   const tmMatch = rawBlock.match(/([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+Tm/);
   if (tmMatch) {
-    return `X: ${parseFloat(tmMatch[5]).toFixed(1)}, Y: ${parseFloat(tmMatch[6]).toFixed(1)}`;
+    return { x: parseFloat(tmMatch[5]), y: parseFloat(tmMatch[6]) };
   }
   const tdMatch = rawBlock.match(/([0-9.-]+)\s+([0-9.-]+)\s+Td/);
   if (tdMatch) {
-    return `X: ${parseFloat(tdMatch[1]).toFixed(1)}, Y: ${parseFloat(tdMatch[2]).toFixed(1)}`;
+    return { x: parseFloat(tdMatch[1]), y: parseFloat(tdMatch[2]) };
+  }
+  return {};
+}
+
+export function extractPositionInfoFromBlock(rawBlock: string): string | undefined {
+  const coords = extractCoordinatesFromBlock(rawBlock);
+  if (coords.x !== undefined && coords.y !== undefined) {
+    return `X: ${coords.x.toFixed(1)}, Y: ${coords.y.toFixed(1)}`;
   }
   return undefined;
+}
+
+/**
+ * Normalizes text for matching by removing diacritics, lowercase, collapsing punctuation.
+ */
+export function normalizeTextForSearch(str: string): string {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[\s\-_.,;:/\\()\[\]{}'"`<>]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Finds the best matching text block given a target search text and/or clicked screen coordinates.
+ */
+export function findBestMatchingBlock(
+  textBlocks: StreamSegment[],
+  targetText?: string,
+  targetPosition?: { x: number; y: number } | null,
+  pageHeight?: number
+): StreamSegment | undefined {
+  if (!textBlocks || textBlocks.length === 0) return undefined;
+  if (!targetText && !targetPosition) return textBlocks[0];
+
+  const normTarget = normalizeTextForSearch(targetText || '');
+  const targetWords = normTarget.split(' ').filter((w) => w.length >= 2);
+
+  let bestBlock: StreamSegment | undefined;
+  let highestScore = -1;
+
+  for (const block of textBlocks) {
+    let score = 0;
+    const normPreview = normalizeTextForSearch(block.previewText);
+    const normRaw = normalizeTextForSearch(block.rawContent);
+
+    // 1. Text Matching Score
+    if (normTarget) {
+      if (normPreview === normTarget) {
+        score += 500;
+      } else if (normPreview.includes(normTarget)) {
+        score += 300 + (normTarget.length / Math.max(1, normPreview.length)) * 100;
+      } else if (normTarget.includes(normPreview) && normPreview.length > 2) {
+        score += 250 + (normPreview.length / Math.max(1, normTarget.length)) * 100;
+      } else if (normRaw.includes(normTarget)) {
+        score += 200;
+      }
+
+      // Word-level overlap
+      if (targetWords.length > 0) {
+        const previewWords = new Set(normPreview.split(' ').filter((w) => w.length >= 2));
+        const rawWords = new Set(normRaw.split(' ').filter((w) => w.length >= 2));
+        let matchedCount = 0;
+        for (const tw of targetWords) {
+          if (previewWords.has(tw) || Array.from(previewWords).some((pw) => pw.includes(tw) || tw.includes(pw))) {
+            matchedCount++;
+          } else if (rawWords.has(tw) || Array.from(rawWords).some((rw) => rw.includes(tw) || tw.includes(rw))) {
+            matchedCount += 0.8;
+          }
+        }
+        score += (matchedCount / targetWords.length) * 200;
+      }
+
+      // Exact raw content match
+      if (targetText && block.rawContent.includes(targetText)) {
+        score += 150;
+      }
+    }
+
+    // 2. Spatial Distance Score (if position was clicked)
+    if (targetPosition && block.x !== undefined && block.y !== undefined) {
+      const pHeight = pageHeight || 842;
+      const blockTopY = pHeight - block.y;
+      const dx = targetPosition.x - block.x;
+      const dy = targetPosition.y - blockTopY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < 25) {
+        score += 250;
+      } else if (dist < 60) {
+        score += 180;
+      } else if (dist < 120) {
+        score += 100;
+      } else if (dist < 250) {
+        score += 40;
+      }
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestBlock = block;
+    }
+  }
+
+  if (highestScore > 0 && bestBlock) {
+    return bestBlock;
+  }
+
+  return textBlocks[0];
 }
 
 /**
