@@ -820,6 +820,7 @@ export const getPageTextBlocks = async (
                 const maxX = Math.max(...matchedItems.map((s) => s.x + s.w));
                 const minY = Math.min(...matchedItems.map((s) => s.y));
                 const maxY = Math.max(...matchedItems.map((s) => s.y + s.h));
+                const decodedText = matchedItems.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
 
                 visualBlocks.push({
                   id: seg.id,
@@ -827,39 +828,80 @@ export const getPageTextBlocks = async (
                   y: Math.max(0, minY - 1),
                   width: Math.max(12, maxX - minX + 4),
                   height: Math.max(10, maxY - minY + 2),
-                  text: seg.previewText,
+                  text: decodedText || seg.previewText,
                 });
               } else {
-                // Fallback: estimate viewport position from stream coordinates
-                let posX = 30;
-                let posY = 50;
-                let width = 200;
-                let height = 20;
-
+                // Secondary check: look for unassigned items nearest to this segment position
+                let matchedFallback: ItemEntry[] = [];
                 if (seg.x !== undefined && seg.y !== undefined) {
                   const fs = seg.fontSize || 12;
                   const lc = seg.lineCount || 1;
                   const pdfRect = [
                     seg.x,
                     seg.y - fs * lc,
-                    seg.x + Math.min(500, Math.max(50, seg.previewText.length * fs * 0.55)),
+                    seg.x + 300,
                     seg.y + fs * 0.5,
                   ];
                   const vpRect = viewport.convertToViewportRectangle(pdfRect);
-                  posX = Math.min(vpRect[0], vpRect[2]);
-                  posY = Math.min(vpRect[1], vpRect[3]);
-                  width = Math.abs(vpRect[2] - vpRect[0]);
-                  height = Math.abs(vpRect[3] - vpRect[1]);
+                  const targetY = Math.min(vpRect[1], vpRect[3]);
+
+                  items.forEach((item, itemIdx) => {
+                    if (usedItemIndices.has(itemIdx)) return;
+                    const dy = Math.abs(item.y - targetY);
+                    if (dy < Math.max(15, fs * 1.5)) {
+                      matchedFallback.push(item);
+                      usedItemIndices.add(itemIdx);
+                    }
+                  });
                 }
 
-                visualBlocks.push({
-                  id: seg.id,
-                  x: Math.max(0, posX - 2),
-                  y: Math.max(0, posY - 1),
-                  width: Math.max(12, width + 4),
-                  height: Math.max(10, height + 2),
-                  text: seg.previewText,
-                });
+                if (matchedFallback.length > 0) {
+                  const minX = Math.min(...matchedFallback.map((s) => s.x));
+                  const maxX = Math.max(...matchedFallback.map((s) => s.x + s.w));
+                  const minY = Math.min(...matchedFallback.map((s) => s.y));
+                  const maxY = Math.max(...matchedFallback.map((s) => s.y + s.h));
+                  const decodedText = matchedFallback.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
+
+                  visualBlocks.push({
+                    id: seg.id,
+                    x: Math.max(0, minX - 2),
+                    y: Math.max(0, minY - 1),
+                    width: Math.max(12, maxX - minX + 4),
+                    height: Math.max(10, maxY - minY + 2),
+                    text: decodedText || seg.previewText,
+                  });
+                } else {
+                  // Fallback: estimate viewport position from stream coordinates
+                  let posX = 30;
+                  let posY = 50;
+                  let width = 200;
+                  let height = 20;
+
+                  if (seg.x !== undefined && seg.y !== undefined) {
+                    const fs = seg.fontSize || 12;
+                    const lc = seg.lineCount || 1;
+                    const pdfRect = [
+                      seg.x,
+                      seg.y - fs * lc,
+                      seg.x + Math.min(500, Math.max(50, seg.previewText.length * fs * 0.55)),
+                      seg.y + fs * 0.5,
+                    ];
+                    const vpRect = viewport.convertToViewportRectangle(pdfRect);
+                    posX = Math.min(vpRect[0], vpRect[2]);
+                    posY = Math.min(vpRect[1], vpRect[3]);
+                    width = Math.abs(vpRect[2] - vpRect[0]);
+                    height = Math.abs(vpRect[3] - vpRect[1]);
+                  }
+
+                  visualBlocks.push({
+                    id: seg.id,
+                    x: Math.max(0, posX - 2),
+                    y: Math.max(0, posY - 1),
+                    width: Math.max(12, width + 4),
+                    height: Math.max(10, height + 2),
+                    text: seg.previewText,
+                  });
+                }
               }
             }
 

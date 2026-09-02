@@ -33,6 +33,7 @@ import {
   normalizeTextForSearch,
   replaceTextInStreamString,
 } from '../../services/contentStreamEditor';
+import { getPageTextBlocks } from '../../services/pdfLoader';
 
 export const EditSidePanel: React.FC = () => {
   const { t } = useI18n();
@@ -122,6 +123,38 @@ export const EditSidePanel: React.FC = () => {
         setFullStreamText(streamRes.streamText);
         const parsed = parseStreamSegments(streamRes.streamText);
         textSegments = parsed.filter((s) => s.type === 'text');
+
+        // Enrich segments with true Unicode text from visual blocks
+        const activePageModel = pages[activePageIndex];
+        const activeSource = activePageModel
+          ? sources.find((s) => s.id === activePageModel.sourceDocId) || sources[0]
+          : null;
+        if (activePageModel && activeSource) {
+          try {
+            const visualBlocks = await getPageTextBlocks(activeSource, activePageModel);
+            const blockMap = new Map(visualBlocks.map((vb) => [vb.id, vb.text]));
+            textSegments.forEach((seg) => {
+              const decoded = blockMap.get(seg.id);
+              if (
+                decoded &&
+                (!seg.previewText ||
+                  seg.previewText.startsWith('[Textový') ||
+                  seg.previewText.startsWith('<') ||
+                  seg.previewText.includes('Ð') ||
+                  seg.previewText.includes('þ') ||
+                  seg.previewText.includes('µ') ||
+                  seg.previewText.includes('š') ||
+                  seg.previewText.includes('Ž') ||
+                  seg.previewText.length < decoded.length * 0.5)
+              ) {
+                seg.previewText = decoded;
+              }
+            });
+          } catch {
+            // ignore visual enrich failure
+          }
+        }
+
         setSegments(textSegments);
       } else {
         setFullStreamText('');

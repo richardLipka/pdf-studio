@@ -644,11 +644,66 @@ export async function getPageContentStream(
       if (streamText) streamCount = 1;
     }
 
+    // Inspect Form XObjects in page resources (/XObject dictionary)
+    const resources = page.node.Resources();
+    if (resources instanceof PDFDict) {
+      const xObject = resources.lookup(PDFName.of('XObject'));
+      if (xObject instanceof PDFDict) {
+        for (const [, ref] of xObject.entries()) {
+          const obj = pdfDoc.context.lookup(ref);
+          if (obj instanceof PDFRawStream || (obj && typeof (obj as any).getContents === 'function')) {
+            const dict = (obj as any).dict || obj;
+            const sub = dict instanceof PDFDict ? dict.lookup(PDFName.of('Subtype')) : undefined;
+            if (sub instanceof PDFName && sub.asString() === '/Form') {
+              const formStream = decodeStreamObject(obj);
+              if (formStream) {
+                if (streamText) {
+                  streamText += `\n${formStream}`;
+                } else {
+                  streamText = formStream;
+                }
+                streamCount++;
+              }
+            }
+          }
+        }
+      }
+    }
+
     return { streamText, streamCount };
   } catch (err: any) {
     logger.error('edit', `Chyba při čtení content streamu strany ${pageIndex + 1}: ${err?.message || err}`);
     return { streamText: '', streamCount: 0, error: err?.message || String(err) };
   }
+}
+
+interface TransformMatrix {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+}
+
+const IDENTITY_MATRIX: TransformMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+
+function multiplyMatrix(m1: TransformMatrix, m2: TransformMatrix): TransformMatrix {
+  return {
+    a: m1.a * m2.a + m1.c * m2.b,
+    b: m1.b * m2.a + m1.d * m2.b,
+    c: m1.a * m2.c + m1.c * m2.d,
+    d: m1.b * m2.c + m1.d * m2.d,
+    e: m1.a * m2.e + m1.c * m2.f + m1.e,
+    f: m1.b * m2.e + m1.d * m2.f + m1.f,
+  };
+}
+
+function transformPoint(x: number, y: number, m: TransformMatrix): { x: number; y: number } {
+  return {
+    x: m.a * x + m.c * y + m.e,
+    y: m.b * x + m.d * y + m.f,
+  };
 }
 
 /**
@@ -663,14 +718,44 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
   let lastIndex = 0;
   let blockIndex = 1;
 
+  let currentMatrix: TransformMatrix = { ...IDENTITY_MATRIX };
+  const matrixStack: TransformMatrix[] = [];
+
   while ((match = btEtRegex.exec(streamText)) !== null) {
     const startIndex = match.index;
     const endIndex = startIndex + match[0].length;
 
-    // Non-text chunk before this BT
+    // Process preceding non-text chunk for q, Q, and cm transformations
     if (startIndex > lastIndex) {
       const nonText = streamText.substring(lastIndex, startIndex);
       const trimmed = nonText.trim();
+
+      // Scan tokens in nonText
+      const tokens = nonText.split(/\s+/).filter(Boolean);
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        if (token === 'q') {
+          matrixStack.push({ ...currentMatrix });
+        } else if (token === 'Q') {
+          if (matrixStack.length > 0) {
+            currentMatrix = matrixStack.pop()!;
+          } else {
+            currentMatrix = { ...IDENTITY_MATRIX };
+          }
+        } else if (token === 'cm' && i >= 6) {
+          const a = parseFloat(tokens[i - 6]);
+          const b = parseFloat(tokens[i - 5]);
+          const c = parseFloat(tokens[i - 4]);
+          const d = parseFloat(tokens[i - 3]);
+          const e = parseFloat(tokens[i - 2]);
+          const f = parseFloat(tokens[i - 1]);
+          if (!isNaN(a) && !isNaN(b) && !isNaN(c) && !isNaN(d) && !isNaN(e) && !isNaN(f)) {
+            const cmMat: TransformMatrix = { a, b, c, d, e, f };
+            currentMatrix = multiplyMatrix(currentMatrix, cmMat);
+          }
+        }
+      }
+
       if (trimmed) {
         segments.push({
           id: `seg_graphics_${segments.length + 1}`,
@@ -686,9 +771,15 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
     const rawBlock = match[0];
     const extractedText = extractPreviewTextFromBlock(rawBlock);
     const fontDetails = extractFontDetailsFromBlock(rawBlock);
-    const coords = extractCoordinatesFromBlock(rawBlock);
+    const rawCoords = extractCoordinatesFromBlock(rawBlock);
     const lineCount = extractLineCountFromBlock(rawBlock);
     const markedTag = extractMarkedContentTag(streamText, startIndex);
+
+    let coords: { x?: number; y?: number } = rawCoords;
+    if (rawCoords.x !== undefined && rawCoords.y !== undefined) {
+      coords = transformPoint(rawCoords.x, rawCoords.y, currentMatrix);
+    }
+
     const positionInfo =
       coords.x !== undefined && coords.y !== undefined
         ? `X: ${coords.x.toFixed(1)}, Y: ${coords.y.toFixed(1)}`
@@ -897,29 +988,26 @@ export function extractMarkedContentTag(streamText: string, startIndex: number):
 }
 
 export function extractCoordinatesFromBlock(rawBlock: string): { x?: number; y?: number } {
-  const lines = rawBlock.split(/[\r\n]+/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.endsWith('Tm')) {
-      const parts = trimmed.split(/\s+/);
-      if (parts.length >= 7 && parts[parts.length - 1] === 'Tm') {
-        const x = parseFloat(parts[parts.length - 3]);
-        const y = parseFloat(parts[parts.length - 2]);
-        if (!isNaN(x) && !isNaN(y)) {
-          return { x, y };
-        }
-      }
-    } else if (trimmed.endsWith('Td') || trimmed.endsWith('TD')) {
-      const parts = trimmed.split(/\s+/);
-      if (parts.length >= 3) {
-        const x = parseFloat(parts[parts.length - 3]);
-        const y = parseFloat(parts[parts.length - 2]);
-        if (!isNaN(x) && !isNaN(y)) {
-          return { x, y };
-        }
-      }
+  // 1. Check for Tm (Text Matrix: a b c d x y Tm)
+  const tmMatch = rawBlock.match(/([-\d.]+)\s+([-\d.]+)\s+Tm/);
+  if (tmMatch) {
+    const x = parseFloat(tmMatch[1]);
+    const y = parseFloat(tmMatch[2]);
+    if (!isNaN(x) && !isNaN(y)) {
+      return { x, y };
     }
   }
+
+  // 2. Check for Td or TD (Text Move: tx ty Td / TD)
+  const tdMatch = rawBlock.match(/([-\d.]+)\s+([-\d.]+)\s+(?:Td|TD)/);
+  if (tdMatch) {
+    const x = parseFloat(tdMatch[1]);
+    const y = parseFloat(tdMatch[2]);
+    if (!isNaN(x) && !isNaN(y)) {
+      return { x, y };
+    }
+  }
+
   return {};
 }
 
