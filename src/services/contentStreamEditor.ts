@@ -28,9 +28,15 @@ export interface StreamSegment {
   rawContent: string;
   previewText: string;
   fontInfo?: string;
+  fontSize?: number;
+  fontName?: string;
+  headingRole?: 'h1' | 'h2' | 'body' | 'small';
   positionInfo?: string;
   x?: number;
   y?: number;
+  indentLevel?: number;
+  markedContentTag?: string;
+  lineCount?: number;
   startIndex: number;
   endIndex: number;
 }
@@ -679,21 +685,29 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
 
     const rawBlock = match[0];
     const extractedText = extractPreviewTextFromBlock(rawBlock);
-    const fontInfo = extractFontInfoFromBlock(rawBlock);
+    const fontDetails = extractFontDetailsFromBlock(rawBlock);
     const coords = extractCoordinatesFromBlock(rawBlock);
-    const positionInfo = coords.x !== undefined && coords.y !== undefined
-      ? `X: ${coords.x.toFixed(1)}, Y: ${coords.y.toFixed(1)}`
-      : undefined;
+    const lineCount = extractLineCountFromBlock(rawBlock);
+    const markedTag = extractMarkedContentTag(streamText, startIndex);
+    const positionInfo =
+      coords.x !== undefined && coords.y !== undefined
+        ? `X: ${coords.x.toFixed(1)}, Y: ${coords.y.toFixed(1)}`
+        : undefined;
 
     segments.push({
       id: `block_${blockIndex}`,
       type: 'text',
       rawContent: rawBlock,
       previewText: extractedText || `[Textový blok #${blockIndex}]`,
-      fontInfo,
+      fontInfo: fontDetails.fontInfo,
+      fontSize: fontDetails.fontSize,
+      fontName: fontDetails.fontName,
+      headingRole: fontDetails.headingRole,
       positionInfo,
       x: coords.x,
       y: coords.y,
+      lineCount,
+      markedContentTag: markedTag,
       startIndex,
       endIndex,
     });
@@ -719,6 +733,28 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
         startIndex: lastIndex,
         endIndex: streamText.length,
       });
+    }
+  }
+
+  // Calculate relative indentation levels across all text blocks on the page
+  const textSegments = segments.filter((s) => s.type === 'text' && s.x !== undefined);
+  if (textSegments.length > 0) {
+    const allX = textSegments.map((s) => s.x!).filter((x) => x >= 0);
+    const minX = allX.length > 0 ? Math.min(...allX) : 0;
+
+    for (const seg of segments) {
+      if (seg.type === 'text' && seg.x !== undefined) {
+        const deltaX = seg.x - minX;
+        if (deltaX < 12) {
+          seg.indentLevel = 0; // Main left margin level
+        } else if (deltaX < 36) {
+          seg.indentLevel = 1; // Indented level 1 (sub-item / bullet)
+        } else {
+          seg.indentLevel = 2; // Deep indentation level 2 / right column
+        }
+      } else {
+        seg.indentLevel = 0;
+      }
     }
   }
 
@@ -799,17 +835,62 @@ export function extractPreviewTextFromBlock(rawBlock: string): string {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-export function extractFontInfoFromBlock(rawBlock: string): string | undefined {
+export function extractFontDetailsFromBlock(rawBlock: string): {
+  fontInfo?: string;
+  fontSize?: number;
+  fontName?: string;
+  headingRole?: 'h1' | 'h2' | 'body' | 'small';
+} {
   const lines = rawBlock.split(/[\r\n]+/);
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.endsWith('Tf')) {
       const parts = trimmed.split(/\s+/);
       if (parts.length >= 3 && parts[parts.length - 1] === 'Tf') {
-        const fontName = parts[parts.length - 3];
-        const fontSize = parts[parts.length - 2];
-        return `${fontName.startsWith('/') ? fontName : '/' + fontName} ${fontSize}pt`;
+        const rawFontName = parts[parts.length - 3];
+        const rawFontSize = parseFloat(parts[parts.length - 2]);
+        const cleanFontName = rawFontName.startsWith('/') ? rawFontName : '/' + rawFontName;
+        const fontSize = !isNaN(rawFontSize) ? rawFontSize : undefined;
+        const fontInfo =
+          fontSize !== undefined
+            ? `${cleanFontName} ${Number.isInteger(fontSize) ? fontSize : fontSize.toFixed(1)}pt`
+            : cleanFontName;
+
+        let headingRole: 'h1' | 'h2' | 'body' | 'small' = 'body';
+        const isBold = /bold|black|heavy/i.test(cleanFontName);
+        if (fontSize !== undefined) {
+          if (fontSize >= 15.5 || (fontSize >= 13.5 && isBold)) {
+            headingRole = 'h1';
+          } else if (fontSize >= 12.5 || (fontSize >= 11.0 && isBold)) {
+            headingRole = 'h2';
+          } else if (fontSize < 8.5) {
+            headingRole = 'small';
+          }
+        }
+
+        return { fontInfo, fontSize, fontName: cleanFontName, headingRole };
       }
+    }
+  }
+  return {};
+}
+
+export function extractFontInfoFromBlock(rawBlock: string): string | undefined {
+  return extractFontDetailsFromBlock(rawBlock).fontInfo;
+}
+
+export function extractLineCountFromBlock(rawBlock: string): number {
+  const lineMatches = rawBlock.match(/'|"|Tj|TJ|T\*|Td|TD/g);
+  return lineMatches ? Math.max(1, lineMatches.length) : 1;
+}
+
+export function extractMarkedContentTag(streamText: string, startIndex: number): string | undefined {
+  const precedingChunk = streamText.substring(Math.max(0, startIndex - 250), startIndex);
+  const tagMatch = precedingChunk.match(/\/([A-Za-z0-9_]+)\s*(?:<<[^>]*>>)?\s*B[DM]C/);
+  if (tagMatch) {
+    const lastEmc = precedingChunk.lastIndexOf('EMC');
+    if (lastEmc === -1 || lastEmc < tagMatch.index!) {
+      return `/${tagMatch[1]}`;
     }
   }
   return undefined;

@@ -19,6 +19,11 @@ import {
   Layers,
   ArrowRight,
   RefreshCw,
+  ListTree,
+  Binary,
+  CornerDownRight,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   parseStreamSegments,
@@ -50,6 +55,8 @@ export const EditSidePanel: React.FC = () => {
   const {
     activePageIndex,
     pages,
+    sources,
+    historyIndex,
     getPageStream,
     getPageImagesList,
     removeMultiplePageElements,
@@ -57,6 +64,10 @@ export const EditSidePanel: React.FC = () => {
     applyPageContentStreamEdit,
     removePageBlock,
   } = useDocument();
+
+  const activeSourceDoc = sources.find((s) => s.id === pages[activePageIndex]?.sourceDocId);
+  const sourceUpdatedAt = activeSourceDoc?.updatedAt || 0;
+  const sourceByteLength = activeSourceDoc?.arrayBuffer?.byteLength || 0;
 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
@@ -159,11 +170,15 @@ export const EditSidePanel: React.FC = () => {
     }
   };
 
+  // Sort Mode State: 'reading' (Visual top-to-bottom hierarchy) vs 'stream' (Raw stream byte order)
+  const [sortMode, setSortMode] = useState<'reading' | 'stream'>('reading');
+
+  // React to Undo / Redo, page switch, and source PDF byte buffer updates automatically
   useEffect(() => {
     if (isEditSidePanelOpen) {
       loadPageData();
     }
-  }, [isEditSidePanelOpen, activePageIndex]);
+  }, [isEditSidePanelOpen, activePageIndex, historyIndex, sourceUpdatedAt, sourceByteLength]);
 
   // When selectedStreamBlockId changes, update editorContent
   useEffect(() => {
@@ -175,6 +190,14 @@ export const EditSidePanel: React.FC = () => {
       }
     }
   }, [selectedStreamBlockId, segments]);
+
+  // Base left margin of the page to calculate precise indentation
+  const minPageX = useMemo(() => {
+    const validX = segments
+      .filter((s) => s.type === 'text' && s.x !== undefined && s.x >= 0)
+      .map((s) => s.x!);
+    return validX.length > 0 ? Math.min(...validX) : 0;
+  }, [segments]);
 
   // Filtered blocks and images
   const filteredBlocks = useMemo(() => {
@@ -204,6 +227,25 @@ export const EditSidePanel: React.FC = () => {
       return false;
     });
   }, [segments, filterQuery]);
+
+  // Hierarchically sorted blocks according to selected Sort Mode
+  const displayedBlocks = useMemo(() => {
+    if (sortMode === 'stream') {
+      return filteredBlocks;
+    }
+    // Reading Order: Top of page to bottom (higher Y first in PDF coords), Left to Right
+    return [...filteredBlocks].sort((a, b) => {
+      const ay = a.y !== undefined ? a.y : -999999;
+      const by = b.y !== undefined ? b.y : -999999;
+      // If distinctly different vertical lines (delta > 5 pt)
+      if (Math.abs(ay - by) > 5) {
+        return by - ay; // Top of page first
+      }
+      const ax = a.x !== undefined ? a.x : 0;
+      const bx = b.x !== undefined ? b.x : 0;
+      return ax - bx; // Left to right
+    });
+  }, [filteredBlocks, sortMode]);
 
   const filteredImages = useMemo(() => {
     if (!filterQuery.trim()) return images;
@@ -237,7 +279,7 @@ export const EditSidePanel: React.FC = () => {
   };
 
   const selectAll = () => {
-    setSelectedBlockIds(new Set(filteredBlocks.map((b) => b.id)));
+    setSelectedBlockIds(new Set(displayedBlocks.map((b) => b.id)));
     setSelectedImageNames(new Set(filteredImages.map((im) => im.name)));
   };
 
@@ -776,20 +818,67 @@ export const EditSidePanel: React.FC = () => {
             {/* List of text blocks */}
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 px-1">
-                <span>TEXTOVÉ BLOKY ({filteredBlocks.length})</span>
-                {selectedStreamBlockId && (
-                  <span className="text-rose-400 font-bold">Vybrán: {selectedStreamBlockId}</span>
-                )}
+                <span>TEXTOVÉ BLOKY ({displayedBlocks.length})</span>
+                {/* Sort Mode Segmented Control */}
+                <div
+                  className={`flex items-center p-0.5 rounded-lg border text-[10px] ${
+                    isMinimal
+                      ? 'bg-neutral-200 border-neutral-300'
+                      : isLcars
+                      ? 'bg-[#111111] border-[#333333]'
+                      : 'bg-slate-900 border-slate-750'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSortMode('reading')}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-md transition-all ${
+                      sortMode === 'reading'
+                        ? isMinimal
+                          ? 'bg-white text-black font-bold shadow-xs'
+                          : isLcars
+                          ? 'bg-[#ff9900] text-black font-bold'
+                          : 'bg-rose-600 text-white font-bold shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Vizuální stromové čtení shora dolů podle pozice na stránce"
+                  >
+                    <ListTree className="w-3 h-3" />
+                    <span>Čtení (Strom)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSortMode('stream')}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-md transition-all ${
+                      sortMode === 'stream'
+                        ? isMinimal
+                          ? 'bg-white text-black font-bold shadow-xs'
+                          : isLcars
+                          ? 'bg-[#99ccff] text-black font-bold'
+                          : 'bg-indigo-600 text-white font-bold shadow-xs'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    title="Původní fyzické pořadí v PDF /Contents streamu"
+                  >
+                    <Binary className="w-3 h-3" />
+                    <span>Stream bajty</span>
+                  </button>
+                </div>
               </div>
 
-              {filteredBlocks.length === 0 ? (
+              {displayedBlocks.length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-500">
                   Nebyly nalezeny žádné textové bloky.
                 </div>
               ) : (
-                filteredBlocks.map((b) => {
+                displayedBlocks.map((b) => {
                   const isChecked = selectedBlockIds.has(b.id);
                   const isCurrentActive = selectedStreamBlockId === b.id;
+                  const indent = b.indentLevel ?? 0;
+                  const indentMm =
+                    b.x !== undefined && b.x > minPageX + 6
+                      ? Math.round((b.x - minPageX) * 0.3527)
+                      : 0;
 
                   return (
                     <div
@@ -797,6 +886,12 @@ export const EditSidePanel: React.FC = () => {
                       id={`panel_item_${b.id}`}
                       onClick={() => toggleBlockSelection(b.id)}
                       className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 ${
+                        indent === 1
+                          ? 'border-l-4 border-l-sky-500/70 ml-2.5'
+                          : indent === 2
+                          ? 'border-l-4 border-l-amber-500/80 ml-5'
+                          : 'border-l-4 border-l-transparent'
+                      } ${
                         isCurrentActive
                           ? isMinimal
                             ? 'bg-rose-50 border-rose-500 shadow-sm ring-1 ring-rose-400'
@@ -816,7 +911,7 @@ export const EditSidePanel: React.FC = () => {
                     >
                       {/* Top Bar with Checkbox, ID, and Badges */}
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <input
                             type="checkbox"
                             checked={isChecked}
@@ -834,6 +929,49 @@ export const EditSidePanel: React.FC = () => {
                           >
                             {b.id}
                           </span>
+
+                          {/* Role Badge */}
+                          {b.headingRole === 'h1' && (
+                            <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                              H1 Nadpis
+                            </span>
+                          )}
+                          {b.headingRole === 'h2' && (
+                            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              H2 Podnadpis
+                            </span>
+                          )}
+                          {b.headingRole === 'small' && (
+                            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                              Zápatí / Pozn.
+                            </span>
+                          )}
+
+                          {/* Marked Content Tag */}
+                          {b.markedContentTag && (
+                            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                              Tag: {b.markedContentTag}
+                            </span>
+                          )}
+
+                          {/* Indentation Depth Badge */}
+                          {indentMm > 0 && (
+                            <span
+                              className="text-[9px] flex items-center gap-0.5 px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                              title={`Odsazeno o ${indentMm} mm od levého okraje`}
+                            >
+                              <CornerDownRight className="w-2.5 h-2.5" />
+                              +{indentMm} mm
+                            </span>
+                          )}
+
+                          {/* Line Count Badge */}
+                          {b.lineCount && b.lineCount > 1 && (
+                            <span className="text-[9px] text-slate-400 bg-slate-900/60 px-1 py-0.2 rounded border border-slate-750">
+                              {b.lineCount} ř.
+                            </span>
+                          )}
+
                           {isCurrentActive && (
                             <span className="text-[9px] font-bold uppercase tracking-wider text-rose-400 bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40">
                               Aktivní
@@ -841,7 +979,7 @@ export const EditSidePanel: React.FC = () => {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0 ml-1">
                           <button
                             type="button"
                             onClick={(e) => {
@@ -971,25 +1109,117 @@ export const EditSidePanel: React.FC = () => {
               /* Sub-Tab 1: Segment Editor */
               currentSelectedBlock ? (
                 <div className="flex flex-col gap-3">
-                  {/* Block Metadata */}
+                  {/* Block Switcher & Metadata */}
                   <div
-                    className={`p-2.5 rounded-xl border text-xs flex flex-col gap-1.5 ${
+                    className={`p-2.5 rounded-xl border text-xs flex flex-col gap-2 ${
                       isMinimal
                         ? 'bg-neutral-50 border-neutral-200'
                         : 'bg-slate-800/40 border-slate-750'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono font-bold text-indigo-400 text-xs">
-                        {currentSelectedBlock.id}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">
+                    {/* Header with Switcher Dropdown and Prev/Next buttons */}
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1 flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const curIdx = displayedBlocks.findIndex(
+                              (b) => b.id === selectedStreamBlockId
+                            );
+                            if (curIdx > 0) {
+                              setSelectedStreamBlockId(displayedBlocks[curIdx - 1].id);
+                            }
+                          }}
+                          disabled={
+                            displayedBlocks.findIndex((b) => b.id === selectedStreamBlockId) <= 0
+                          }
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 transition-colors"
+                          title="Předchozí blok podle pořadí"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                        </button>
+
+                        <select
+                          value={selectedStreamBlockId || ''}
+                          onChange={(e) => setSelectedStreamBlockId(e.target.value)}
+                          className={`flex-1 text-[11px] font-mono py-1 px-2 rounded border outline-none truncate ${
+                            isMinimal
+                              ? 'bg-white border-neutral-300 text-black'
+                              : 'bg-slate-900 border-slate-700 text-indigo-300'
+                          }`}
+                        >
+                          {displayedBlocks.map((b, idx) => (
+                            <option key={b.id} value={b.id}>
+                              #{idx + 1} {b.id}{' '}
+                              {b.headingRole === 'h1'
+                                ? '[H1]'
+                                : b.headingRole === 'h2'
+                                ? '[H2]'
+                                : ''}{' '}
+                              ({b.previewText.substring(0, 24)}...)
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const curIdx = displayedBlocks.findIndex(
+                              (b) => b.id === selectedStreamBlockId
+                            );
+                            if (curIdx >= 0 && curIdx < displayedBlocks.length - 1) {
+                              setSelectedStreamBlockId(displayedBlocks[curIdx + 1].id);
+                            }
+                          }}
+                          disabled={
+                            displayedBlocks.findIndex((b) => b.id === selectedStreamBlockId) >=
+                            displayedBlocks.length - 1
+                          }
+                          className="p-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-slate-300 transition-colors"
+                          title="Následující blok podle pořadí"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <span className="text-[10px] text-slate-400 font-mono shrink-0">
                         {currentSelectedBlock.positionInfo}
                       </span>
                     </div>
 
+                    {/* Role & Semantic Badges */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {currentSelectedBlock.headingRole === 'h1' && (
+                        <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                          H1 Nadpis
+                        </span>
+                      )}
+                      {currentSelectedBlock.headingRole === 'h2' && (
+                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          H2 Podnadpis
+                        </span>
+                      )}
+                      {currentSelectedBlock.headingRole === 'small' && (
+                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                          Zápatí / Pozn.
+                        </span>
+                      )}
+                      {currentSelectedBlock.markedContentTag && (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                          Tag: {currentSelectedBlock.markedContentTag}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {currentSelectedBlock.fontInfo}
+                      </span>
+                    </div>
+
                     <div className="text-[11px] font-medium text-slate-300">
-                      <strong>Náhled textu:</strong> {renderHighlightedText(currentSelectedBlock.previewText, currentSelectedBlock.id)}
+                      <strong>Náhled textu:</strong>{' '}
+                      {renderHighlightedText(
+                        currentSelectedBlock.previewText,
+                        currentSelectedBlock.id
+                      )}
                     </div>
                   </div>
 
