@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { PdfPageModel, SourceDocument } from '../../types/document';
-import { renderPdfTextLayer } from '../../services/pdfLoader';
+import { renderPdfTextLayer, getPageTextBlocks } from '../../services/pdfLoader';
 import { renderQueue, RenderPriority } from '../../services/renderQueue';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
@@ -27,10 +27,7 @@ import {
   parseStreamSegments,
   findBestMatchingBlock,
 } from '../../services/contentStreamEditor';
-import {
-  extractPageTextBlocks,
-  VisualTextBlock,
-} from '../../utils/textSnap';
+import { VisualTextBlock } from '../../utils/textSnap';
 
 interface TextLayerProps {
   page: PdfPageModel;
@@ -73,23 +70,26 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   const isRemoveActive = activeTool === 'removeElements' || isRemoveElementsModalOpen;
   const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
 
-  const refreshVisualBlocks = useCallback(() => {
-    if (containerRef.current && isRemoveActive) {
-      const blocks = extractPageTextBlocks(containerRef.current, scale);
+  const refreshVisualBlocks = useCallback(async () => {
+    if (!isRemoveActive || page.sourceType !== 'pdf') {
+      setVisualBlocks([]);
+      return;
+    }
+    try {
+      const blocks = await getPageTextBlocks(sourceDoc, page);
       setVisualBlocks(blocks);
-    } else {
+    } catch {
       setVisualBlocks([]);
     }
-  }, [isRemoveActive, scale]);
+  }, [isRemoveActive, sourceDoc, page]);
 
   useEffect(() => {
     if (isRemoveActive) {
-      const timer = setTimeout(refreshVisualBlocks, 80);
-      return () => clearTimeout(timer);
+      refreshVisualBlocks();
     } else {
       setVisualBlocks([]);
     }
-  }, [isRemoveActive, refreshVisualBlocks, scale, page.id, page.rotation]);
+  }, [isRemoveActive, refreshVisualBlocks, page.id, page.rotation, sourceDoc.updatedAt]);
 
   // Render text layer from PDF.js
   useEffect(() => {
@@ -437,233 +437,245 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
 
   return (
     <div
-      ref={containerRef}
-      onMouseUp={handleMouseUp}
-      onClick={handleLayerClick}
       style={{
         width: `${page.width * scale}px`,
         height: `${page.height * scale}px`,
       }}
-      className={`textLayer absolute inset-0 select-text ${
-        isMinimal ? 'textLayer-minimal' : isLcars ? 'textLayer-lcars' : ''
-      } ${
-        isRemoveActive ? 'mark-remove-blocks' : ''
-      } ${
-        isTextSelectActive
-          ? 'pointer-events-auto cursor-text z-20'
-          : 'pointer-events-none z-0'
-      } ${activeTool === 'streamReplace' ? 'cursor-pointer hover:bg-sky-500/5' : ''} ${
-        activeTool === 'removeElements' ? 'cursor-pointer' : ''
-      }`}
+      className="absolute inset-0 pointer-events-none"
     >
-      {/* Floating Quick Action Selection Toolbar */}
-      {floatingMenuPos && (
-        <div
-          style={{
-            left: `${floatingMenuPos.x}px`,
-            top: `${floatingMenuPos.y}px`,
-            transform: 'translateX(-50%)',
-          }}
-          className={`absolute z-50 flex items-center gap-1 px-2 py-1 shadow-2xl rounded-xl border animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl ${
-            isMinimal
-              ? 'bg-white border-neutral-300 text-black shadow-lg'
-              : isLcars
-              ? 'bg-black border-2 border-[#ff9900] text-[#ff9900] shadow-[0_0_15px_rgba(255,153,0,0.4)]'
-              : 'bg-slate-900/95 border-sky-500/70 text-slate-100 shadow-slate-950/80 ring-1 ring-sky-500/30'
-          }`}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {copiedToast ? (
-            <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-emerald-400">
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{t.textSelection.copied}</span>
+      {/* 1. PDF.js dedicated text container (MUTATED ONLY BY PDF.JS - ZERO REACT CHILDREN) */}
+      <div
+        ref={containerRef}
+        onMouseUp={handleMouseUp}
+        onClick={handleLayerClick}
+        style={{
+          width: `${page.width * scale}px`,
+          height: `${page.height * scale}px`,
+          ['--scale-factor' as any]: scale,
+        }}
+        className={`textLayer absolute inset-0 select-text ${
+          isMinimal ? 'textLayer-minimal' : isLcars ? 'textLayer-lcars' : ''
+        } ${
+          isTextSelectActive
+            ? 'pointer-events-auto cursor-text z-20'
+            : 'pointer-events-none z-0'
+        } ${activeTool === 'streamReplace' ? 'cursor-pointer hover:bg-sky-500/5' : ''} ${
+          activeTool === 'removeElements' ? 'cursor-pointer' : ''
+        }`}
+      />
+
+      {/* 2. React Overlay Container (Blocks & Floating Toolbar) */}
+      <div className="absolute inset-0 pointer-events-none z-30">
+        {/* Visual Block Highlight Overlay for Remove Elements Mode */}
+        {isRemoveActive &&
+          visualBlocks.map((block) => (
+            <div
+              key={block.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                setStreamReplaceTargetPosition({ x: block.x, y: block.y });
+                setStreamReplaceTargetText(block.text);
+                setIsRemoveElementsModalOpen(true);
+              }}
+              style={{
+                position: 'absolute',
+                left: `${block.x * scale}px`,
+                top: `${block.y * scale}px`,
+                width: `${block.width * scale}px`,
+                height: `${block.height * scale}px`,
+              }}
+              className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
+                isMinimal
+                  ? 'border border-rose-600 bg-rose-600/10 hover:bg-rose-600/25 hover:border-rose-700'
+                  : isLcars
+                  ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
+                  : 'border border-rose-500/80 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/25 hover:shadow-[0_0_8px_rgba(244,63,94,0.45)]'
+              }`}
+              title={`${block.text}`}
+            >
+              {/* Small Delete Icon Badge on Hover */}
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-rose-600 text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none">
+                <Trash2 className="w-2.5 h-2.5" />
+              </div>
             </div>
-          ) : (
-            <>
-              {/* Copy Button */}
-              <button
-                onClick={handleCopyText}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-neutral-100 text-black'
-                    : isLcars
-                    ? 'hover:bg-[#222222] text-[#ff9900]'
-                    : 'hover:bg-slate-800 text-slate-200 hover:text-white'
-                }`}
-                title={t.textSelection.copyText}
-              >
-                <Copy className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t.textSelection.copyText}</span>
-              </button>
+          ))}
 
-              <div
-                className={`h-4 w-px mx-0.5 ${
-                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
-                }`}
-              />
-
-              {/* Stream Replace Button (Quick Action) */}
-              <button
-                onClick={handleStreamReplace}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-purple-50 text-purple-700'
-                    : isLcars
-                    ? 'hover:bg-[#ff9900]/20 text-[#ffff66]'
-                    : 'hover:bg-indigo-950/60 text-indigo-300'
-                }`}
-                title={t.tools.streamReplace}
-              >
-                <FileCode2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t.tools.streamReplace}</span>
-              </button>
-
-              <div
-                className={`h-4 w-px mx-0.5 ${
-                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
-                }`}
-              />
-
-              {/* Whiteout / Visual Rewrite Button (Quick Action) */}
-              <button
-                onClick={handleWhiteout}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-indigo-50 text-indigo-700'
-                    : isLcars
-                    ? 'hover:bg-[#ff9900]/20 text-[#ff9966]'
-                    : 'hover:bg-indigo-950/60 text-indigo-400'
-                }`}
-                title={t.textSelection.whiteout}
-              >
-                <SquarePen className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t.textSelection.whiteout}</span>
-              </button>
-
-              <div
-                className={`h-4 w-px mx-0.5 ${
-                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
-                }`}
-              />
-
-              {/* Highlight Button */}
-              <button
-                onClick={handleHighlight}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-yellow-50 text-yellow-700'
-                    : isLcars
-                    ? 'hover:bg-[#ff9900]/20 text-[#ffcc00]'
-                    : 'hover:bg-yellow-950/60 text-yellow-400'
-                }`}
-                title={t.textSelection.highlight}
-              >
-                <Highlighter className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t.textSelection.highlight}</span>
-              </button>
-
-              {/* Underline Button */}
-              <button
-                onClick={handleUnderline}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-sky-50 text-sky-700'
-                    : isLcars
-                    ? 'hover:bg-[#99ccff]/20 text-[#99ccff]'
-                    : 'hover:bg-sky-950/60 text-sky-400'
-                }`}
-                title={t.textSelection.underline}
-              >
-                <UnderlineIcon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t.textSelection.underline}</span>
-              </button>
-
-              {/* Strikethrough Button */}
-              <button
-                onClick={handleStrikethrough}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-rose-50 text-rose-700'
-                    : isLcars
-                    ? 'hover:bg-[#cc3333]/20 text-[#ff6666]'
-                    : 'hover:bg-rose-950/60 text-rose-400'
-                }`}
-                title={t.textSelection.strikethrough}
-              >
-                <StrikeIcon className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t.textSelection.strikethrough}</span>
-              </button>
-
-              {/* Delete Block (Direct Stream Removal) Button */}
-              <button
-                onClick={handleDeleteBlockDirectly}
-                className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-rose-100 text-rose-700'
-                    : isLcars
-                    ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
-                    : 'hover:bg-rose-950/80 text-rose-400'
-                }`}
-                title={t.textSelection.deleteBlock}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">{t.textSelection.deleteBlock}</span>
-              </button>
-
-              {/* Dismiss Button */}
-              <button
-                onClick={() => {
-                  setFloatingMenuPos(null);
-                  window.getSelection()?.removeAllRanges();
-                }}
-                className={`p-1 rounded-md transition-colors ${
-                  isMinimal
-                    ? 'hover:bg-neutral-100 text-neutral-400 hover:text-black'
-                    : isLcars
-                    ? 'hover:bg-[#222222] text-[#ff9966]'
-                    : 'hover:bg-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </>
-          )}
-        </div>
-      )}
-      {/* Visual Block Highlight Overlay for Remove Elements Mode */}
-      {isRemoveActive &&
-        visualBlocks.map((block) => (
+        {/* Floating Quick Action Selection Toolbar */}
+        {floatingMenuPos && (
           <div
-            key={block.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              setStreamReplaceTargetPosition({ x: block.x, y: block.y });
-              setStreamReplaceTargetText(block.text);
-              setIsRemoveElementsModalOpen(true);
-            }}
             style={{
-              position: 'absolute',
-              left: `${block.x * scale}px`,
-              top: `${block.y * scale}px`,
-              width: `${block.width * scale}px`,
-              height: `${block.height * scale}px`,
+              left: `${floatingMenuPos.x}px`,
+              top: `${floatingMenuPos.y}px`,
+              transform: 'translateX(-50%)',
             }}
-            className={`group absolute rounded-[2px] transition-all cursor-pointer z-30 flex items-start justify-end ${
+            className={`pointer-events-auto absolute z-50 flex items-center gap-1 px-2 py-1 shadow-2xl rounded-xl border animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl ${
               isMinimal
-                ? 'border border-rose-600 bg-rose-600/10 hover:bg-rose-600/25 hover:border-rose-700'
+                ? 'bg-white border-neutral-300 text-black shadow-lg'
                 : isLcars
-                ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
-                : 'border border-rose-500/80 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/25 hover:shadow-[0_0_8px_rgba(244,63,94,0.45)]'
+                ? 'bg-black border-2 border-[#ff9900] text-[#ff9900] shadow-[0_0_15px_rgba(255,153,0,0.4)]'
+                : 'bg-slate-900/95 border-sky-500/70 text-slate-100 shadow-slate-950/80 ring-1 ring-sky-500/30'
             }`}
-            title={`${block.text}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Small Delete Icon Badge on Hover */}
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-rose-600 text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none">
-              <Trash2 className="w-2.5 h-2.5" />
-            </div>
+            {copiedToast ? (
+              <div className="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-emerald-400">
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{t.textSelection.copied}</span>
+              </div>
+            ) : (
+              <>
+                {/* Copy Button */}
+                <button
+                  onClick={handleCopyText}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-neutral-100 text-black'
+                      : isLcars
+                      ? 'hover:bg-[#222222] text-[#ff9900]'
+                      : 'hover:bg-slate-800 text-slate-200 hover:text-white'
+                  }`}
+                  title={t.textSelection.copyText}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.textSelection.copyText}</span>
+                </button>
+
+                <div
+                  className={`h-4 w-px mx-0.5 ${
+                    isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                  }`}
+                />
+
+                {/* Stream Replace Button (Quick Action) */}
+                <button
+                  onClick={handleStreamReplace}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-purple-50 text-purple-700'
+                      : isLcars
+                      ? 'hover:bg-[#ff9900]/20 text-[#ffff66]'
+                      : 'hover:bg-indigo-950/60 text-indigo-300'
+                  }`}
+                  title={t.tools.streamReplace}
+                >
+                  <FileCode2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.tools.streamReplace}</span>
+                </button>
+
+                <div
+                  className={`h-4 w-px mx-0.5 ${
+                    isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                  }`}
+                />
+
+                {/* Whiteout / Visual Rewrite Button (Quick Action) */}
+                <button
+                  onClick={handleWhiteout}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-indigo-50 text-indigo-700'
+                      : isLcars
+                      ? 'hover:bg-[#ff9900]/20 text-[#ff9966]'
+                      : 'hover:bg-indigo-950/60 text-indigo-400'
+                  }`}
+                  title={t.textSelection.whiteout}
+                >
+                  <SquarePen className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.textSelection.whiteout}</span>
+                </button>
+
+                <div
+                  className={`h-4 w-px mx-0.5 ${
+                    isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                  }`}
+                />
+
+                {/* Highlight Button */}
+                <button
+                  onClick={handleHighlight}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-yellow-50 text-yellow-700'
+                      : isLcars
+                      ? 'hover:bg-[#ff9900]/20 text-[#ffcc00]'
+                      : 'hover:bg-yellow-950/60 text-yellow-400'
+                  }`}
+                  title={t.textSelection.highlight}
+                >
+                  <Highlighter className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.textSelection.highlight}</span>
+                </button>
+
+                {/* Underline Button */}
+                <button
+                  onClick={handleUnderline}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-sky-50 text-sky-700'
+                      : isLcars
+                      ? 'hover:bg-[#99ccff]/20 text-[#99ccff]'
+                      : 'hover:bg-sky-950/60 text-sky-400'
+                  }`}
+                  title={t.textSelection.underline}
+                >
+                  <UnderlineIcon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.textSelection.underline}</span>
+                </button>
+
+                {/* Strikethrough Button */}
+                <button
+                  onClick={handleStrikethrough}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-rose-50 text-rose-700'
+                      : isLcars
+                      ? 'hover:bg-[#cc3333]/20 text-[#ff6666]'
+                      : 'hover:bg-rose-950/60 text-rose-400'
+                  }`}
+                  title={t.textSelection.strikethrough}
+                >
+                  <StrikeIcon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.textSelection.strikethrough}</span>
+                </button>
+
+                {/* Delete Block (Direct Stream Removal) Button */}
+                <button
+                  onClick={handleDeleteBlockDirectly}
+                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-rose-100 text-rose-700'
+                      : isLcars
+                      ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
+                      : 'hover:bg-rose-950/80 text-rose-400'
+                  }`}
+                  title={t.textSelection.deleteBlock}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.textSelection.deleteBlock}</span>
+                </button>
+
+                {/* Dismiss Button */}
+                <button
+                  onClick={() => {
+                    setFloatingMenuPos(null);
+                    window.getSelection()?.removeAllRanges();
+                  }}
+                  className={`p-1 rounded-md transition-colors ${
+                    isMinimal
+                      ? 'hover:bg-neutral-100 text-neutral-400 hover:text-black'
+                      : isLcars
+                      ? 'hover:bg-[#222222] text-[#ff9966]'
+                      : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </>
+            )}
           </div>
-        ))}
+        )}
+      </div>
     </div>
   );
 };

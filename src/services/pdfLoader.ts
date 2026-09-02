@@ -685,6 +685,7 @@ export const renderPdfTextLayer = async (
 
     const textContent = await pdfPage.getTextContent();
     container.innerHTML = '';
+    container.style.setProperty('--scale-factor', `${scale}`);
 
     const task = pdfjsLib.renderTextLayer({
       textContentSource: textContent,
@@ -699,5 +700,113 @@ export const renderPdfTextLayer = async (
       return;
     }
     console.warn(`Text layer render skipped for page ${pageModel.id}:`, err);
+  }
+};
+
+/**
+ * Extracts exact line/block text geometries and content directly from PDF page vectors
+ */
+export const getPageTextBlocks = async (
+  sourceDoc: SourceDocument,
+  pageModel: PdfPageModel
+): Promise<import('../utils/textSnap').VisualTextBlock[]> => {
+  if (pageModel.sourceType !== 'pdf') return [];
+
+  try {
+    const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
+    const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+
+    const viewport = pdfPage.getViewport({
+      scale: 1.0,
+      rotation: pageModel.rotation,
+    });
+
+    const textContent = await pdfPage.getTextContent();
+    if (!textContent.items || textContent.items.length === 0) {
+      return [];
+    }
+
+    interface ItemEntry {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      text: string;
+      centerY: number;
+    }
+
+    const items: ItemEntry[] = [];
+
+    for (const rawItem of textContent.items) {
+      const item = rawItem as any;
+      if (!item.str || !item.str.trim()) continue;
+
+      const tx = item.transform[4];
+      const ty = item.transform[5];
+      const w = item.width || Math.abs(item.transform[0]) * item.str.length * 0.6;
+      const h = item.height || Math.abs(item.transform[3]) || 12;
+
+      const rect = viewport.convertToViewportRectangle([tx, ty, tx + w, ty + h]);
+      const minX = Math.min(rect[0], rect[2]);
+      const minY = Math.min(rect[1], rect[3]);
+      const maxX = Math.max(rect[0], rect[2]);
+      const maxY = Math.max(rect[1], rect[3]);
+      const itemW = maxX - minX;
+      const itemH = maxY - minY;
+
+      items.push({
+        x: minX,
+        y: minY,
+        w: Math.max(4, itemW),
+        h: Math.max(6, itemH),
+        text: item.str,
+        centerY: minY + itemH / 2,
+      });
+    }
+
+    if (items.length === 0) return [];
+
+    items.sort((a, b) => {
+      if (Math.abs(a.centerY - b.centerY) > 4) {
+        return a.centerY - b.centerY;
+      }
+      return a.x - b.x;
+    });
+
+    const lineGroups: ItemEntry[][] = [];
+    for (const item of items) {
+      let matchedGroup = lineGroups.find((group) => {
+        const avgCenterY = group.reduce((sum, s) => sum + s.centerY, 0) / group.length;
+        const avgH = group.reduce((sum, s) => sum + s.h, 0) / group.length;
+        return Math.abs(item.centerY - avgCenterY) < Math.max(4, avgH * 0.45);
+      });
+
+      if (matchedGroup) {
+        matchedGroup.push(item);
+      } else {
+        lineGroups.push([item]);
+      }
+    }
+
+    return lineGroups.map((group, idx) => {
+      group.sort((a, b) => a.x - b.x);
+      const minX = Math.min(...group.map((s) => s.x));
+      const maxX = Math.max(...group.map((s) => s.x + s.w));
+      const minY = Math.min(...group.map((s) => s.y));
+      const maxY = Math.max(...group.map((s) => s.y + s.h));
+      const text = group.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
+
+      return {
+        id: `block_vec_${idx + 1}`,
+        x: Math.max(0, minX - 2),
+        y: Math.max(0, minY - 1),
+        width: Math.max(12, maxX - minX + 4),
+        height: Math.max(10, maxY - minY + 2),
+        text,
+      };
+    });
+  } catch (err) {
+    console.warn(`Failed to extract text blocks for page ${pageModel.id}:`, err);
+    return [];
   }
 };
