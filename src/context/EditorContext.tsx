@@ -36,7 +36,7 @@ interface EditorContextType {
   setIsNotesPanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
   toggleNotesPanel: () => void;
 
-  // Modals
+  // Modals & Panels
   isSignatureModalOpen: boolean;
   setIsSignatureModalOpen: (open: boolean) => void;
   signatureModalInitialTab: SignatureModalTab;
@@ -72,6 +72,15 @@ interface EditorContextType {
   setStreamReplaceTargetText: (text: string) => void;
   streamReplaceTargetPosition: { x: number; y: number } | null;
   setStreamReplaceTargetPosition: (pos: { x: number; y: number } | null) => void;
+
+  // Edit & Stream Right-Side Panel
+  isEditSidePanelOpen: boolean;
+  setIsEditSidePanelOpen: (open: boolean) => void;
+  editSidePanelTab: 'remove' | 'stream';
+  setEditSidePanelTab: (tab: 'remove' | 'stream') => void;
+  toggleEditSidePanel: (tab?: 'remove' | 'stream') => void;
+  selectedStreamBlockId: string | null;
+  setSelectedStreamBlockId: (id: string | null) => void;
 
   // Rasterization Settings
   rasterSettings: RasterizationSettings;
@@ -128,11 +137,45 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isLogModalOpen, setIsLogModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
-  const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpen] = useState<boolean>(false);
-  const [isRemoveElementsModalOpen, setIsRemoveElementsModalOpen] = useState<boolean>(false);
+  const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpenState] = useState<boolean>(false);
+  const [isRemoveElementsModalOpen, setIsRemoveElementsModalOpenState] = useState<boolean>(false);
   const [isExportFormModalOpen, setIsExportFormModalOpen] = useState<boolean>(false);
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
   const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
+
+  // Edit & Stream Right-Side Panel state
+  const [isEditSidePanelOpen, setIsEditSidePanelOpen] = useState<boolean>(false);
+  const [editSidePanelTab, setEditSidePanelTab] = useState<'remove' | 'stream'>('remove');
+  const [selectedStreamBlockId, setSelectedStreamBlockId] = useState<string | null>(null);
+
+  const toggleEditSidePanel = (tab?: 'remove' | 'stream') => {
+    if (tab) {
+      setEditSidePanelTab(tab);
+      setIsEditSidePanelOpen(true);
+    } else {
+      setIsEditSidePanelOpen((prev) => !prev);
+    }
+  };
+
+  const setIsStreamReplaceModalOpen = (open: boolean) => {
+    setIsStreamReplaceModalOpenState(open);
+    if (open) {
+      setEditSidePanelTab('stream');
+      setIsEditSidePanelOpen(true);
+    } else if (!isRemoveElementsModalOpen) {
+      setIsEditSidePanelOpen(false);
+    }
+  };
+
+  const setIsRemoveElementsModalOpen = (open: boolean) => {
+    setIsRemoveElementsModalOpenState(open);
+    if (open) {
+      setEditSidePanelTab('remove');
+      setIsEditSidePanelOpen(true);
+    } else if (!isStreamReplaceModalOpen) {
+      setIsEditSidePanelOpen(false);
+    }
+  };
 
   const toggleLogModal = () => {
     setIsLogModalOpen((prev) => !prev);
@@ -147,11 +190,25 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const toggleStreamReplaceModal = () => {
-    setIsStreamReplaceModalOpen((prev) => !prev);
+    if (isEditSidePanelOpen && editSidePanelTab === 'stream') {
+      setIsEditSidePanelOpen(false);
+      setIsStreamReplaceModalOpenState(false);
+    } else {
+      setEditSidePanelTab('stream');
+      setIsEditSidePanelOpen(true);
+      setIsStreamReplaceModalOpenState(true);
+    }
   };
 
   const toggleRemoveElementsModal = () => {
-    setIsRemoveElementsModalOpen((prev) => !prev);
+    if (isEditSidePanelOpen && editSidePanelTab === 'remove') {
+      setIsEditSidePanelOpen(false);
+      setIsRemoveElementsModalOpenState(false);
+    } else {
+      setEditSidePanelTab('remove');
+      setIsEditSidePanelOpen(true);
+      setIsRemoveElementsModalOpenState(true);
+    }
   };
 
   const toggleExportFormModal = () => {
@@ -368,6 +425,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setStreamReplaceTargetText,
     streamReplaceTargetPosition,
     setStreamReplaceTargetPosition,
+    isEditSidePanelOpen,
+    setIsEditSidePanelOpen,
+    editSidePanelTab,
+    setEditSidePanelTab,
+    toggleEditSidePanel,
+    selectedStreamBlockId,
+    setSelectedStreamBlockId,
     rasterSettings,
     setRasterSettings,
     resetRasterSettings,

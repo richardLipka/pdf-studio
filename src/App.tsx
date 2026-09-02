@@ -8,6 +8,7 @@ import { Toolbar } from './components/layout/Toolbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { StatusBar } from './components/layout/StatusBar';
 import { NotesPanel } from './components/layout/NotesPanel';
+import { EditSidePanel } from './components/layout/EditSidePanel';
 import { PdfViewer } from './components/viewer/PdfViewer';
 import { Dropzone } from './components/common/Dropzone';
 import { SignatureModal } from './components/modals/SignatureModal';
@@ -16,8 +17,6 @@ import { ConfirmModal } from './components/modals/ConfirmModal';
 import { LogModal } from './components/modals/LogModal';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { MetadataModal } from './components/modals/MetadataModal';
-import { StreamReplaceModal } from './components/modals/StreamReplaceModal';
-import { RemoveElementsModal } from './components/modals/RemoveElementsModal';
 import { ExportFormModal } from './components/modals/ExportFormModal';
 
 const MainWorkspace: React.FC = () => {
@@ -31,21 +30,27 @@ const MainWorkspace: React.FC = () => {
 
   const hasDoc = pages.length > 0;
 
-  // Handle Delete / Backspace key to initiate page deletion when no annotation is active
+  // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Do not trigger deletion shortcuts if user is typing inside an input/textarea
+      const target = e.target as HTMLElement;
       if (
-        (e.target as HTMLElement)?.tagName === 'INPUT' ||
-        (e.target as HTMLElement)?.tagName === 'TEXTAREA'
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
       ) {
         return;
       }
 
+      // Delete key: delete selected annotation or selected page
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // If an annotation is selected, it's deleted by DocumentContext.
-        // If NO annotation is selected and pages are selected:
-        if (!selectedAnnotationId && selectedPageIds.length > 0 && pages.length > 1) {
-          e.preventDefault();
+        if (selectedAnnotationId) {
+          // Handled within Viewer
+          return;
+        }
+
+        if (selectedPageIds.length > 0) {
           if (selectedPageIds.length === 1) {
             setDeleteTargetPageId(selectedPageIds[0]);
             setDeleteMode('single');
@@ -78,11 +83,12 @@ const MainWorkspace: React.FC = () => {
           {/* Secondary Action Toolbar */}
           <Toolbar />
 
-          {/* Core Body: Left Sidebar + Notes Panel + Main PDF Canvas */}
+          {/* Core Body: Left Thumbnail Sidebar + Center PDF Canvas + Right Docked Panels */}
           <div className="flex-1 flex overflow-hidden relative">
             <Sidebar />
-            <NotesPanel />
             <PdfViewer />
+            <NotesPanel />
+            <EditSidePanel />
           </div>
         </>
       ) : (
@@ -100,8 +106,6 @@ const MainWorkspace: React.FC = () => {
       <LogModal />
       <SettingsModal />
       <MetadataModal />
-      <StreamReplaceModal />
-      <RemoveElementsModal />
       <ExportFormModal />
     </div>
   );

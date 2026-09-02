@@ -43,12 +43,16 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     highlightColor,
     strokeColor,
     strokeWidth,
-    setIsStreamReplaceModalOpen,
     setStreamReplaceTargetText,
+    streamReplaceTargetText,
     streamReplaceTargetPosition,
     setStreamReplaceTargetPosition,
     isRemoveElementsModalOpen,
-    setIsRemoveElementsModalOpen,
+    isEditSidePanelOpen,
+    setIsEditSidePanelOpen,
+    setEditSidePanelTab,
+    selectedStreamBlockId,
+    setSelectedStreamBlockId,
   } = useEditor();
   const {
     addAnnotation,
@@ -67,7 +71,11 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
 
-  const isRemoveActive = activeTool === 'removeElements' || isRemoveElementsModalOpen;
+  const isRemoveActive =
+    activeTool === 'removeElements' ||
+    activeTool === 'streamReplace' ||
+    isRemoveElementsModalOpen ||
+    isEditSidePanelOpen;
   const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
 
   const refreshVisualBlocks = useCallback(async () => {
@@ -370,7 +378,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
       setStreamReplaceTargetPosition({ x: pdfX, y: pdfY });
     }
     setStreamReplaceTargetText(selectedText);
-    setIsStreamReplaceModalOpen(true);
+    setEditSidePanelTab('stream');
+    setIsEditSidePanelOpen(true);
     setFloatingMenuPos(null);
     window.getSelection()?.removeAllRanges();
   };
@@ -422,9 +431,11 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
       setStreamReplaceTargetText(text);
 
       if (activeTool === 'streamReplace') {
-        setIsStreamReplaceModalOpen(true);
+        setEditSidePanelTab('stream');
+        setIsEditSidePanelOpen(true);
       } else if (activeTool === 'removeElements') {
-        setIsRemoveElementsModalOpen(true);
+        setEditSidePanelTab('remove');
+        setIsEditSidePanelOpen(true);
       }
     }
   };
@@ -466,39 +477,66 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
 
       {/* 2. React Overlay Container (Blocks & Floating Toolbar) */}
       <div className="absolute inset-0 pointer-events-none z-30">
-        {/* Visual Block Highlight Overlay for Remove Elements Mode */}
+        {/* Visual Block Highlight Overlay for Remove Elements & Stream Mode */}
         {isRemoveActive &&
-          visualBlocks.map((block) => (
-            <div
-              key={block.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setStreamReplaceTargetPosition({ x: block.x, y: block.y });
-                setStreamReplaceTargetText(block.text);
-                setIsRemoveElementsModalOpen(true);
-              }}
-              style={{
-                position: 'absolute',
-                left: `${block.x * scale}px`,
-                top: `${block.y * scale}px`,
-                width: `${block.width * scale}px`,
-                height: `${block.height * scale}px`,
-              }}
-              className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
-                isMinimal
-                  ? 'border border-rose-600 bg-rose-600/10 hover:bg-rose-600/25 hover:border-rose-700'
-                  : isLcars
-                  ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
-                  : 'border border-rose-500/80 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/25 hover:shadow-[0_0_8px_rgba(244,63,94,0.45)]'
-              }`}
-              title={`${block.text}`}
-            >
-              {/* Small Delete Icon Badge on Hover */}
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-rose-600 text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none">
-                <Trash2 className="w-2.5 h-2.5" />
+          visualBlocks.map((block) => {
+            const isSelected =
+              selectedStreamBlockId === block.id ||
+              (Boolean(streamReplaceTargetText) &&
+                block.text.toLowerCase().includes(streamReplaceTargetText.toLowerCase()));
+
+            return (
+              <div
+                key={block.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedStreamBlockId(block.id);
+                  setStreamReplaceTargetPosition({ x: block.x, y: block.y });
+                  setStreamReplaceTargetText(block.text);
+
+                  if (activeTool === 'streamReplace') {
+                    setEditSidePanelTab('stream');
+                  } else {
+                    setEditSidePanelTab('remove');
+                  }
+                  setIsEditSidePanelOpen(true);
+
+                  setTimeout(() => {
+                    const el = document.getElementById(`panel_item_${block.id}`);
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }, 100);
+                }}
+                style={{
+                  position: 'absolute',
+                  left: `${block.x * scale}px`,
+                  top: `${block.y * scale}px`,
+                  width: `${block.width * scale}px`,
+                  height: `${block.height * scale}px`,
+                }}
+                className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
+                  isSelected
+                    ? isMinimal
+                      ? 'border-2 border-rose-600 bg-rose-600/20 ring-2 ring-rose-500 shadow-md z-40'
+                      : isLcars
+                      ? 'border-2 border-[#ff9900] bg-[#ff9900]/30 ring-2 ring-[#ff9900] z-40'
+                      : 'border-2 border-rose-400 bg-rose-500/25 ring-2 ring-rose-400/80 shadow-[0_0_12px_rgba(244,63,94,0.65)] z-40'
+                    : isMinimal
+                    ? 'border border-rose-600/70 bg-rose-600/10 hover:bg-rose-600/25 hover:border-rose-700'
+                    : isLcars
+                    ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
+                    : 'border border-rose-500/80 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/25 hover:shadow-[0_0_8px_rgba(244,63,94,0.45)]'
+                }`}
+                title={`${block.text}`}
+              >
+                {/* Small Delete Icon Badge on Hover */}
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-rose-600 text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none">
+                  <Trash2 className="w-2.5 h-2.5" />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
         {/* Floating Quick Action Selection Toolbar */}
         {floatingMenuPos && (
