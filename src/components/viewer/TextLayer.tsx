@@ -27,6 +27,10 @@ import {
   parseStreamSegments,
   findBestMatchingBlock,
 } from '../../services/contentStreamEditor';
+import {
+  extractPageTextBlocks,
+  VisualTextBlock,
+} from '../../utils/textSnap';
 
 interface TextLayerProps {
   page: PdfPageModel;
@@ -66,6 +70,27 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
 
+  const isRemoveActive = activeTool === 'removeElements' || isRemoveElementsModalOpen;
+  const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
+
+  const refreshVisualBlocks = useCallback(() => {
+    if (containerRef.current && isRemoveActive) {
+      const blocks = extractPageTextBlocks(containerRef.current, scale);
+      setVisualBlocks(blocks);
+    } else {
+      setVisualBlocks([]);
+    }
+  }, [isRemoveActive, scale]);
+
+  useEffect(() => {
+    if (isRemoveActive) {
+      const timer = setTimeout(refreshVisualBlocks, 80);
+      return () => clearTimeout(timer);
+    } else {
+      setVisualBlocks([]);
+    }
+  }, [isRemoveActive, refreshVisualBlocks, scale, page.id, page.rotation]);
+
   // Render text layer from PDF.js
   useEffect(() => {
     let isCancelled = false;
@@ -88,6 +113,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
           // Set layer dimensions
           container.style.width = `${page.width * scale}px`;
           container.style.height = `${page.height * scale}px`;
+          refreshVisualBlocks();
         }
       })
       .catch((err) => {
@@ -403,8 +429,6 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     }
   };
 
-  const isRemoveActive = activeTool === 'removeElements' || isRemoveElementsModalOpen;
-
   const isTextSelectActive =
     activeTool === 'textSelect' ||
     activeTool === 'select' ||
@@ -607,6 +631,39 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
           )}
         </div>
       )}
+      {/* Visual Block Highlight Overlay for Remove Elements Mode */}
+      {isRemoveActive &&
+        visualBlocks.map((block) => (
+          <div
+            key={block.id}
+            onClick={(e) => {
+              e.stopPropagation();
+              setStreamReplaceTargetPosition({ x: block.x, y: block.y });
+              setStreamReplaceTargetText(block.text);
+              setIsRemoveElementsModalOpen(true);
+            }}
+            style={{
+              position: 'absolute',
+              left: `${block.x * scale}px`,
+              top: `${block.y * scale}px`,
+              width: `${block.width * scale}px`,
+              height: `${block.height * scale}px`,
+            }}
+            className={`group absolute rounded-[2px] transition-all cursor-pointer z-30 flex items-start justify-end ${
+              isMinimal
+                ? 'border border-rose-600 bg-rose-600/10 hover:bg-rose-600/25 hover:border-rose-700'
+                : isLcars
+                ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
+                : 'border border-rose-500/80 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/25 hover:shadow-[0_0_8px_rgba(244,63,94,0.45)]'
+            }`}
+            title={`${block.text}`}
+          >
+            {/* Small Delete Icon Badge on Hover */}
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-rose-600 text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none">
+              <Trash2 className="w-2.5 h-2.5" />
+            </div>
+          </div>
+        ))}
     </div>
   );
 };

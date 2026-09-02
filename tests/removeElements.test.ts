@@ -216,4 +216,25 @@ describe('Remove Elements (Blocks & Images) Service & Undo/Redo', () => {
     expect(restoredImages.images.length).toBeGreaterThanOrEqual(1);
     expect(restoredImages.images[0].cleanName).toBe(images[0].cleanName);
   });
+
+  it('should robustly extract and normalize search text for Czech diacritics and TJ kerning arrays', async () => {
+    const { extractPreviewTextFromBlock, normalizeTextForSearch, unescapePdfLiteralString } = await import('../src/services/contentStreamEditor');
+
+    // Win-1250 octal characters
+    const octalCzech = '\\350\\341\\355\\354\\370\\376';
+    const unescaped = unescapePdfLiteralString(octalCzech);
+    expect(unescaped).toBe('čáíěřž');
+
+    // TJ kerning array with word spacing and intra-word kerning
+    const rawTjBlock = `BT /F1 12 Tf 100 200 Td [ (Sml) 20 (ouva) -250 (o) -250 (d) (\\355lo) ] TJ ET`;
+    const preview = extractPreviewTextFromBlock(rawTjBlock);
+    expect(preview).toBe('Smlouva o dílo');
+
+    // Normalized search matches without diacritics and case-insensitively
+    const normPreview = normalizeTextForSearch(preview);
+    const normQuery = normalizeTextForSearch('smlouva o dilo');
+    expect(normPreview).toBe(normQuery);
+    expect(normPreview.includes(normalizeTextForSearch('dilo'))).toBe(true);
+  });
 });
+

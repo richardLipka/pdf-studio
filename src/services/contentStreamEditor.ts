@@ -35,12 +35,27 @@ export interface StreamSegment {
   endIndex: number;
 }
 
+const WIN1250_OCTAL_MAP: { [code: number]: string } = {
+  138: 'Š', 141: 'Ť', 142: 'Ž', 154: 'š', 157: 'ť', 158: 'ž',
+  193: 'Á', 196: 'Ä', 200: 'Č', 201: 'É', 204: 'Ě', 205: 'Í',
+  207: 'Ď', 210: 'Ň', 211: 'Ó', 212: 'Ô', 216: 'Ř', 217: 'Ů',
+  218: 'Ú', 220: 'Ü', 221: 'Ý', 225: 'á', 228: 'ä', 232: 'č',
+  233: 'é', 236: 'ě', 237: 'í', 239: 'ď', 242: 'ň', 243: 'ó',
+  244: 'ô', 248: 'ř', 249: 'ů', 250: 'ú', 252: 'ü', 253: 'ý', 254: 'ž',
+};
+
 /**
- * Unescape a PDF literal string (e.g. \( -> (, \\ -> \)
+ * Unescape a PDF literal string (e.g. \( -> (, \\ -> \), handling Win-1250/Latin-2 octal characters
  */
 export function unescapePdfLiteralString(str: string): string {
   return str
-    .replace(/\\([0-7]{1,3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)))
+    .replace(/\\([0-7]{1,3})/g, (_, oct) => {
+      const code = parseInt(oct, 8);
+      if (WIN1250_OCTAL_MAP[code]) {
+        return WIN1250_OCTAL_MAP[code];
+      }
+      return String.fromCharCode(code);
+    })
     .replace(/\\n/g, '\n')
     .replace(/\\r/g, '\r')
     .replace(/\\t/g, '\t')
@@ -714,10 +729,54 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
  * Extract human-readable preview text from a BT ... ET text block.
  */
 export function extractPreviewTextFromBlock(rawBlock: string): string {
-  const parts: string[] = [];
+  const words: string[] = [];
 
-  // 1. Literal strings (...)
+  // Check for TJ arrays first e.g. [(Sml) 20 (ouva) -250 (o) -250 (d) (\xedlo)] TJ
+  const tjRegex = /\[([\s\S]*?)\]\s*TJ/g;
+  let tjMatch: RegExpExecArray | null;
+  let foundTj = false;
+
+  while ((tjMatch = tjRegex.exec(rawBlock)) !== null) {
+    foundTj = true;
+    const arrayContent = tjMatch[1];
+    let currentWord = '';
+
+    // Tokenize arrayContent into strings (...) or <...> and kerning numbers
+    const tokenRegex = /\((?:[^\\()]+|\\.)*\)|<[0-9a-fA-F\s]+>|[-+]?\d+(?:\.\d+)?/g;
+    let tok: RegExpExecArray | null;
+
+    while ((tok = tokenRegex.exec(arrayContent)) !== null) {
+      const item = tok[0];
+      if (item.startsWith('(') && item.endsWith(')')) {
+        const text = unescapePdfLiteralString(item.substring(1, item.length - 1));
+        currentWord += text;
+      } else if (item.startsWith('<') && item.endsWith('>')) {
+        const text = hexToString(item.substring(1, item.length - 1));
+        currentWord += text;
+      } else {
+        const num = parseFloat(item);
+        // In PDF fonts, a negative kerning < -140 typically indicates a space between words
+        if (!isNaN(num) && num < -140 && currentWord.length > 0) {
+          if (!currentWord.endsWith(' ')) {
+            currentWord += ' ';
+          }
+        }
+      }
+    }
+
+    const trimmed = currentWord.replace(/\s+/g, ' ').trim();
+    if (trimmed) {
+      words.push(trimmed);
+    }
+  }
+
+  if (foundTj && words.length > 0) {
+    return words.join(' ').replace(/\s+/g, ' ').trim();
+  }
+
+  // Fallback for standard Tj, ', " operators or raw literal strings
   const literalStrings = extractLiteralStrings(rawBlock);
+  const parts: string[] = [];
   for (const item of literalStrings) {
     const text = unescapePdfLiteralString(item.inner).trim();
     if (text) {
@@ -725,7 +784,6 @@ export function extractPreviewTextFromBlock(rawBlock: string): string {
     }
   }
 
-  // 2. Hex strings <...>
   const hexRegex = /<([0-9a-fA-F\s]+)>/g;
   let hexMatch: RegExpExecArray | null;
   while ((hexMatch = hexRegex.exec(rawBlock)) !== null) {
@@ -738,7 +796,7 @@ export function extractPreviewTextFromBlock(rawBlock: string): string {
     }
   }
 
-  return parts.join(' ');
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
 export function extractFontInfoFromBlock(rawBlock: string): string | undefined {

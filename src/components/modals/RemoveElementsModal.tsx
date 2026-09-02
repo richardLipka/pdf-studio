@@ -20,6 +20,8 @@ import {
   parseStreamSegments,
   StreamSegment,
   PageImageInfo,
+  findBestMatchingBlock,
+  normalizeTextForSearch,
 } from '../../services/contentStreamEditor';
 
 export const RemoveElementsModal: React.FC = () => {
@@ -29,6 +31,7 @@ export const RemoveElementsModal: React.FC = () => {
     isRemoveElementsModalOpen,
     setIsRemoveElementsModalOpen,
     streamReplaceTargetText,
+    streamReplaceTargetPosition,
   } = useEditor();
   const {
     activePageIndex,
@@ -69,9 +72,11 @@ export const RemoveElementsModal: React.FC = () => {
         getPageImagesList(activePageIndex),
       ]);
 
+      let textSegments: StreamSegment[] = [];
       if (streamRes.streamText) {
         const parsed = parseStreamSegments(streamRes.streamText);
-        setSegments(parsed.filter((s) => s.type === 'text'));
+        textSegments = parsed.filter((s) => s.type === 'text');
+        setSegments(textSegments);
       } else {
         setSegments([]);
       }
@@ -80,6 +85,25 @@ export const RemoveElementsModal: React.FC = () => {
         setImages(imagesRes.images);
       } else {
         setImages([]);
+      }
+
+      // If opened with target block from canvas click, find best matching block and SELECT it directly in full list
+      if (streamReplaceTargetText || streamReplaceTargetPosition) {
+        const best = findBestMatchingBlock(
+          textSegments,
+          streamReplaceTargetText,
+          streamReplaceTargetPosition
+        );
+        if (best) {
+          setSelectedBlockIds(new Set([best.id]));
+          setActiveTab('blocks');
+          setTimeout(() => {
+            const el = document.getElementById(best.id);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }, 150);
+        }
       }
     } catch (err: any) {
       setStatusMessage({
@@ -93,39 +117,52 @@ export const RemoveElementsModal: React.FC = () => {
 
   useEffect(() => {
     if (isRemoveElementsModalOpen) {
+      setFilterQuery('');
       loadPageElements();
-      if (streamReplaceTargetText) {
-        setFilterQuery(streamReplaceTargetText);
-        setActiveTab('blocks');
-      } else {
-        setFilterQuery('');
-      }
     }
-  }, [isRemoveElementsModalOpen, activePageIndex, streamReplaceTargetText]);
+  }, [isRemoveElementsModalOpen, activePageIndex]);
 
-  // Filtered lists
+  // Filtered lists with robust normalized search matching
   const filteredBlocks = useMemo(() => {
     if (!filterQuery.trim()) return segments;
-    const q = filterQuery.toLowerCase();
-    return segments.filter(
-      (b) =>
-        b.previewText.toLowerCase().includes(q) ||
-        (b.fontInfo && b.fontInfo.toLowerCase().includes(q)) ||
-        (b.positionInfo && b.positionInfo.toLowerCase().includes(q)) ||
-        b.id.toLowerCase().includes(q)
-    );
+    const normQ = normalizeTextForSearch(filterQuery);
+    const qWords = normQ.split(' ').filter((w) => w.length >= 2);
+
+    return segments.filter((b) => {
+      const normPreview = normalizeTextForSearch(b.previewText);
+      const normRaw = normalizeTextForSearch(b.rawContent);
+      const normFont = normalizeTextForSearch(b.fontInfo || '');
+      const normId = b.id.toLowerCase();
+
+      // Substring match in normalized preview, raw content or font
+      if (
+        normPreview.includes(normQ) ||
+        normRaw.includes(normQ) ||
+        normFont.includes(normQ) ||
+        normId.includes(normQ)
+      ) {
+        return true;
+      }
+
+      // Word-by-word match
+      if (qWords.length > 0 && qWords.every((w) => normPreview.includes(w) || normRaw.includes(w))) {
+        return true;
+      }
+
+      return false;
+    });
   }, [segments, filterQuery]);
 
   const filteredImages = useMemo(() => {
     if (!filterQuery.trim()) return images;
-    const q = filterQuery.toLowerCase();
-    return images.filter(
-      (im) =>
-        im.name.toLowerCase().includes(q) ||
-        im.cleanName.toLowerCase().includes(q) ||
-        (im.filter && im.filter.toLowerCase().includes(q)) ||
-        (im.colorSpace && im.colorSpace.toLowerCase().includes(q))
-    );
+    const normQ = normalizeTextForSearch(filterQuery);
+    return images.filter((im) => {
+      const normName = normalizeTextForSearch(im.name);
+      const normClean = normalizeTextForSearch(im.cleanName);
+      const normFilter = normalizeTextForSearch(im.filter || '');
+      const normCs = normalizeTextForSearch(im.colorSpace || '');
+      return normName.includes(normQ) || normClean.includes(normQ) || normFilter.includes(normQ) || normCs.includes(normQ);
+    });
   }, [images, filterQuery]);
 
   // Selection toggle
@@ -440,6 +477,7 @@ export const RemoveElementsModal: React.FC = () => {
                   return (
                     <div
                       key={b.id}
+                      id={b.id}
                       onClick={() => toggleBlockSelection(b.id)}
                       className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
                         isChecked

@@ -138,3 +138,109 @@ export function findIntersectedTextLines(
 
   return lines;
 }
+
+export interface VisualTextBlock {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text: string;
+}
+
+/**
+ * Extracts all visual text lines/blocks from a rendered page's textLayer with exact bounding boxes in PDF points.
+ */
+export function extractPageTextBlocks(
+  pageContainer: HTMLElement | null,
+  scale: number
+): VisualTextBlock[] {
+  if (!pageContainer || scale <= 0) return [];
+
+  const textLayer = pageContainer.classList.contains('textLayer')
+    ? pageContainer
+    : pageContainer.querySelector('.textLayer');
+
+  if (!textLayer) return [];
+
+  const textSpans = Array.from(textLayer.querySelectorAll('span'));
+  if (textSpans.length === 0) return [];
+
+  const containerRect = pageContainer.getBoundingClientRect();
+  interface SpanEntry {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    text: string;
+    centerY: number;
+  }
+
+  const spanItems: SpanEntry[] = [];
+
+  for (const span of textSpans) {
+    const r = span.getBoundingClientRect();
+    if (r.width <= 1 || r.height <= 1) continue;
+    const text = (span.textContent || '').trim();
+    if (!text) continue;
+
+    const x = (r.left - containerRect.left) / scale;
+    const y = (r.top - containerRect.top) / scale;
+    const w = r.width / scale;
+    const h = r.height / scale;
+
+    spanItems.push({
+      x,
+      y,
+      w,
+      h,
+      text,
+      centerY: y + h / 2,
+    });
+  }
+
+  if (spanItems.length === 0) return [];
+
+  // Sort top-to-bottom, left-to-right
+  spanItems.sort((a, b) => {
+    if (Math.abs(a.centerY - b.centerY) > 4) {
+      return a.centerY - b.centerY;
+    }
+    return a.x - b.x;
+  });
+
+  // Group into visual lines (centers within 5pt or 40% height)
+  const lineGroups: SpanEntry[][] = [];
+  for (const span of spanItems) {
+    let matchedGroup = lineGroups.find((group) => {
+      const avgCenterY = group.reduce((sum, s) => sum + s.centerY, 0) / group.length;
+      const avgH = group.reduce((sum, s) => sum + s.h, 0) / group.length;
+      return Math.abs(span.centerY - avgCenterY) < Math.max(5, avgH * 0.4);
+    });
+
+    if (matchedGroup) {
+      matchedGroup.push(span);
+    } else {
+      lineGroups.push([span]);
+    }
+  }
+
+  return lineGroups.map((group, idx) => {
+    group.sort((a, b) => a.x - b.x);
+    const minX = Math.min(...group.map((s) => s.x));
+    const maxX = Math.max(...group.map((s) => s.x + s.w));
+    const minY = Math.min(...group.map((s) => s.y));
+    const maxY = Math.max(...group.map((s) => s.y + s.h));
+    const text = group.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
+
+    return {
+      id: `block_vis_${idx + 1}`,
+      x: Math.max(0, minX - 2),
+      y: Math.max(0, minY - 1),
+      width: Math.max(10, maxX - minX + 4),
+      height: Math.max(8, maxY - minY + 2),
+      text,
+    };
+  });
+}
+
