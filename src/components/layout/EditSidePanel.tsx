@@ -44,6 +44,10 @@ export const EditSidePanel: React.FC = () => {
     setEditSidePanelTab,
     selectedStreamBlockId,
     setSelectedStreamBlockId,
+    hoveredBlockId,
+    setHoveredBlockId,
+    hoveredBlockText,
+    setHoveredBlockText,
     streamReplaceTargetText,
     setStreamReplaceTargetText,
     streamReplaceTargetPosition,
@@ -267,6 +271,13 @@ export const EditSidePanel: React.FC = () => {
       return next;
     });
     setSelectedStreamBlockId(id);
+    const found = segments.find((s) => s.id === id);
+    if (found) {
+      setStreamReplaceTargetText(found.previewText);
+      if (found.x !== undefined && found.y !== undefined) {
+        setStreamReplaceTargetPosition({ x: found.x, y: found.y });
+      }
+    }
   };
 
   const toggleImageSelection = (name: string) => {
@@ -874,6 +885,11 @@ export const EditSidePanel: React.FC = () => {
                 displayedBlocks.map((b) => {
                   const isChecked = selectedBlockIds.has(b.id);
                   const isCurrentActive = selectedStreamBlockId === b.id;
+                  const isHovered =
+                    hoveredBlockId === b.id ||
+                    (Boolean(hoveredBlockText) &&
+                      (b.previewText.toLowerCase().includes(hoveredBlockText!.toLowerCase()) ||
+                        hoveredBlockText!.toLowerCase().includes(b.previewText.toLowerCase())));
                   const indent = b.indentLevel ?? 0;
                   const indentMm =
                     b.x !== undefined && b.x > minPageX + 6
@@ -885,6 +901,14 @@ export const EditSidePanel: React.FC = () => {
                       key={b.id}
                       id={`panel_item_${b.id}`}
                       onClick={() => toggleBlockSelection(b.id)}
+                      onMouseEnter={() => {
+                        setHoveredBlockId(b.id);
+                        setHoveredBlockText(b.previewText);
+                      }}
+                      onMouseLeave={() => {
+                        setHoveredBlockId(null);
+                        setHoveredBlockText(null);
+                      }}
                       className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 ${
                         indent === 1
                           ? 'border-l-4 border-l-sky-500/70 ml-2.5'
@@ -902,6 +926,12 @@ export const EditSidePanel: React.FC = () => {
                           ? isMinimal
                             ? 'bg-rose-50/60 border-rose-300'
                             : 'bg-rose-950/20 border-rose-700/60'
+                          : isHovered
+                          ? isMinimal
+                            ? 'bg-sky-50 border-sky-400 ring-1 ring-sky-300 shadow-xs'
+                            : isLcars
+                            ? 'bg-[#111111] border-[#99ccff] ring-1 ring-[#99ccff]'
+                            : 'bg-slate-800/80 border-sky-400/80 ring-1 ring-sky-400/40 shadow-md shadow-sky-950/30'
                           : isMinimal
                           ? 'bg-neutral-50/70 hover:bg-neutral-100 border-neutral-200'
                           : isLcars

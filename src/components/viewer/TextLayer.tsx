@@ -22,6 +22,7 @@ import {
   FileCode2,
   SquarePen,
   Trash2,
+  Code,
 } from 'lucide-react';
 import {
   parseStreamSegments,
@@ -50,9 +51,14 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     isRemoveElementsModalOpen,
     isEditSidePanelOpen,
     setIsEditSidePanelOpen,
+    editSidePanelTab,
     setEditSidePanelTab,
     selectedStreamBlockId,
     setSelectedStreamBlockId,
+    hoveredBlockId,
+    setHoveredBlockId,
+    hoveredBlockText,
+    setHoveredBlockText,
   } = useEditor();
   const {
     addAnnotation,
@@ -480,15 +486,36 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
         {/* Visual Block Highlight Overlay for Remove Elements & Stream Mode */}
         {isRemoveActive &&
           visualBlocks.map((block) => {
+            const isStreamMode =
+              activeTool === 'streamReplace' ||
+              (isEditSidePanelOpen && editSidePanelTab === 'stream');
+
             const isSelected =
               selectedStreamBlockId === block.id ||
               (Boolean(streamReplaceTargetText) &&
                 (block.text.toLowerCase().includes(streamReplaceTargetText.toLowerCase()) ||
-                  streamReplaceTargetText.toLowerCase().includes(block.text.toLowerCase())));
+                  streamReplaceTargetText.toLowerCase().includes(block.text.toLowerCase()))) ||
+              (Boolean(streamReplaceTargetPosition) &&
+                Math.abs(block.x - (streamReplaceTargetPosition?.x ?? -999)) < 12 &&
+                Math.abs(block.y - (streamReplaceTargetPosition?.y ?? -999)) < 12);
+
+            const isHovered =
+              hoveredBlockId === block.id ||
+              (Boolean(hoveredBlockText) &&
+                (block.text.toLowerCase().includes(hoveredBlockText!.toLowerCase()) ||
+                  hoveredBlockText!.toLowerCase().includes(block.text.toLowerCase())));
 
             return (
               <div
                 key={block.id}
+                onMouseEnter={() => {
+                  setHoveredBlockId(block.id);
+                  setHoveredBlockText(block.text);
+                }}
+                onMouseLeave={() => {
+                  setHoveredBlockId(null);
+                  setHoveredBlockText(null);
+                }}
                 onClick={async (e) => {
                   e.stopPropagation();
                   setStreamReplaceTargetPosition({ x: block.x, y: block.y });
@@ -532,23 +559,51 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   height: `${block.height * scale}px`,
                 }}
                 className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
-                  isSelected
+                  isStreamMode
+                    ? isSelected
+                      ? isMinimal
+                        ? 'border-2 border-indigo-600 bg-indigo-600/20 ring-2 ring-indigo-500 shadow-md z-40'
+                        : isLcars
+                        ? 'border-2 border-[#99ccff] bg-[#99ccff]/30 ring-2 ring-[#99ccff] z-40'
+                        : 'border-2 border-indigo-400 bg-indigo-500/25 ring-2 ring-indigo-400/80 shadow-[0_0_12px_rgba(99,102,241,0.65)] z-40'
+                      : isHovered
+                      ? isMinimal
+                        ? 'border border-indigo-600/90 bg-indigo-600/15 ring-1 ring-indigo-400 z-30'
+                        : isLcars
+                        ? 'border border-[#99ccff] bg-[#99ccff]/20 z-30'
+                        : 'border border-indigo-400 bg-indigo-500/20 ring-1 ring-indigo-400/50 shadow-[0_0_8px_rgba(99,102,241,0.4)] z-30'
+                      : isMinimal
+                      ? 'border border-indigo-600/70 bg-indigo-600/5 hover:bg-indigo-600/20 hover:border-indigo-700'
+                      : isLcars
+                      ? 'border border-[#99ccff]/70 bg-[#99ccff]/10 hover:bg-[#99ccff]/25'
+                      : 'border border-indigo-500/60 bg-indigo-500/5 hover:border-indigo-400 hover:bg-indigo-500/20 hover:shadow-[0_0_8px_rgba(99,102,241,0.35)]'
+                    : isSelected
                     ? isMinimal
                       ? 'border-2 border-rose-600 bg-rose-600/20 ring-2 ring-rose-500 shadow-md z-40'
                       : isLcars
                       ? 'border-2 border-[#ff9900] bg-[#ff9900]/30 ring-2 ring-[#ff9900] z-40'
                       : 'border-2 border-rose-400 bg-rose-500/25 ring-2 ring-rose-400/80 shadow-[0_0_12px_rgba(244,63,94,0.65)] z-40'
+                    : isHovered
+                    ? isMinimal
+                      ? 'border border-rose-600/90 bg-rose-600/15 ring-1 ring-rose-400 z-30'
+                      : isLcars
+                      ? 'border border-[#ff9900] bg-[#ff9900]/20 z-30'
+                      : 'border border-rose-400 bg-rose-500/20 ring-1 ring-rose-400/50 shadow-[0_0_8px_rgba(244,63,94,0.4)] z-30'
                     : isMinimal
-                    ? 'border border-rose-600/70 bg-rose-600/10 hover:bg-rose-600/25 hover:border-rose-700'
+                    ? 'border border-rose-600/70 bg-rose-600/5 hover:bg-rose-600/20 hover:border-rose-700'
                     : isLcars
                     ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
-                    : 'border border-rose-500/80 bg-rose-500/10 hover:border-rose-400 hover:bg-rose-500/25 hover:shadow-[0_0_8px_rgba(244,63,94,0.45)]'
+                    : 'border border-rose-500/60 bg-rose-500/5 hover:border-rose-400 hover:bg-rose-500/20 hover:shadow-[0_0_8px_rgba(244,63,94,0.35)]'
                 }`}
                 title={`${block.text}`}
               >
-                {/* Small Delete Icon Badge on Hover */}
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-rose-600 text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none">
-                  <Trash2 className="w-2.5 h-2.5" />
+                {/* Small Icon Badge on Hover or Active */}
+                <div
+                  className={`opacity-0 group-hover:opacity-100 transition-opacity text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none ${
+                    isStreamMode ? 'bg-indigo-600' : 'bg-rose-600'
+                  }`}
+                >
+                  {isStreamMode ? <Code className="w-2.5 h-2.5" /> : <Trash2 className="w-2.5 h-2.5" />}
                 </div>
               </div>
             );

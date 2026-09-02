@@ -81,6 +81,10 @@ interface EditorContextType {
   toggleEditSidePanel: (tab?: 'remove' | 'stream') => void;
   selectedStreamBlockId: string | null;
   setSelectedStreamBlockId: (id: string | null) => void;
+  hoveredBlockId: string | null;
+  setHoveredBlockId: (id: string | null) => void;
+  hoveredBlockText: string | null;
+  setHoveredBlockText: (text: string | null) => void;
 
   // Rasterization Settings
   rasterSettings: RasterizationSettings;
@@ -147,6 +151,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isEditSidePanelOpen, setIsEditSidePanelOpen] = useState<boolean>(false);
   const [editSidePanelTab, setEditSidePanelTab] = useState<'remove' | 'stream'>('remove');
   const [selectedStreamBlockId, setSelectedStreamBlockId] = useState<string | null>(null);
+  const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
+  const [hoveredBlockText, setHoveredBlockText] = useState<string | null>(null);
 
   const toggleEditSidePanel = (tab?: 'remove' | 'stream') => {
     if (tab) {
@@ -432,6 +438,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     toggleEditSidePanel,
     selectedStreamBlockId,
     setSelectedStreamBlockId,
+    hoveredBlockId,
+    setHoveredBlockId,
+    hoveredBlockText,
+    setHoveredBlockText,
     rasterSettings,
     setRasterSettings,
     resetRasterSettings,
