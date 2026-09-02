@@ -69,9 +69,11 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - Memoized canvas rendering without full-screen blinking during history steps.
    - Atomic history snapshots captured on mouse release (`onMouseUp`).
 
-10. **Smart Zoom & Viewport Synchronization**:
-   - **Zoom to Selected Page** (`Ctrl + 0` / *"Na vybranou"* button).
-   - **Fit Width** and **Fit Page** auto-scaling.
+10. **Smart Zoom & Prioritized Lazy Page Rendering**:
+   - **Prioritized Lazy Rendering Queue**: For large documents (> 5 pages), renders the first 5 pages and active viewport pages with highest priority without blocking CPU/GPU.
+   - **Dynamic Viewport Priority Elevation**: If the user scrolls to any offscreen page, `IntersectionObserver` immediately elevates its priority to the front of the queue (`VIEWPORT` priority) for instant rendering.
+   - **Background Sequential Completion**: Background pages render one-by-one seamlessly so the entire document is rendered without UI lag.
+   - **Smart Zoom**: **Zoom to Selected Page** (`Ctrl + 0` / *"Na vybranou"* button), **Fit Width**, and **Fit Page** auto-scaling.
    - Automatic smooth scrolling to centered active page in main viewer and sidebar.
 
 11. **Event Log & Diagnostic Protocol Screen**:
@@ -128,6 +130,7 @@ pdf-editor/
 │   │   ├── logger.ts       # Structured logging, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures)
 │   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist
+│   │   ├── renderQueue.ts  # Prioritized lazy rendering queue for viewport & large files
 │   │   └── pageManager.ts  # Adds, deletes, reorders, and rotates pages
 │   ├── types/
 │   │   ├── annotations.ts  # Types for highlights, notes, lines, signatures

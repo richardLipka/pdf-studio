@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
 import { renderPdfPageToCanvas } from '../../services/pdfLoader';
+import { renderQueue, RenderPriority } from '../../services/renderQueue';
 import {
   RotateCcw,
   RotateCw,
@@ -64,7 +65,7 @@ export const Sidebar: React.FC = () => {
 
   // Render thumbnails only when page identity or rotation/source changes
   useEffect(() => {
-    pages.forEach((page) => {
+    pages.forEach((page, index) => {
       const canvas = canvasRefs.current[page.id];
       if (!canvas) return;
 
@@ -76,7 +77,15 @@ export const Sidebar: React.FC = () => {
         return; // Already rendered this exact page state
       }
 
-      renderPdfPageToCanvas(sourceDoc, page, canvas, 0.22)
+      const taskId = `thumb_${page.id}_${page.rotation}_${sourceDoc?.updatedAt || 0}`;
+      const isNearActive = Math.abs(index - activePageIndex) <= 2;
+      const priority = isNearActive ? RenderPriority.BACKGROUND : RenderPriority.THUMBNAIL;
+
+      renderQueue
+        .enqueue(taskId, priority, async () => {
+          if (!canvas) return;
+          await renderPdfPageToCanvas(sourceDoc, page, canvas, 0.22);
+        })
         .then(() => {
           renderedThumbnailsRef.current[page.id] = pageRenderKey;
         })

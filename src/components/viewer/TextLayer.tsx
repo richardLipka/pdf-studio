@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { PdfPageModel, SourceDocument } from '../../types/document';
 import { renderPdfTextLayer } from '../../services/pdfLoader';
+import { renderQueue, RenderPriority } from '../../services/renderQueue';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useI18n } from '../../i18n/context';
@@ -69,7 +70,17 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     const container = containerRef.current;
     if (!container) return;
 
-    renderPdfTextLayer(sourceDoc, page, container, scale)
+    const taskId = `text_${page.id}_${page.rotation}_${scale}`;
+    const isInitialBatch = page.originalPageIndex < 5;
+    const initialPriority = isInitialBatch
+      ? RenderPriority.INITIAL_BATCH
+      : RenderPriority.BACKGROUND;
+
+    renderQueue
+      .enqueue(taskId, initialPriority, async () => {
+        if (isCancelled || !container) return;
+        await renderPdfTextLayer(sourceDoc, page, container, scale);
+      })
       .then(() => {
         if (!isCancelled && container) {
           // Set layer dimensions
@@ -85,8 +96,19 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
 
     return () => {
       isCancelled = true;
+      renderQueue.cancel(taskId);
     };
-  }, [page.id, page.rotation, page.sourceDocId, page.sourceType, page.width, page.height, sourceDoc, scale]);
+  }, [
+    page.id,
+    page.originalPageIndex,
+    page.rotation,
+    page.sourceDocId,
+    page.sourceType,
+    page.width,
+    page.height,
+    sourceDoc,
+    scale,
+  ]);
 
   // Handle selection changes
   const checkSelection = useCallback(() => {

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
 import { PdfPageModel, SourceDocument } from '../../types/document';
 import { renderPdfPageToCanvas } from '../../services/pdfLoader';
+import { renderQueue, RenderPriority } from '../../services/renderQueue';
 import { Loader2 } from 'lucide-react';
 
 interface PageCanvasProps {
@@ -14,9 +15,45 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
   sourceDoc,
   scale,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
   const hasDrawnRef = useRef<boolean>(false);
+  const isIntersectingRef = useRef<boolean>(false);
+
+  // Track viewport visibility with IntersectionObserver to dynamically elevate render priority
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof IntersectionObserver === 'undefined') {
+      isIntersectingRef.current = true;
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            isIntersectingRef.current = true;
+            // Elevate priority in render queue if page is currently visible
+            const taskId = `canvas_${page.id}_${page.rotation}_${scale}`;
+            renderQueue.elevatePriority(taskId, RenderPriority.VIEWPORT);
+          } else {
+            isIntersectingRef.current = false;
+          }
+        }
+      },
+      {
+        root: null,
+        rootMargin: '300px 0px 300px 0px', // Prefetch margin
+        threshold: 0.01,
+      }
+    );
+
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+    };
+  }, [page.id, page.rotation, scale]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -27,7 +64,19 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
       setInitialLoading(true);
     }
 
-    renderPdfPageToCanvas(sourceDoc, page, canvas, scale)
+    const taskId = `canvas_${page.id}_${page.rotation}_${scale}`;
+    const isInitialBatch = page.originalPageIndex < 5;
+    const initialPriority = isIntersectingRef.current
+      ? RenderPriority.VIEWPORT
+      : isInitialBatch
+      ? RenderPriority.INITIAL_BATCH
+      : RenderPriority.BACKGROUND;
+
+    renderQueue
+      .enqueue(taskId, initialPriority, async () => {
+        if (isCancelled || !canvas) return;
+        await renderPdfPageToCanvas(sourceDoc, page, canvas, scale);
+      })
       .then(() => {
         if (!isCancelled) {
           hasDrawnRef.current = true;
@@ -43,11 +92,25 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
 
     return () => {
       isCancelled = true;
+      renderQueue.cancel(taskId);
     };
-  }, [page.id, page.rotation, page.sourceDocId, page.sourceType, page.imageDataUrl, page.width, page.height, sourceDoc, sourceDoc?.updatedAt, scale]);
+  }, [
+    page.id,
+    page.originalPageIndex,
+    page.rotation,
+    page.sourceDocId,
+    page.sourceType,
+    page.imageDataUrl,
+    page.width,
+    page.height,
+    sourceDoc,
+    sourceDoc?.updatedAt,
+    scale,
+  ]);
 
   return (
     <div
+      ref={containerRef}
       style={{
         width: `${page.width * scale}px`,
         height: `${page.height * scale}px`,
