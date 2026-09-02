@@ -516,33 +516,18 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   setHoveredBlockId(null);
                   setHoveredBlockText(null);
                 }}
-                onClick={async (e) => {
+                onClick={(e) => {
                   e.stopPropagation();
+                  setSelectedStreamBlockId(block.id);
                   setStreamReplaceTargetPosition({ x: block.x, y: block.y });
                   setStreamReplaceTargetText(block.text);
 
-                  // Find exact stream segment ID from page stream
-                  try {
-                    const pageIndex = pages.findIndex((p) => p.id === page.id);
-                    const targetIdx = pageIndex >= 0 ? pageIndex : 0;
-                    const { streamText } = await getPageStream(targetIdx);
-                    if (streamText) {
-                      const segments = parseStreamSegments(streamText);
-                      const best = findBestMatchingBlock(segments, block.text, {
-                        x: block.x,
-                        y: block.y,
-                      });
-                      if (best) {
-                        setSelectedStreamBlockId(best.id);
-                        setTimeout(() => {
-                          const el = document.getElementById(`panel_item_${best.id}`);
-                          if (el) {
-                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                          }
-                        }, 100);
-                      }
+                  setTimeout(() => {
+                    const el = document.getElementById(`panel_item_${block.id}`);
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
-                  } catch {}
+                  }, 80);
 
                   if (activeTool === 'streamReplace') {
                     setEditSidePanelTab('stream');

@@ -3,6 +3,11 @@ import { PdfPageModel, SourceDocument, DocumentMetadata } from '../types/documen
 import { Annotation } from '../types/annotations';
 import { logger } from './logger';
 import { sanitizePdfBuffer, extractPdfHeader } from './pdfExporter';
+import {
+  getPageContentStream,
+  parseStreamSegments,
+  normalizeTextForSearch,
+} from './contentStreamEditor';
 
 // Configure pdfjs worker in Vite for browser
 if (typeof window !== 'undefined') {
@@ -773,6 +778,102 @@ export const getPageTextBlocks = async (
       return a.x - b.x;
     });
 
+    // 1. If stream segments are available, align visual blocks 1:1 with StreamSegment IDs
+    if (sourceDoc.arrayBuffer) {
+      try {
+        const { streamText } = await getPageContentStream(
+          sourceDoc.arrayBuffer,
+          pageModel.originalPageIndex
+        );
+        if (streamText) {
+          const rawSegments = parseStreamSegments(streamText);
+          const textSegments = rawSegments.filter((s) => s.type === 'text');
+
+          if (textSegments.length > 0) {
+            const visualBlocks: import('../utils/textSnap').VisualTextBlock[] = [];
+            const usedItemIndices = new Set<number>();
+
+            for (const seg of textSegments) {
+              const normSeg = normalizeTextForSearch(seg.previewText);
+              const segWords = normSeg.split(' ').filter((w) => w.length > 1);
+
+              const matchedItems: ItemEntry[] = [];
+
+              items.forEach((item, itemIdx) => {
+                if (usedItemIndices.has(itemIdx)) return;
+                const normItem = normalizeTextForSearch(item.text);
+                if (!normItem) return;
+
+                const isWordMatch =
+                  normSeg.includes(normItem) ||
+                  normItem.includes(normSeg) ||
+                  segWords.some((w) => normItem.includes(w) || w.includes(normItem));
+
+                if (isWordMatch) {
+                  matchedItems.push(item);
+                  usedItemIndices.add(itemIdx);
+                }
+              });
+
+              if (matchedItems.length > 0) {
+                const minX = Math.min(...matchedItems.map((s) => s.x));
+                const maxX = Math.max(...matchedItems.map((s) => s.x + s.w));
+                const minY = Math.min(...matchedItems.map((s) => s.y));
+                const maxY = Math.max(...matchedItems.map((s) => s.y + s.h));
+
+                visualBlocks.push({
+                  id: seg.id,
+                  x: Math.max(0, minX - 2),
+                  y: Math.max(0, minY - 1),
+                  width: Math.max(12, maxX - minX + 4),
+                  height: Math.max(10, maxY - minY + 2),
+                  text: seg.previewText,
+                });
+              } else {
+                // Fallback: estimate viewport position from stream coordinates
+                let posX = 30;
+                let posY = 50;
+                let width = 200;
+                let height = 20;
+
+                if (seg.x !== undefined && seg.y !== undefined) {
+                  const fs = seg.fontSize || 12;
+                  const lc = seg.lineCount || 1;
+                  const pdfRect = [
+                    seg.x,
+                    seg.y - fs * lc,
+                    seg.x + Math.min(500, Math.max(50, seg.previewText.length * fs * 0.55)),
+                    seg.y + fs * 0.5,
+                  ];
+                  const vpRect = viewport.convertToViewportRectangle(pdfRect);
+                  posX = Math.min(vpRect[0], vpRect[2]);
+                  posY = Math.min(vpRect[1], vpRect[3]);
+                  width = Math.abs(vpRect[2] - vpRect[0]);
+                  height = Math.abs(vpRect[3] - vpRect[1]);
+                }
+
+                visualBlocks.push({
+                  id: seg.id,
+                  x: Math.max(0, posX - 2),
+                  y: Math.max(0, posY - 1),
+                  width: Math.max(12, width + 4),
+                  height: Math.max(10, height + 2),
+                  text: seg.previewText,
+                });
+              }
+            }
+
+            if (visualBlocks.length > 0) {
+              return visualBlocks;
+            }
+          }
+        }
+      } catch (streamErr) {
+        console.warn('Stream-aligned block extraction fallback:', streamErr);
+      }
+    }
+
+    // 2. Fallback: visual line grouping if stream segments are not available
     const lineGroups: ItemEntry[][] = [];
     for (const item of items) {
       let matchedGroup = lineGroups.find((group) => {
@@ -797,7 +898,7 @@ export const getPageTextBlocks = async (
       const text = group.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
 
       return {
-        id: `block_vec_${idx + 1}`,
+        id: `block_${idx + 1}`,
         x: Math.max(0, minX - 2),
         y: Math.max(0, minY - 1),
         width: Math.max(12, maxX - minX + 4),
