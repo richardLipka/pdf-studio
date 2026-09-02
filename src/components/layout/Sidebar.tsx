@@ -93,7 +93,7 @@ export const Sidebar: React.FC = () => {
           console.error('Thumbnail render error:', err);
         });
     });
-  }, [pages, sources]);
+  }, [pages, sources, activePageIndex]);
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);

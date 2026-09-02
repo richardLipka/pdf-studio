@@ -24,7 +24,7 @@ export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
         width: `${page.width * scale}px`,
         height: `${page.height * scale}px`,
       }}
-      className="absolute inset-0 pointer-events-none z-15 overflow-hidden"
+      className="absolute inset-0 pointer-events-none z-20 overflow-hidden"
     >
       {pageFields.map((field) => {
         const value = formValues[field.name] !== undefined ? formValues[field.name] : field.value;

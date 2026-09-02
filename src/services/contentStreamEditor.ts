@@ -113,14 +113,22 @@ export function hexToString(hex: string): string {
 }
 
 /**
- * Convert text string to hex representation (e.g. Hello -> 48656c6c6f)
+ * Convert text string to hex representation (e.g. Hello -> 48656c6c6f or 00480065006c006c006f)
  */
-export function stringToHex(str: string): string {
+export function stringToHex(str: string, forceTwoBytes: boolean = false): string {
   let hex = '';
-  for (let i = 0; i < str.length; i++) {
-    const charCode = str.charCodeAt(i);
-    const hexByte = (charCode & 0xff).toString(16).padStart(2, '0');
-    hex += hexByte;
+  const hasWideChars = forceTwoBytes || str.split('').some((c) => c.charCodeAt(0) > 255);
+
+  if (hasWideChars) {
+    for (let i = 0; i < str.length; i++) {
+      const code = str.charCodeAt(i);
+      hex += code.toString(16).padStart(4, '0');
+    }
+  } else {
+    for (let i = 0; i < str.length; i++) {
+      const charCode = str.charCodeAt(i);
+      hex += (charCode & 0xff).toString(16).padStart(2, '0');
+    }
   }
   return hex;
 }
@@ -170,6 +178,12 @@ export function replaceTextInStreamString(
   // Strategy 2: Replace inside hex PDF strings: < ... >
   const hexRegex = /<([0-9a-fA-F\s]+)>/g;
   modifiedContent = modifiedContent.replace(hexRegex, (match, hexBody) => {
+    const cleanHex = hexBody.replace(/\s+/g, '');
+    const isTwoByte = cleanHex.length >= 4 && (
+      cleanHex.startsWith('feff') || 
+      cleanHex.startsWith('FEFF') || 
+      cleanHex.length % 4 === 0
+    );
     const text = hexToString(hexBody);
     const regex = matchCase
       ? new RegExp(escapeRegex(searchText), 'g')
@@ -183,7 +197,7 @@ export function replaceTextInStreamString(
 
     if (matchCount > 0) {
       count += matchCount;
-      return `<${stringToHex(replaced)}>`;
+      return `<${stringToHex(replaced, isTwoByte)}>`;
     }
 
     return match;

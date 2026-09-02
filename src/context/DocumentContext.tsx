@@ -925,9 +925,13 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Keyboard shortcut listener for Ctrl+Z / Ctrl+Y / Delete / PageUp / PageDown / Arrows / Ctrl+A
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const targetEl = e.target as HTMLElement | null;
       if (
-        (e.target as HTMLElement)?.tagName === 'INPUT' ||
-        (e.target as HTMLElement)?.tagName === 'TEXTAREA'
+        targetEl?.tagName === 'INPUT' ||
+        targetEl?.tagName === 'TEXTAREA' ||
+        targetEl?.tagName === 'SELECT' ||
+        targetEl?.isContentEditable ||
+        targetEl?.closest('[contenteditable="true"]')
       ) {
         return;
       }
