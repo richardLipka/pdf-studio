@@ -197,27 +197,26 @@ describe('PDF Content Stream Editor & In-Place Text Replacement', () => {
       ET
     `;
 
-    const segments = parseStreamSegments(stream);
-    const textBlocks = segments.filter((s) => s.type === 'text');
+    const getBlocks = () => parseStreamSegments(stream).filter((s) => s.type === 'text');
 
     it('should accurately target block by exact text', () => {
-      const match = findBestMatchingBlock(textBlocks, 'SMLOUVA O POSKYTNUTI SLUZEB');
+      const match = findBestMatchingBlock(getBlocks(), 'SMLOUVA O POSKYTNUTI SLUZEB');
       expect(match?.id).toBe('block_1');
     });
 
     it('should accurately target block with Czech diacritics / accents normalized', () => {
-      const match = findBestMatchingBlock(textBlocks, 'Článek 1. Úvodní ustanovení');
+      const match = findBestMatchingBlock(getBlocks(), 'Článek 1. Úvodní ustanovení');
       expect(match?.id).toBe('block_2');
     });
 
     it('should accurately target block by partial word match', () => {
-      const match = findBestMatchingBlock(textBlocks, '50 000 CZK');
+      const match = findBestMatchingBlock(getBlocks(), '50 000 CZK');
       expect(match?.id).toBe('block_3');
     });
 
     it('should accurately target block by clicked spatial coordinates (X, Y)', () => {
       // In A4 (height 842), Y=200 in PDF is 842 - 200 = 642 from top
-      const match = findBestMatchingBlock(textBlocks, '', { x: 75, y: 640 }, 842);
+      const match = findBestMatchingBlock(getBlocks(), '', { x: 75, y: 640 }, 842);
       expect(match?.id).toBe('block_4');
     });
 

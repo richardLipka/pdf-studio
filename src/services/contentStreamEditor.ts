@@ -134,6 +134,65 @@ export function stringToHex(str: string, forceTwoBytes: boolean = false): string
 }
 
 /**
+ * Extracts literal strings (...) from a PDF stream handling escapes and nested parens in O(N) time.
+ */
+export function extractLiteralStrings(text: string): { raw: string; inner: string; start: number; end: number }[] {
+  const results: { raw: string; inner: string; start: number; end: number }[] = [];
+  let inString = false;
+  let depth = 0;
+  let current = '';
+  let start = -1;
+  let escape = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      if (inString) current += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      if (inString) current += ch;
+      escape = true;
+      continue;
+    }
+    if (ch === '(') {
+      if (!inString) {
+        inString = true;
+        depth = 1;
+        start = i;
+        current = '';
+      } else {
+        depth++;
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === ')' && inString) {
+      depth--;
+      if (depth === 0) {
+        results.push({
+          raw: text.substring(start, i + 1),
+          inner: current,
+          start,
+          end: i + 1,
+        });
+        inString = false;
+        start = -1;
+        current = '';
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (inString) {
+      current += ch;
+    }
+  }
+  return results;
+}
+
+/**
  * Replaces occurrences of searchText with replaceText in a single decoded content stream string.
  */
 export function replaceTextInStreamString(
@@ -149,13 +208,14 @@ export function replaceTextInStreamString(
   const { matchCase = true } = options;
   let count = 0;
 
-  // Strategy 1: Replace inside literal PDF strings: ( ... )
-  // Matches ( ... ) while handling escaped parens \( and \)
-  const literalRegex = /\((?:[^\\()]+|\\.)*\)/g;
-  let modifiedContent = streamContent.replace(literalRegex, (match) => {
-    // Strip surrounding parens
-    const inner = match.slice(1, -1);
-    const unescaped = unescapePdfLiteralString(inner);
+  // Strategy 1: Replace inside literal PDF strings: ( ... ) using linear scanner
+  const literalMatches = extractLiteralStrings(streamContent);
+  let modifiedContent = '';
+  let lastPos = 0;
+
+  for (const item of literalMatches) {
+    modifiedContent += streamContent.substring(lastPos, item.start);
+    const unescaped = unescapePdfLiteralString(item.inner);
 
     const regex = matchCase
       ? new RegExp(escapeRegex(searchText), 'g')
@@ -169,11 +229,13 @@ export function replaceTextInStreamString(
 
     if (matchCount > 0) {
       count += matchCount;
-      return `(${escapePdfLiteralString(replaced)})`;
+      modifiedContent += `(${escapePdfLiteralString(replaced)})`;
+    } else {
+      modifiedContent += item.raw;
     }
-
-    return match;
-  });
+    lastPos = item.end;
+  }
+  modifiedContent += streamContent.substring(lastPos);
 
   // Strategy 2: Replace inside hex PDF strings: < ... >
   const hexRegex = /<([0-9a-fA-F\s]+)>/g;
@@ -623,6 +685,10 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
 
     blockIndex++;
     lastIndex = endIndex;
+
+    if (match.index === btEtRegex.lastIndex) {
+      btEtRegex.lastIndex++;
+    }
   }
 
   // Trailing non-text chunk after last ET
@@ -650,53 +716,25 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
 export function extractPreviewTextFromBlock(rawBlock: string): string {
   const parts: string[] = [];
 
-  // 1. Match TJ arrays: [ ... ] TJ
-  const tjRegex = /\[([\s\S]*?)\]\s*TJ/g;
-  let tjMatch: RegExpExecArray | null;
-  while ((tjMatch = tjRegex.exec(rawBlock)) !== null) {
-    const arrayContent = tjMatch[1];
-    const strRegex = /\((?:[^\\()]+|\\.)*\)|<([0-9a-fA-F\s]+)>/g;
-    let strMatch: RegExpExecArray | null;
-    let combinedTj = '';
-    while ((strMatch = strRegex.exec(arrayContent)) !== null) {
-      if (strMatch[0].startsWith('(')) {
-        combinedTj += unescapePdfLiteralString(strMatch[0].slice(1, -1));
-      } else if (strMatch[1]) {
-        combinedTj += hexToString(strMatch[1]);
-      }
-    }
-    if (combinedTj.trim()) {
-      parts.push(combinedTj.trim());
+  // 1. Literal strings (...)
+  const literalStrings = extractLiteralStrings(rawBlock);
+  for (const item of literalStrings) {
+    const text = unescapePdfLiteralString(item.inner).trim();
+    if (text) {
+      parts.push(text);
     }
   }
 
-  // 2. Match single Tj operators: ( ... ) Tj
-  const singleTjRegex = /\(((?:[^\\()]+|\\.)*)\)\s*Tj/g;
-  let singleMatch: RegExpExecArray | null;
-  while ((singleMatch = singleTjRegex.exec(rawBlock)) !== null) {
-    const text = unescapePdfLiteralString(singleMatch[1]);
-    if (text.trim()) {
-      parts.push(text.trim());
-    }
-  }
-
-  // 3. Match hex strings in Tj: < ... > Tj
-  const hexTjRegex = /<([0-9a-fA-F\s]+)>\s*Tj/g;
+  // 2. Hex strings <...>
+  const hexRegex = /<([0-9a-fA-F\s]+)>/g;
   let hexMatch: RegExpExecArray | null;
-  while ((hexMatch = hexTjRegex.exec(rawBlock)) !== null) {
-    const text = hexToString(hexMatch[1]);
-    if (text.trim()) {
-      parts.push(text.trim());
+  while ((hexMatch = hexRegex.exec(rawBlock)) !== null) {
+    const text = hexToString(hexMatch[1]).trim();
+    if (text) {
+      parts.push(text);
     }
-  }
-
-  // 4. Match ' and " line show operators
-  const quoteRegex = /\(((?:[^\\()]+|\\.)*)\)\s*['"]/g;
-  let quoteMatch: RegExpExecArray | null;
-  while ((quoteMatch = quoteRegex.exec(rawBlock)) !== null) {
-    const text = unescapePdfLiteralString(quoteMatch[1]);
-    if (text.trim()) {
-      parts.push(text.trim());
+    if (hexMatch.index === hexRegex.lastIndex) {
+      hexRegex.lastIndex++;
     }
   }
 
@@ -704,21 +742,44 @@ export function extractPreviewTextFromBlock(rawBlock: string): string {
 }
 
 export function extractFontInfoFromBlock(rawBlock: string): string | undefined {
-  const fontMatch = rawBlock.match(/\/([A-Za-z0-9_\-+]+)\s+([0-9.]+)\s+Tf/);
-  if (fontMatch) {
-    return `/${fontMatch[1]} ${fontMatch[2]}pt`;
+  const lines = rawBlock.split(/[\r\n]+/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.endsWith('Tf')) {
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 3 && parts[parts.length - 1] === 'Tf') {
+        const fontName = parts[parts.length - 3];
+        const fontSize = parts[parts.length - 2];
+        return `${fontName.startsWith('/') ? fontName : '/' + fontName} ${fontSize}pt`;
+      }
+    }
   }
   return undefined;
 }
 
 export function extractCoordinatesFromBlock(rawBlock: string): { x?: number; y?: number } {
-  const tmMatch = rawBlock.match(/([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+Tm/);
-  if (tmMatch) {
-    return { x: parseFloat(tmMatch[5]), y: parseFloat(tmMatch[6]) };
-  }
-  const tdMatch = rawBlock.match(/([0-9.-]+)\s+([0-9.-]+)\s+Td/);
-  if (tdMatch) {
-    return { x: parseFloat(tdMatch[1]), y: parseFloat(tdMatch[2]) };
+  const lines = rawBlock.split(/[\r\n]+/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.endsWith('Tm')) {
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 7 && parts[parts.length - 1] === 'Tm') {
+        const x = parseFloat(parts[parts.length - 3]);
+        const y = parseFloat(parts[parts.length - 2]);
+        if (!isNaN(x) && !isNaN(y)) {
+          return { x, y };
+        }
+      }
+    } else if (trimmed.endsWith('Td') || trimmed.endsWith('TD')) {
+      const parts = trimmed.split(/\s+/);
+      if (parts.length >= 3) {
+        const x = parseFloat(parts[parts.length - 3]);
+        const y = parseFloat(parts[parts.length - 2]);
+        if (!isNaN(x) && !isNaN(y)) {
+          return { x, y };
+        }
+      }
+    }
   }
   return {};
 }
@@ -1007,19 +1068,23 @@ export async function getPageImages(
 
     // 2. Correlate with streamText to find layout coordinates (cm /Do)
     if (streamText) {
-      const doRegex =
-        /(?:(?:([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm\s+)|(?:[^\r\n]{0,100}))?\/([A-Za-z0-9_\-+]+)\s+Do/g;
+      const doRegex = /\/([A-Za-z0-9_\-+]+)\s+Do/g;
       let doMatch: RegExpExecArray | null;
       while ((doMatch = doRegex.exec(streamText)) !== null) {
-        const cleanName = doMatch[7];
-        const existing = images.find((im) => im.cleanName === cleanName);
+        const cleanName = doMatch[1];
+        const matchIndex = doMatch.index;
+        
+        // Inspect the preceding ~200 chars for matrix transformation "a b c d e f cm"
+        const precedingChunk = streamText.substring(Math.max(0, matchIndex - 200), matchIndex);
+        const cmMatch = precedingChunk.match(/([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm\s*$/);
+
         const invMatrix = {
-          a: doMatch[1] ? parseFloat(doMatch[1]) : undefined,
-          b: doMatch[2] ? parseFloat(doMatch[2]) : undefined,
-          c: doMatch[3] ? parseFloat(doMatch[3]) : undefined,
-          d: doMatch[4] ? parseFloat(doMatch[4]) : undefined,
-          e: doMatch[5] ? parseFloat(doMatch[5]) : undefined,
-          f: doMatch[6] ? parseFloat(doMatch[6]) : undefined,
+          a: cmMatch ? parseFloat(cmMatch[1]) : undefined,
+          b: cmMatch ? parseFloat(cmMatch[2]) : undefined,
+          c: cmMatch ? parseFloat(cmMatch[3]) : undefined,
+          d: cmMatch ? parseFloat(cmMatch[4]) : undefined,
+          e: cmMatch ? parseFloat(cmMatch[5]) : undefined,
+          f: cmMatch ? parseFloat(cmMatch[6]) : undefined,
         };
 
         const calcWidth =
@@ -1031,12 +1096,13 @@ export async function getPageImages(
             ? Math.round(Math.hypot(invMatrix.c, invMatrix.d) * 10) / 10
             : undefined;
 
+        const existing = images.find((im) => im.cleanName === cleanName);
         if (existing) {
           existing.width = calcWidth || existing.width;
           existing.height = calcHeight || existing.height;
           existing.x = invMatrix.e !== undefined ? Math.round(invMatrix.e * 10) / 10 : existing.x;
           existing.y = invMatrix.f !== undefined ? Math.round(invMatrix.f * 10) / 10 : existing.y;
-          existing.rawInvocation = doMatch[0];
+          existing.rawInvocation = cmMatch ? `${cmMatch[0]}${doMatch[0]}` : doMatch[0];
         } else if (!discoveredNames.has(cleanName)) {
           discoveredNames.add(cleanName);
           images.push({
@@ -1047,7 +1113,7 @@ export async function getPageImages(
             height: calcHeight,
             x: invMatrix.e !== undefined ? Math.round(invMatrix.e * 10) / 10 : undefined,
             y: invMatrix.f !== undefined ? Math.round(invMatrix.f * 10) / 10 : undefined,
-            rawInvocation: doMatch[0],
+            rawInvocation: cmMatch ? `${cmMatch[0]}${doMatch[0]}` : doMatch[0],
           });
         }
       }
