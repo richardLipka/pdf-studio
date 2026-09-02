@@ -25,7 +25,11 @@ import {
 export const RemoveElementsModal: React.FC = () => {
   const { t } = useI18n();
   const { theme } = useTheme();
-  const { isRemoveElementsModalOpen, setIsRemoveElementsModalOpen } = useEditor();
+  const {
+    isRemoveElementsModalOpen,
+    setIsRemoveElementsModalOpen,
+    streamReplaceTargetText,
+  } = useEditor();
   const {
     activePageIndex,
     getPageStream,
@@ -90,8 +94,14 @@ export const RemoveElementsModal: React.FC = () => {
   useEffect(() => {
     if (isRemoveElementsModalOpen) {
       loadPageElements();
+      if (streamReplaceTargetText) {
+        setFilterQuery(streamReplaceTargetText);
+        setActiveTab('blocks');
+      } else {
+        setFilterQuery('');
+      }
     }
-  }, [isRemoveElementsModalOpen, activePageIndex]);
+  }, [isRemoveElementsModalOpen, activePageIndex, streamReplaceTargetText]);
 
   // Filtered lists
   const filteredBlocks = useMemo(() => {

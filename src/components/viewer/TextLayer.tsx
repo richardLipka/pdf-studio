@@ -46,6 +46,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     setStreamReplaceTargetText,
     streamReplaceTargetPosition,
     setStreamReplaceTargetPosition,
+    isRemoveElementsModalOpen,
+    setIsRemoveElementsModalOpen,
   } = useEditor();
   const {
     addAnnotation,
@@ -374,7 +376,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   };
 
   const handleLayerClick = (e: React.MouseEvent) => {
-    if (activeTool === 'streamReplace') {
+    if (activeTool === 'streamReplace' || activeTool === 'removeElements') {
       const container = containerRef.current;
       if (!container) return;
       const containerRect = container.getBoundingClientRect();
@@ -392,14 +394,22 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
       e.stopPropagation();
       setStreamReplaceTargetPosition({ x: clickPdfX, y: clickPdfY });
       setStreamReplaceTargetText(text);
-      setIsStreamReplaceModalOpen(true);
+
+      if (activeTool === 'streamReplace') {
+        setIsStreamReplaceModalOpen(true);
+      } else if (activeTool === 'removeElements') {
+        setIsRemoveElementsModalOpen(true);
+      }
     }
   };
+
+  const isRemoveActive = activeTool === 'removeElements' || isRemoveElementsModalOpen;
 
   const isTextSelectActive =
     activeTool === 'textSelect' ||
     activeTool === 'select' ||
-    activeTool === 'streamReplace';
+    activeTool === 'streamReplace' ||
+    isRemoveActive;
 
   return (
     <div
@@ -413,10 +423,14 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
       className={`textLayer absolute inset-0 select-text ${
         isMinimal ? 'textLayer-minimal' : isLcars ? 'textLayer-lcars' : ''
       } ${
+        isRemoveActive ? 'mark-remove-blocks' : ''
+      } ${
         isTextSelectActive
           ? 'pointer-events-auto cursor-text z-20'
           : 'pointer-events-none z-0'
-      } ${activeTool === 'streamReplace' ? 'cursor-pointer hover:bg-sky-500/5' : ''}`}
+      } ${activeTool === 'streamReplace' ? 'cursor-pointer hover:bg-sky-500/5' : ''} ${
+        activeTool === 'removeElements' ? 'cursor-pointer' : ''
+      }`}
     >
       {/* Floating Quick Action Selection Toolbar */}
       {floatingMenuPos && (

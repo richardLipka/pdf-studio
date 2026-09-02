@@ -450,6 +450,7 @@ export const en: TranslationSchema = {
     format: 'Format',
     toastDeleted: 'Elements were successfully removed from the PDF structure. (Press Ctrl+Z to undo)',
     undoHint: 'Every deletion can be immediately reverted using Ctrl+Z.',
+    markingHint: 'Identified blocks are marked with a thin red line in the main view',
     close: 'Close',
   },
   exportFormModal: {

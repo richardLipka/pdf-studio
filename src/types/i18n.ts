@@ -450,6 +450,7 @@ export interface TranslationSchema {
     format: string;
     toastDeleted: string;
     undoHint: string;
+    markingHint: string;
     close: string;
   };
   exportFormModal: {

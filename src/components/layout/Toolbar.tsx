@@ -635,15 +635,28 @@ export const Toolbar: React.FC = () => {
         {activeTab === 'edit' && (
           <div className="flex items-center gap-2">
             <span
-              className={`hidden md:inline-block px-2.5 py-1 rounded-md text-[11px] font-medium border ${
-                isMinimal
+              className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border ${
+                activeTool === 'removeElements'
+                  ? isMinimal
+                    ? 'bg-rose-50 border-rose-200 text-rose-700'
+                    : isLcars
+                    ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                    : 'bg-rose-950/40 border-rose-700/50 text-rose-300'
+                  : isMinimal
                   ? 'bg-neutral-100 border-neutral-300 text-neutral-700'
                   : isLcars
                   ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
                   : 'bg-slate-800/80 border-slate-700/80 text-slate-300'
               }`}
             >
-              {t.streamReplaceModal.hintInfo}
+              {activeTool === 'removeElements' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  <span>{t.removeElementsModal.markingHint}</span>
+                </>
+              ) : (
+                <span>{t.streamReplaceModal.hintInfo}</span>
+              )}
             </span>
           </div>
         )}

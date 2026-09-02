@@ -450,6 +450,7 @@ export const cs: TranslationSchema = {
     format: 'Formát',
     toastDeleted: 'Prvky byly úspěšně odstraněny ze struktury PDF. (Pro vrácení stiskněte Ctrl+Z)',
     undoHint: 'Každé smazání lze okamžitě vrátit zpět pomocí Ctrl+Z.',
+    markingHint: 'Identifikované bloky jsou v náhledu označeny tenkou červenou linkou',
     close: 'Zavřít',
   },
   exportFormModal: {
