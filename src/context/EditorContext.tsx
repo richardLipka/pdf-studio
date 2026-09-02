@@ -60,6 +60,9 @@ interface EditorContextType {
   isRemoveElementsModalOpen: boolean;
   setIsRemoveElementsModalOpen: (open: boolean) => void;
   toggleRemoveElementsModal: () => void;
+  isExportFormModalOpen: boolean;
+  setIsExportFormModalOpen: (open: boolean) => void;
+  toggleExportFormModal: () => void;
   streamReplaceTargetText: string;
   setStreamReplaceTargetText: (text: string) => void;
   streamReplaceTargetPosition: { x: number; y: number } | null;
@@ -115,6 +118,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
   const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpen] = useState<boolean>(false);
   const [isRemoveElementsModalOpen, setIsRemoveElementsModalOpen] = useState<boolean>(false);
+  const [isExportFormModalOpen, setIsExportFormModalOpen] = useState<boolean>(false);
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
   const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
 
@@ -136,6 +140,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const toggleRemoveElementsModal = () => {
     setIsRemoveElementsModalOpen((prev) => !prev);
+  };
+
+  const toggleExportFormModal = () => {
+    setIsExportFormModalOpen((prev) => !prev);
   };
 
   // Rasterization Settings State (persisted in localStorage)
@@ -338,6 +346,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isRemoveElementsModalOpen,
     setIsRemoveElementsModalOpen,
     toggleRemoveElementsModal,
+    isExportFormModalOpen,
+    setIsExportFormModalOpen,
+    toggleExportFormModal,
     streamReplaceTargetText,
     setStreamReplaceTargetText,
     streamReplaceTargetPosition,

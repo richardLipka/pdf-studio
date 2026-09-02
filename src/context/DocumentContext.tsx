@@ -18,11 +18,15 @@ import {
   StreamSegment,
 } from '../services/contentStreamEditor';
 
+import { FormFieldModel, FormExportMode } from '../types/form';
+import { extractFormFieldsFromPdf } from '../services/formService';
+
 interface HistorySnapshot {
   pages: PdfPageModel[];
   annotations: Annotation[];
   activePageIndex: number;
   sources?: SourceDocument[];
+  formValues?: Record<string, string | boolean | string[]>;
 }
 
 const MAX_HISTORY = 100; // Generous 100-step undo/redo stack
@@ -101,11 +105,22 @@ interface DocumentContextType {
     pageIndex?: number
   ) => Promise<{ success: boolean; removedCount: number; error?: string }>;
   
+  // Interactive Form Fields (AcroForms)
+  formFields: FormFieldModel[];
+  formValues: Record<string, string | boolean | string[]>;
+  updateFormFieldValue: (name: string, value: string | boolean | string[], commitHistory?: boolean) => void;
+  hasFormFields: boolean;
+
   // Undo / Redo / Export
   undo: () => void;
   redo: () => void;
   commitHistorySnapshot: () => void;
-  saveAndDownload: (customName?: string, rasterSettings?: RasterizationSettings, metadataOverride?: DocumentMetadata) => Promise<boolean>;
+  saveAndDownload: (
+    customName?: string,
+    rasterSettings?: RasterizationSettings,
+    metadataOverride?: DocumentMetadata,
+    formExportMode?: FormExportMode
+  ) => Promise<boolean>;
 }
 
 const DocumentContext = createContext<DocumentContextType | null>(null);
@@ -145,6 +160,10 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [metadata, setMetadata] = useState<DocumentMetadata>(DEFAULT_DOCUMENT_METADATA);
 
+  // Interactive Form Fields State
+  const [formFields, setFormFields] = useState<FormFieldModel[]>([]);
+  const [formValues, setFormValues] = useState<Record<string, string | boolean | string[]>>({});
+
   const updateMetadata = useCallback((fields: Partial<DocumentMetadata>) => {
     setMetadata((prev) => ({ ...prev, ...fields }));
   }, []);
@@ -158,7 +177,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       newPages: PdfPageModel[],
       newAnnotations: Annotation[],
       newActiveIndex: number,
-      newSources?: SourceDocument[]
+      newSources?: SourceDocument[],
+      newFormValues?: Record<string, string | boolean | string[]>
     ) => {
       setHistory((prev) => {
         const next = prev.slice(0, historyIndex + 1);
@@ -167,6 +187,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           annotations: deepClone(newAnnotations),
           activePageIndex: newActiveIndex,
           sources: newSources ? cloneSources(newSources) : sources,
+          formValues: deepClone(newFormValues !== undefined ? newFormValues : formValues),
         };
 
         if (next.length >= MAX_HISTORY) {
@@ -176,7 +197,20 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
       setHistoryIndex((prev) => Math.min(prev + 1, MAX_HISTORY - 1));
     },
-    [historyIndex, sources]
+    [historyIndex, sources, formValues]
+  );
+
+  const updateFormFieldValue = useCallback(
+    (name: string, value: string | boolean | string[], commitHistory: boolean = false) => {
+      setFormValues((prev) => {
+        const next = { ...prev, [name]: value };
+        if (commitHistory) {
+          pushHistory(pages, annotations, activePageIndex, undefined, next);
+        }
+        return next;
+      });
+    },
+    [pages, annotations, activePageIndex, pushHistory]
   );
 
   const commitHistorySnapshot = useCallback(() => {
@@ -203,6 +237,12 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const parsedPages = await parsePdfPages(buffer, 'main');
       const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
       const extractedMeta = await extractPdfMetadata('main', buffer);
+      const extractedFormFields = await extractFormFieldsFromPdf(buffer, 'main', parsedPages);
+
+      const initialFormValues: Record<string, string | boolean | string[]> = {};
+      extractedFormFields.forEach((field) => {
+        initialFormValues[field.name] = field.value;
+      });
 
       setFileName(file.name);
       setSources([mainSource]);
@@ -213,6 +253,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setAnnotations(loadedAnnotations);
       setSelectedAnnotationId(null);
       setMetadata(extractedMeta);
+      setFormFields(extractedFormFields);
+      setFormValues(initialFormValues);
 
       // Initialize history with initial source documents (proper binary clone)
       setHistory([{
@@ -220,6 +262,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         annotations: deepClone(loadedAnnotations),
         activePageIndex: 0,
         sources: cloneSources([mainSource]),
+        formValues: deepClone(initialFormValues),
       }]);
       setHistoryIndex(0);
       logger.success('load', `Dokument "${file.name}" připraven k úpravám (${parsedPages.length} stran)`);
@@ -243,6 +286,13 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const parsedPages = await parsePdfPages(buffer, 'main');
       const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
+      const extractedFormFields = await extractFormFieldsFromPdf(buffer, 'main', parsedPages);
+
+      const initialFormValues: Record<string, string | boolean | string[]> = {};
+      extractedFormFields.forEach((field) => {
+        initialFormValues[field.name] = field.value;
+      });
+
       const sampleMeta: DocumentMetadata = {
         title: _lang === 'cs' ? 'Ukázková smlouva o dílo' : 'Sample Agreement',
         author: 'Richard Lipka',
@@ -262,12 +312,15 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setAnnotations(loadedAnnotations);
       setSelectedAnnotationId(null);
       setMetadata(sampleMeta);
+      setFormFields(extractedFormFields);
+      setFormValues(initialFormValues);
 
       setHistory([{
         pages: deepClone(parsedPages),
         annotations: deepClone(loadedAnnotations),
         activePageIndex: 0,
         sources: cloneSources([mainSource]),
+        formValues: deepClone(initialFormValues),
       }]);
       setHistoryIndex(0);
       logger.success('load', `Ukázkový dokument úspěšně načten (${parsedPages.length} stran)`);
@@ -535,6 +588,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setActivePageIndex(targetSnapshot.activePageIndex);
         rangeAnchorIndexRef.current = targetSnapshot.activePageIndex;
         setSelectedAnnotationId(null);
+        if (targetSnapshot.formValues) {
+          setFormValues(deepClone(targetSnapshot.formValues));
+        }
         if (targetSnapshot.sources && targetSnapshot.sources.length > 0) {
           clearPdfCache();
           const restoredSources = cloneSources(targetSnapshot.sources, Date.now());
@@ -556,6 +612,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         setActivePageIndex(targetSnapshot.activePageIndex);
         rangeAnchorIndexRef.current = targetSnapshot.activePageIndex;
         setSelectedAnnotationId(null);
+        if (targetSnapshot.formValues) {
+          setFormValues(deepClone(targetSnapshot.formValues));
+        }
         if (targetSnapshot.sources && targetSnapshot.sources.length > 0) {
           clearPdfCache();
           const restoredSources = cloneSources(targetSnapshot.sources, Date.now());
@@ -834,7 +893,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const saveAndDownload = async (
     customName?: string,
     rasterSettings?: RasterizationSettings,
-    metadataOverride?: DocumentMetadata
+    metadataOverride?: DocumentMetadata,
+    formExportMode: FormExportMode = 'interactive'
   ): Promise<boolean> => {
     if (pages.length === 0) return false;
     setIsSaving(true);
@@ -842,7 +902,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const baseName = customName || fileName.replace(/\.pdf$/i, '');
       const outName = baseName.endsWith('.pdf') ? baseName : `${baseName}-edited.pdf`;
       const metaToApply = metadataOverride || metadata;
-      const bytes = await exportEditedPdf(sources, pages, annotations, outName, rasterSettings, metaToApply);
+      const bytes = await exportEditedPdf(
+        sources,
+        pages,
+        annotations,
+        outName,
+        rasterSettings,
+        metaToApply,
+        formValues,
+        formExportMode
+      );
       return Boolean(bytes && bytes.length > 0);
     } catch (e: any) {
       logger.error('save', `Chyba při exportu dokumentu: ${e?.message || e}`, e);
@@ -972,6 +1041,10 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     removePageImage,
     removePageBlock,
     removeMultiplePageElements,
+    formFields,
+    formValues,
+    updateFormFieldValue,
+    hasFormFields: formFields.length > 0,
     undo,
     redo,
     commitHistorySnapshot,

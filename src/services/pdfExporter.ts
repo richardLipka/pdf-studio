@@ -9,6 +9,8 @@ import {
   PDFArray,
   PDFImage,
   PDFDict,
+  PDFRef,
+  PDFObjectCopier,
   ParseSpeeds,
   StandardFonts,
 } from 'pdf-lib';
@@ -27,6 +29,8 @@ import {
 } from '../types/annotations';
 import { renderPdfPageToDataUrl } from './pdfLoader';
 import { logger } from './logger';
+import { FormExportMode } from '../types/form';
+import { applyFormValuesToPdfDocument } from './formService';
 
 /**
  * Safely repairs broken or indirect catalog /Pages pointers in third-party PDFs
@@ -489,7 +493,9 @@ export const exportEditedPdf = async (
   annotations: Annotation[],
   outputFileName: string = 'document-edited.pdf',
   rasterSettings: RasterizationSettings = DEFAULT_RASTERIZATION_SETTINGS,
-  metadata?: DocumentMetadata
+  metadata?: DocumentMetadata,
+  formValues?: Record<string, string | boolean | string[]>,
+  formExportMode: FormExportMode = 'interactive'
 ): Promise<Uint8Array> => {
   const startTime = Date.now();
   logger.info('save', `Zahájen export PDF: "${outputFileName}" (${pages.length} stran)`, {
@@ -499,6 +505,8 @@ export const exportEditedPdf = async (
     annotationsCount: annotations.length,
     rasterSettings,
     metadata,
+    formFieldsCount: formValues ? Object.keys(formValues).length : 0,
+    formExportMode,
   });
 
   const outputDoc = await PDFDocument.create();
@@ -584,8 +592,33 @@ export const exportEditedPdf = async (
         const indicesToCopy = srcPages.map((p) =>
           Math.min(Math.max(0, p.originalPageIndex ?? 0), Math.max(0, pageCount - 1))
         );
-        const copiedList = await outputDoc.copyPages(srcDoc, indicesToCopy);
+
+        await srcDoc.flush();
+        const copier = PDFObjectCopier.for(srcDoc.context, outputDoc.context);
+
+        // Preserve interactive AcroForm fields and widgets using the shared copier
+        try {
+          const srcAcroObj = srcDoc.catalog.get(PDFName.of('AcroForm'));
+          if (srcAcroObj && !outputDoc.catalog.has(PDFName.of('AcroForm'))) {
+            const copied = copier.copy(srcAcroObj);
+            const acroRef = copied instanceof PDFRef ? copied : outputDoc.context.register(copied);
+            outputDoc.catalog.set(PDFName.of('AcroForm'), acroRef);
+          }
+        } catch (acroErr) {
+          logger.warn('save', `Nelze zkopírovat AcroForm ze zdroje ${src.id}: ${acroErr}`);
+        }
+
+        // Copy pages with the same copier so all widget and page references map 1-to-1 identically
+        const rawSrcPages = srcDoc.getPages();
+        const copiedList: PDFPage[] = new Array(indicesToCopy.length);
+        for (let idx = 0, len = indicesToCopy.length; idx < len; idx++) {
+          const rawSrcPage = rawSrcPages[indicesToCopy[idx]];
+          const copiedPageLeaf = copier.copy(rawSrcPage.node);
+          const ref = outputDoc.context.register(copiedPageLeaf);
+          copiedList[idx] = PDFPage.of(copiedPageLeaf, ref, outputDoc);
+        }
         copiedPagesMap.set(src.id, copiedList);
+
         logger.info('save', `Zkopírováno ${copiedList.length} originálních vektorových stran ze zdroje "${src.name || src.id}"`, {
           sourceId: src.id,
           pagesCopied: copiedList.length,
@@ -1047,6 +1080,30 @@ export const exportEditedPdf = async (
         console.warn(`Error drawing annotation ${ann.id}:`, err);
       }
     }
+  }
+
+  // Ensure all copied form widgets have their /P page reference pointing to targetPage.ref
+  try {
+    for (const targetPage of outputDoc.getPages()) {
+      const annotsObj = targetPage.node.get(PDFName.of('Annots'));
+      const annots = outputDoc.context.lookup(annotsObj);
+      if (annots instanceof PDFArray) {
+        for (let i = 0; i < annots.size(); i++) {
+          const annotRef = annots.get(i);
+          const annotDict = outputDoc.context.lookup(annotRef);
+          if (annotDict instanceof PDFDict) {
+            annotDict.set(PDFName.of('P'), targetPage.ref);
+          }
+        }
+      }
+    }
+  } catch (pErr) {
+    console.warn('Could not update widget /P page refs:', pErr);
+  }
+
+  // Apply interactive form field values and optional flattening
+  if (formValues && Object.keys(formValues).length > 0) {
+    applyFormValuesToPdfDocument(outputDoc, formValues, formExportMode === 'flatten');
   }
 
   try {

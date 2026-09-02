@@ -18,6 +18,7 @@ import { SettingsModal } from './components/modals/SettingsModal';
 import { MetadataModal } from './components/modals/MetadataModal';
 import { StreamReplaceModal } from './components/modals/StreamReplaceModal';
 import { RemoveElementsModal } from './components/modals/RemoveElementsModal';
+import { ExportFormModal } from './components/modals/ExportFormModal';
 
 const MainWorkspace: React.FC = () => {
   const { theme } = useTheme();
@@ -101,6 +102,7 @@ const MainWorkspace: React.FC = () => {
       <MetadataModal />
       <StreamReplaceModal />
       <RemoveElementsModal />
+      <ExportFormModal />
     </div>
   );
 };

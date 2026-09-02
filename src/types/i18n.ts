@@ -405,4 +405,15 @@ export interface TranslationSchema {
     undoHint: string;
     close: string;
   };
+  exportFormModal: {
+    title: string;
+    subtitle: string;
+    description: string;
+    interactiveTitle: string;
+    interactiveDesc: string;
+    flattenTitle: string;
+    flattenDesc: string;
+    downloadBtn: string;
+    cancel: string;
+  };
 }

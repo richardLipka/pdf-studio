@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { PageCanvas } from './PageCanvas';
 import { TextLayer } from './TextLayer';
 import { AnnotationLayer } from './AnnotationLayer';
+import { FormLayer } from './FormLayer';
 
 export const PdfViewer: React.FC = () => {
   const { theme } = useTheme();
@@ -174,6 +175,9 @@ export const PdfViewer: React.FC = () => {
 
               {/* PDF Text Selection & Copy Layer */}
               <TextLayer page={page} sourceDoc={sourceDoc} scale={scale} />
+
+              {/* Interactive Form Fields Layer */}
+              <FormLayer page={page} scale={scale} />
 
               {/* Annotation & Interaction Overlay */}
               <AnnotationLayer page={page} scale={scale} />

@@ -83,7 +83,16 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Diagnostics & Error Inspection**: Dedicated diagnostic modal with level filtering, instant search, JSON/stack trace expandable blocks, and one-click clipboard copying.
    - **Status Indicators**: Dynamic badge counters in Header and StatusBar indicating warning/error totals.
 
-12. **100% Client-Side Privacy & Native Page Preservation**:
+12. **Interactive PDF Form Filling & Dual Save Mode (AcroForms)**:
+   - **Interactive Visual Form Layer**: Automatically parses and detects form widgets (Text fields, Multiline text areas, Checkboxes, Radio buttons, Dropdowns, Option lists) from imported PDF documents via `pdfjs-dist`.
+   - **Real-Time Canvas Interaction**: Allows direct in-place typing, selecting, and toggling of form fields on the canvas with full zoom scaling and theme integration (Studio, Minimal, LCARS).
+   - **Full Czech Unicode & Diacritics Support**: Seamless handling of Czech characters (`ěščřžýáíéůúťďň ĚŠČŘŽÝÁÍÉŮÚŤĎŇ`) encoded as UTF-16BE hex strings with `/NeedAppearances true` standard ISO 32000-1 conformance.
+   - **Dual Export Prompt & Modality**: When exporting/saving a PDF containing form fields, prompts the user to choose:
+     - **Ponechat interaktivní formulář (Interactive AcroForm)**: Preserves editable PDF fields, default resources, and field values for subsequent filling in Adobe Acrobat and other viewers.
+     - **Zploštit formulář (Flatten into static PDF)**: Permanently burns form values directly into the PDF static page contents (`form.flatten()`) for official submissions and unalterable archiving.
+   - **100-Step History Tracking**: Undo/Redo (`Ctrl + Z` / `Ctrl + Y`) seamlessly tracks form value changes across all fields.
+
+13. **100% Client-Side Privacy & Native Page Preservation**:
    - Zero file upload to servers. All operations happen in-memory via Web Workers and Web APIs.
    - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
@@ -100,7 +109,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (56 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (59 tests) |
 
 ---
 

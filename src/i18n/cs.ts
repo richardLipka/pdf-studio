@@ -405,4 +405,15 @@ export const cs: TranslationSchema = {
     undoHint: 'Každé smazání lze okamžitě vrátit zpět pomocí Ctrl+Z.',
     close: 'Zavřít',
   },
+  exportFormModal: {
+    title: 'Exportovat PDF formulář',
+    subtitle: 'Dokument obsahuje interaktivní formulářová pole',
+    description: 'Zvolte, zda si přejete zachovat formulář interaktivní pro další vyplňování, nebo jej trvale zploštit:',
+    interactiveTitle: 'Ponechat interaktivní formulář (AcroForm)',
+    interactiveDesc: 'Vyplněná data se uloží do formulářových polí. Formulář zůstane editovatelný v Adobe Acrobat i jiných PDF čtečkách.',
+    flattenTitle: 'Zploštit formulář (Flatten into static PDF)',
+    flattenDesc: 'Všechna data se trvale vypálí jako statický vektorový text. Vhodné pro finální archivaci a odeslání bez možnosti další změny.',
+    downloadBtn: 'Stáhnout PDF',
+    cancel: 'Zrušit',
+  },
 };

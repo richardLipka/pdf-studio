@@ -405,4 +405,15 @@ export const en: TranslationSchema = {
     undoHint: 'Every deletion can be immediately reverted using Ctrl+Z.',
     close: 'Close',
   },
+  exportFormModal: {
+    title: 'Export PDF Form',
+    subtitle: 'Document contains interactive form fields',
+    description: 'Choose whether you want to keep the form interactive for further editing, or permanently flatten it:',
+    interactiveTitle: 'Keep Interactive Form (AcroForm)',
+    interactiveDesc: 'Filled data is saved into form fields. The form remains editable in Adobe Acrobat and other PDF readers.',
+    flattenTitle: 'Flatten Form (Flatten into static PDF)',
+    flattenDesc: 'All data is permanently burned as static vector text. Suitable for final archiving and submission without further modifications.',
+    downloadBtn: 'Download PDF',
+    cancel: 'Cancel',
+  },
 };

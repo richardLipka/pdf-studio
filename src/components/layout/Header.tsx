@@ -38,6 +38,7 @@ export const Header: React.FC = () => {
     loadPdfFile,
     loadSamplePdf,
     saveAndDownload,
+    hasFormFields,
   } = useDocument();
 
   const {
@@ -49,6 +50,7 @@ export const Header: React.FC = () => {
     toggleSettingsModal,
     isMetadataModalOpen,
     toggleMetadataModal,
+    setIsExportFormModalOpen,
     rasterSettings,
   } = useEditor();
 
@@ -84,6 +86,10 @@ export const Header: React.FC = () => {
 
   const handleSaveAndDownload = async () => {
     if (pages.length === 0) return;
+    if (hasFormFields) {
+      setIsExportFormModalOpen(true);
+      return;
+    }
     const success = await saveAndDownload(undefined, rasterSettings);
     if (success) {
       setShowSuccessToast(true);
