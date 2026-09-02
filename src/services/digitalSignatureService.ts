@@ -34,6 +34,7 @@ export interface DigitalSignatureOptions {
   pageIndex?: number;
   visualAppearance?: boolean;
   visualSignatureImage?: string; // Optional data URL of handwritten signature
+  certificateChain?: string[]; // Optional additional intermediate/root PEM certificates
   x?: number;
   y?: number;
   width?: number;
@@ -307,7 +308,34 @@ export async function signPdfWithCertificate(
     visual: options.visualAppearance,
   });
 
-  const cert = forge.pki.certificateFromPem(certificatePem);
+  const pemBlocks = certificatePem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) || [certificatePem];
+  const allCerts: forge.pki.Certificate[] = [];
+  for (const block of pemBlocks) {
+    try {
+      allCerts.push(forge.pki.certificateFromPem(block));
+    } catch {
+      // skip invalid block
+    }
+  }
+
+  if (options.certificateChain) {
+    for (const chainPem of options.certificateChain) {
+      try {
+        const c = forge.pki.certificateFromPem(chainPem);
+        if (!allCerts.some((existing) => existing.serialNumber === c.serialNumber)) {
+          allCerts.push(c);
+        }
+      } catch {
+        // skip
+      }
+    }
+  }
+
+  if (allCerts.length === 0) {
+    throw new Error('V certifikátu nebyl nalezen žádný platný X.509 certifikát pro podepsání.');
+  }
+
+  const cert = allCerts[0];
   const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
   const certInfo = extractCertInfo(cert);
 
@@ -488,21 +516,20 @@ Q
     pdfBuffer[byteRangeOffset + i] = paddedByteRange.charCodeAt(i);
   }
 
-  // 8. Calculate SHA-256 hash of signed byte ranges
-  const md = forge.md.sha256.create();
-  // Part 1: [b1 ... b1 + b2]
+  // 8. Prepare detached content from signed byte ranges (Part 1 + Part 2)
   const part1 = pdfBuffer.subarray(b1, b1 + b2);
-  md.update(forge.util.createBuffer(part1).getBytes());
-  // Part 2: [b3 ... b3 + b4]
   const part2 = pdfBuffer.subarray(b3, b3 + b4);
-  md.update(forge.util.createBuffer(part2).getBytes());
 
-  const docHash = md.digest().getBytes();
+  const detachedContentBuffer = forge.util.createBuffer();
+  detachedContentBuffer.putBytes(uint8ToString(part1));
+  detachedContentBuffer.putBytes(uint8ToString(part2));
 
   // 9. Generate PKCS#7 / CMS SignedData detached signature
   const p7 = forge.pkcs7.createSignedData();
-  p7.content = forge.util.createBuffer(docHash);
-  p7.addCertificate(cert);
+  p7.content = detachedContentBuffer;
+  for (const c of allCerts) {
+    p7.addCertificate(c);
+  }
 
   p7.addSigner({
     key: privateKey,
@@ -515,7 +542,6 @@ Q
       },
       {
         type: forge.pki.oids.messageDigest,
-        value: docHash,
       },
       {
         type: forge.pki.oids.signingTime,
@@ -557,7 +583,7 @@ Q
   };
 }
 
-function formatPdfDate(date: Date): string {
+export function formatPdfDate(date: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0');
   const y = date.getFullYear();
   const m = pad(date.getMonth() + 1);
@@ -565,7 +591,14 @@ function formatPdfDate(date: Date): string {
   const h = pad(date.getHours());
   const min = pad(date.getMinutes());
   const s = pad(date.getSeconds());
-  return `D:${y}${m}${d}${h}${min}${s}+01'00'`;
+
+  const offsetMin = -date.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const absOffset = Math.abs(offsetMin);
+  const offsetHours = pad(Math.floor(absOffset / 60));
+  const offsetMinutes = pad(absOffset % 60);
+
+  return `D:${y}${m}${d}${h}${min}${s}${sign}${offsetHours}'${offsetMinutes}'`;
 }
 
 function escapePdfText(text: string): string {
