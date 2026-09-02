@@ -287,7 +287,7 @@ export const Toolbar: React.FC = () => {
 
   return (
     <div
-      className={`border-b px-4 py-2 flex flex-wrap items-center justify-between gap-3 select-none z-20 transition-colors ${
+      className={`border-b flex flex-col select-none z-20 transition-colors ${
         isMinimal
           ? 'bg-white border-neutral-200 text-black'
           : isLcars
@@ -295,33 +295,42 @@ export const Toolbar: React.FC = () => {
           : 'bg-slate-900 border-slate-800 text-white'
       }`}
     >
-      {/* Tab Switcher & Primary Tool Buttons */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-        {/* Mode / Tab Segmented Control */}
+      {/* ROW 1: Mode Navigation Tabs (Above the tool line) */}
+      <div
+        className={`px-4 py-1.5 border-b flex items-center justify-between gap-3 overflow-x-auto scrollbar-none ${
+          isMinimal
+            ? 'bg-neutral-50/80 border-neutral-200'
+            : isLcars
+            ? 'bg-black/90 border-[#ff9900]/50'
+            : 'bg-slate-950/60 border-slate-800/80'
+        }`}
+      >
+        {/* Mode / Tab Segmented Navigation */}
         <div
-          className={`flex items-center p-0.5 rounded-lg border mr-1 ${
+          className={`flex items-center p-0.5 rounded-lg border ${
             isMinimal
-              ? 'bg-neutral-100 border-neutral-300'
+              ? 'bg-neutral-200/70 border-neutral-300'
               : isLcars
               ? 'bg-black border-[#ff9900] rounded-full'
-              : 'bg-slate-950/80 border-slate-800'
+              : 'bg-slate-900/90 border-slate-800'
           }`}
         >
+          {/* Tab 1: Revize & Anotace */}
           <button
             type="button"
             onClick={() => {
               setActiveTab('review');
-              if (activeTool === 'streamReplace') {
+              if (activeTool === 'streamReplace' || activeTool === 'whiteout' || activeTool === 'removeElements') {
                 setActiveTool('select');
               }
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-1 text-xs font-semibold transition-all ${
               activeTab === 'review'
                 ? isMinimal
-                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300'
+                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300 font-bold'
                   : isLcars
-                  ? 'bg-[#ff9900] text-black font-bold rounded-full'
-                  : 'bg-sky-600 text-white rounded-md shadow-xs shadow-sky-500/20'
+                  ? 'bg-[#ff9900] text-black font-bold rounded-full shadow-sm'
+                  : 'bg-sky-600 text-white rounded-md shadow-sm shadow-sky-500/25 font-bold'
                 : isMinimal
                 ? 'text-neutral-600 hover:text-black'
                 : isLcars
@@ -334,19 +343,20 @@ export const Toolbar: React.FC = () => {
             <span>{t.tabs.review}</span>
           </button>
 
+          {/* Tab 2: Editace PDF */}
           <button
             type="button"
             onClick={() => {
               setActiveTab('edit');
-              setActiveTool('streamReplace');
+              setActiveTool('whiteout');
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-1 text-xs font-semibold transition-all ${
               activeTab === 'edit'
                 ? isMinimal
-                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300'
+                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300 font-bold'
                   : isLcars
-                  ? 'bg-[#ff9900] text-black font-bold rounded-full'
-                  : 'bg-indigo-600 text-white rounded-md shadow-xs shadow-indigo-500/20'
+                  ? 'bg-[#ff9900] text-black font-bold rounded-full shadow-sm'
+                  : 'bg-indigo-600 text-white rounded-md shadow-sm shadow-indigo-500/25 font-bold'
                 : isMinimal
                 ? 'text-neutral-600 hover:text-black'
                 : isLcars
@@ -359,6 +369,7 @@ export const Toolbar: React.FC = () => {
             <span>{t.tabs.edit}</span>
           </button>
 
+          {/* Tab 3: Podpis & Certifikáty */}
           <button
             type="button"
             onClick={() => {
@@ -367,13 +378,13 @@ export const Toolbar: React.FC = () => {
                 setActiveTool('select');
               }
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-2 px-3.5 py-1 text-xs font-semibold transition-all ${
               activeTab === 'sign'
                 ? isMinimal
-                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300'
+                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300 font-bold'
                   : isLcars
-                  ? 'bg-[#ff9900] text-black font-bold rounded-full'
-                  : 'bg-emerald-600 text-white rounded-md shadow-xs shadow-emerald-500/20'
+                  ? 'bg-[#ff9900] text-black font-bold rounded-full shadow-sm'
+                  : 'bg-emerald-600 text-white rounded-md shadow-sm shadow-emerald-500/25 font-bold'
                 : isMinimal
                 ? 'text-neutral-600 hover:text-black'
                 : isLcars
@@ -387,229 +398,237 @@ export const Toolbar: React.FC = () => {
           </button>
         </div>
 
-        <div
-          className={`h-6 w-px mx-0.5 ${
-            isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
-          }`}
-        />
-
-        {/* Tab 1: Review & Annotate Tools */}
-        {activeTab === 'review' && (
-          <div className="flex items-center gap-1">
-            {tools.map((tool) => {
-              const isActive = activeTool === tool.id;
-              return (
-                <button
-                  key={tool.id}
-                  onClick={() => setActiveTool(tool.id)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                    isMinimal
-                      ? isActive
-                        ? 'rounded-md bg-black text-white border border-black shadow-none'
-                        : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
-                      : isLcars
-                      ? isActive
-                        ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900]'
-                        : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                      : isActive
-                      ? 'rounded-lg bg-sky-600 text-white shadow-md shadow-sky-600/30'
-                      : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
-                  }`}
-                  title={tool.desc}
-                >
-                  {tool.icon}
-                  <span className="hidden sm:inline">{tool.label}</span>
-                </button>
-              );
-            })}
-
-            <div
-              className={`h-6 w-px mx-1 ${
-                isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
-              }`}
-            />
-
-            {/* Signature Action Button */}
-            <button
-              onClick={() => openSignatureModal('draw')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
-                isMinimal
-                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
-                  : isLcars
-                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
-                  : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
-              }`}
-              title={t.tools.signatureDesc}
-            >
-              <FileSignature
-                className={`w-4 h-4 ${
-                  isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-emerald-400'
-                }`}
-              />
-              <span>{t.tools.signature}</span>
-            </button>
-
-            {/* Add Page Action Button */}
-            <button
-              onClick={() => setIsAddPageModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
-                isMinimal
-                  ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
-                  : isLcars
-                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border border-[#99ccff] uppercase'
-                  : 'rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50'
-              }`}
-              title={t.tools.addPageDesc}
-            >
-              <FilePlus2
-                className={`w-4 h-4 ${
-                  isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-indigo-400'
-                }`}
-              />
-              <span>{t.tools.addPage}</span>
-            </button>
-          </div>
-        )}
-
-        {/* Tab 2: Document Editing Suite - 1. Visual Rewrite (Whiteout), 2. Stream Editor */}
-        {activeTab === 'edit' && (
-          <div className="flex items-center gap-1.5">
-            {/* Button 1: Visual Rewrite (Whiteout + Overlay) */}
-            <button
-              type="button"
-              onClick={() => setActiveTool('whiteout')}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
-                isMinimal
-                  ? activeTool === 'whiteout'
-                    ? 'rounded-md bg-black text-white border border-black shadow-xs'
-                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
-                  : isLcars
-                  ? activeTool === 'whiteout'
-                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
-                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                  : activeTool === 'whiteout'
-                  ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
-                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
-              }`}
-              title={t.tools.whiteoutDesc}
-            >
-              <SquarePen className="w-4 h-4" />
-              <span>{t.tools.whiteout}</span>
-            </button>
-
-            {/* Button 2: Content Stream Editor */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTool('streamReplace');
-                setIsStreamReplaceModalOpen(true);
-              }}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
-                isMinimal
-                  ? activeTool === 'streamReplace'
-                    ? 'rounded-md bg-black text-white border border-black shadow-xs'
-                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
-                  : isLcars
-                  ? activeTool === 'streamReplace'
-                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
-                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                  : activeTool === 'streamReplace'
-                  ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
-                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
-              }`}
-              title={t.tools.streamReplaceDesc}
-            >
-              <FileCode2 className="w-4 h-4" />
-              <span>{t.tools.streamReplace}</span>
-            </button>
-
-            {/* Button 3: Remove Elements (Blocks & Images) */}
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTool('removeElements');
-                setIsRemoveElementsModalOpen(true);
-              }}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
-                isMinimal
-                  ? activeTool === 'removeElements'
-                    ? 'rounded-md bg-rose-600 text-white border border-rose-600 shadow-xs'
-                    : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
-                  : isLcars
-                  ? activeTool === 'removeElements'
-                    ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
-                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                  : activeTool === 'removeElements'
-                  ? 'rounded-lg bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-500/50'
-                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
-              }`}
-              title={t.tools.removeElementsDesc}
-            >
-              <Trash2 className="w-4 h-4 text-rose-400" />
-              <span>{t.tools.removeElements}</span>
-            </button>
-          </div>
-        )}
-
-        {/* Tab 3: Digital Signatures & Certificates Suite */}
-        {activeTab === 'sign' && (
-          <div className="flex items-center gap-2">
-            {/* Button 1: Visual Signature (Draw / Type / Upload) */}
-            <button
-              type="button"
-              onClick={() => openSignatureModal('draw')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
-                isMinimal
-                  ? 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
-                  : isLcars
-                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border border-[#ff9900] uppercase'
-                  : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
-              }`}
-              title={t.signSuite.visualSignatureDesc}
-            >
-              <PenLine className="w-4 h-4 text-emerald-400" />
-              <span>{t.signSuite.visualSignature}</span>
-            </button>
-
-            {/* Button 2: Saved Stamp Library */}
-            <button
-              type="button"
-              onClick={() => openSignatureModal('saved')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
-                isMinimal
-                  ? 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
-                  : isLcars
-                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966] uppercase'
-                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
-              }`}
-              title={t.signSuite.stampLibraryDesc}
-            >
-              <Layers className="w-4 h-4 text-sky-400" />
-              <span>{t.signSuite.stampLibrary}</span>
-              <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-sky-950 text-sky-300 border border-sky-700/50">
-                {stamps.length}
-              </span>
-            </button>
-
-            {/* Button 3: Digital Certificate (PAdES / PKCS#7) */}
-            <button
-              type="button"
-              onClick={() => openSignatureModal('certificate')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold transition-all ${
-                isMinimal
-                  ? 'rounded-md bg-black text-white hover:bg-neutral-800 border border-black shadow-xs'
-                  : isLcars
-                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
-                  : 'rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50 ring-1 ring-indigo-400/30'
-              }`}
-              title={t.signSuite.digitalCertDesc}
-            >
-              <ShieldCheck className="w-4 h-4 text-indigo-200" />
-              <span>{t.signSuite.digitalCert}</span>
-            </button>
-          </div>
-        )}
+        {/* Mode subtitle / description on the right of Row 1 */}
+        <div className="hidden lg:flex items-center gap-2 text-[11px] text-slate-400">
+          <span className="truncate">
+            {activeTab === 'review' && t.tabs.reviewDesc}
+            {activeTab === 'edit' && t.tabs.editDesc}
+            {activeTab === 'sign' && t.tabs.signDesc}
+          </span>
+        </div>
       </div>
+
+      {/* ROW 2: Primary Tool Line & Contextual Controls */}
+      <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-3 select-none">
+        {/* Left Side: Specific Tool Buttons for Active Tab */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+          {/* Tab 1: Review & Annotate Tools */}
+          {activeTab === 'review' && (
+            <div className="flex items-center gap-1">
+              {tools.map((tool) => {
+                const isActive = activeTool === tool.id;
+                return (
+                  <button
+                    key={tool.id}
+                    onClick={() => setActiveTool(tool.id)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                      isMinimal
+                        ? isActive
+                          ? 'rounded-md bg-black text-white border border-black shadow-none'
+                          : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                        : isLcars
+                        ? isActive
+                          ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900]'
+                          : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                        : isActive
+                        ? 'rounded-lg bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                        : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                    }`}
+                    title={tool.desc}
+                  >
+                    {tool.icon}
+                    <span className="hidden sm:inline">{tool.label}</span>
+                  </button>
+                );
+              })}
+
+              <div
+                className={`h-6 w-px mx-1 ${
+                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
+                }`}
+              />
+
+              {/* Signature Action Button */}
+              <button
+                onClick={() => openSignatureModal('draw')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+                  isMinimal
+                    ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
+                    : isLcars
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
+                    : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
+                }`}
+                title={t.tools.signatureDesc}
+              >
+                <FileSignature
+                  className={`w-4 h-4 ${
+                    isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-emerald-400'
+                  }`}
+                />
+                <span>{t.tools.signature}</span>
+              </button>
+
+              {/* Add Page Action Button */}
+              <button
+                onClick={() => setIsAddPageModalOpen(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
+                  isMinimal
+                    ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
+                    : isLcars
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border border-[#99ccff] uppercase'
+                    : 'rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50'
+                }`}
+                title={t.tools.addPageDesc}
+              >
+                <FilePlus2
+                  className={`w-4 h-4 ${
+                    isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-indigo-400'
+                  }`}
+                />
+                <span>{t.tools.addPage}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Tab 2: Document Editing Suite - 1. Visual Rewrite (Whiteout), 2. Stream Editor */}
+          {activeTab === 'edit' && (
+            <div className="flex items-center gap-1.5">
+              {/* Button 1: Visual Rewrite (Whiteout + Overlay) */}
+              <button
+                type="button"
+                onClick={() => setActiveTool('whiteout')}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? activeTool === 'whiteout'
+                      ? 'rounded-md bg-black text-white border border-black shadow-xs'
+                      : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                    : isLcars
+                    ? activeTool === 'whiteout'
+                      ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                      : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                    : activeTool === 'whiteout'
+                    ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
+                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                }`}
+                title={t.tools.whiteoutDesc}
+              >
+                <SquarePen className="w-4 h-4" />
+                <span>{t.tools.whiteout}</span>
+              </button>
+
+              {/* Button 2: Content Stream Editor */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('streamReplace');
+                  setIsStreamReplaceModalOpen(true);
+                }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? activeTool === 'streamReplace'
+                      ? 'rounded-md bg-black text-white border border-black shadow-xs'
+                      : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                    : isLcars
+                    ? activeTool === 'streamReplace'
+                      ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                      : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                    : activeTool === 'streamReplace'
+                    ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
+                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                }`}
+                title={t.tools.streamReplaceDesc}
+              >
+                <FileCode2 className="w-4 h-4" />
+                <span>{t.tools.streamReplace}</span>
+              </button>
+
+              {/* Button 3: Remove Elements (Blocks & Images) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('removeElements');
+                  setIsRemoveElementsModalOpen(true);
+                }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? activeTool === 'removeElements'
+                      ? 'rounded-md bg-rose-600 text-white border border-rose-600 shadow-xs'
+                      : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                    : isLcars
+                    ? activeTool === 'removeElements'
+                      ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                      : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                    : activeTool === 'removeElements'
+                    ? 'rounded-lg bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-500/50'
+                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                }`}
+                title={t.tools.removeElementsDesc}
+              >
+                <Trash2 className="w-4 h-4 text-rose-400" />
+                <span>{t.tools.removeElements}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Tab 3: Digital Signatures & Certificates Suite */}
+          {activeTab === 'sign' && (
+            <div className="flex items-center gap-2">
+              {/* Button 1: Visual Signature (Draw / Type / Upload) */}
+              <button
+                type="button"
+                onClick={() => openSignatureModal('draw')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
+                    : isLcars
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border border-[#ff9900] uppercase'
+                    : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
+                }`}
+                title={t.signSuite.visualSignatureDesc}
+              >
+                <PenLine className="w-4 h-4 text-emerald-400" />
+                <span>{t.signSuite.visualSignature}</span>
+              </button>
+
+              {/* Button 2: Saved Stamp Library */}
+              <button
+                type="button"
+                onClick={() => openSignatureModal('saved')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
+                    : isLcars
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966] uppercase'
+                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                }`}
+                title={t.signSuite.stampLibraryDesc}
+              >
+                <Layers className="w-4 h-4 text-sky-400" />
+                <span>{t.signSuite.stampLibrary}</span>
+                <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-sky-950 text-sky-300 border border-sky-700/50">
+                  {stamps.length}
+                </span>
+              </button>
+
+              {/* Button 3: Digital Certificate (PAdES / PKCS#7) */}
+              <button
+                type="button"
+                onClick={() => openSignatureModal('certificate')}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? 'rounded-md bg-black text-white hover:bg-neutral-800 border border-black shadow-xs'
+                    : isLcars
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
+                    : 'rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50 ring-1 ring-indigo-400/30'
+                }`}
+                title={t.signSuite.digitalCertDesc}
+              >
+                <ShieldCheck className="w-4 h-4 text-indigo-200" />
+                <span>{t.signSuite.digitalCert}</span>
+              </button>
+            </div>
+          )}
+        </div>
 
       {/* Contextual Style Controls (or Edit / Sign hint) */}
       <div className="flex items-center gap-3">
@@ -1028,5 +1047,6 @@ export const Toolbar: React.FC = () => {
         )}
       </div>
     </div>
+  </div>
   );
 };
