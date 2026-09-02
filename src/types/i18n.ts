@@ -27,6 +27,23 @@ export interface TranslationSchema {
     reviewDesc: string;
     edit: string;
     editDesc: string;
+    sign: string;
+    signDesc: string;
+  };
+  signSuite: {
+    visualSignature: string;
+    visualSignatureDesc: string;
+    stampLibrary: string;
+    stampLibraryDesc: string;
+    digitalCert: string;
+    digitalCertDesc: string;
+    quickStamp: string;
+    quickStampDesc: string;
+    noStamps: string;
+    generateCert: string;
+    generateCertDesc: string;
+    padesBadge: string;
+    padesBadgeDesc: string;
   };
   tools: {
     select: string;

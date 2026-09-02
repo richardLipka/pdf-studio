@@ -3,6 +3,8 @@ import { ToolType, ShapeType, EditorTab } from '../types/annotations';
 import { SignatureStamp, StampExportPackage } from '../types/stamp';
 import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
 
+export type SignatureModalTab = 'draw' | 'type' | 'upload' | 'saved' | 'certificate';
+
 interface EditorContextType {
   activeTab: EditorTab;
   setActiveTab: (tab: EditorTab) => void;
@@ -37,6 +39,9 @@ interface EditorContextType {
   // Modals
   isSignatureModalOpen: boolean;
   setIsSignatureModalOpen: (open: boolean) => void;
+  signatureModalInitialTab: SignatureModalTab;
+  setSignatureModalInitialTab: (tab: SignatureModalTab) => void;
+  openSignatureModal: (initialTab?: SignatureModalTab) => void;
   isAddPageModalOpen: boolean;
   setIsAddPageModalOpen: (open: boolean) => void;
   isDeleteConfirmModalOpen: boolean;
@@ -109,6 +114,13 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Modals
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState<boolean>(false);
+  const [signatureModalInitialTab, setSignatureModalInitialTab] = useState<SignatureModalTab>('draw');
+
+  const openSignatureModal = (initialTab: SignatureModalTab = 'draw') => {
+    setSignatureModalInitialTab(initialTab);
+    setIsSignatureModalOpen(true);
+  };
+
   const [isAddPageModalOpen, setIsAddPageModalOpen] = useState<boolean>(false);
   const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState<boolean>(false);
   const [deleteTargetPageId, setDeleteTargetPageId] = useState<string | null>(null);
@@ -323,6 +335,9 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     toggleNotesPanel,
     isSignatureModalOpen,
     setIsSignatureModalOpen,
+    signatureModalInitialTab,
+    setSignatureModalInitialTab,
+    openSignatureModal,
     isAddPageModalOpen,
     setIsAddPageModalOpen,
     isDeleteConfirmModalOpen,

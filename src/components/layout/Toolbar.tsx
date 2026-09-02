@@ -17,10 +17,14 @@ import {
   FilePlus2,
   Eraser,
   Trash2,
-  MessageSquare,
   Crop,
+  MessageSquare,
   FileCode2,
   SquarePen,
+  ShieldCheck,
+  Layers,
+  PenLine,
+  Lock,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -61,7 +65,8 @@ export const Toolbar: React.FC = () => {
     setFontSize,
     fontFamily,
     setFontFamily,
-    setIsSignatureModalOpen,
+    openSignatureModal,
+    stamps,
     setIsAddPageModalOpen,
     setIsNotesPanelOpen,
     setIsStreamReplaceModalOpen,
@@ -353,6 +358,33 @@ export const Toolbar: React.FC = () => {
             <FileCode2 className="w-3.5 h-3.5" />
             <span>{t.tabs.edit}</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('sign');
+              if (activeTool === 'streamReplace' || activeTool === 'whiteout' || activeTool === 'removeElements') {
+                setActiveTool('select');
+              }
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold transition-all ${
+              activeTab === 'sign'
+                ? isMinimal
+                  ? 'bg-white text-black shadow-xs rounded-md border border-neutral-300'
+                  : isLcars
+                  ? 'bg-[#ff9900] text-black font-bold rounded-full'
+                  : 'bg-emerald-600 text-white rounded-md shadow-xs shadow-emerald-500/20'
+                : isMinimal
+                ? 'text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'text-[#ff9966] hover:text-[#ff9900]'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.tabs.signDesc}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>{t.tabs.sign}</span>
+          </button>
         </div>
 
         <div
@@ -399,7 +431,7 @@ export const Toolbar: React.FC = () => {
 
             {/* Signature Action Button */}
             <button
-              onClick={() => setIsSignatureModalOpen(true)}
+              onClick={() => openSignatureModal('draw')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
                 isMinimal
                   ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
@@ -518,9 +550,68 @@ export const Toolbar: React.FC = () => {
             </button>
           </div>
         )}
+
+        {/* Tab 3: Digital Signatures & Certificates Suite */}
+        {activeTab === 'sign' && (
+          <div className="flex items-center gap-2">
+            {/* Button 1: Visual Signature (Draw / Type / Upload) */}
+            <button
+              type="button"
+              onClick={() => openSignatureModal('draw')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
+                isMinimal
+                  ? 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border border-[#ff9900] uppercase'
+                  : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
+              }`}
+              title={t.signSuite.visualSignatureDesc}
+            >
+              <PenLine className="w-4 h-4 text-emerald-400" />
+              <span>{t.signSuite.visualSignature}</span>
+            </button>
+
+            {/* Button 2: Saved Stamp Library */}
+            <button
+              type="button"
+              onClick={() => openSignatureModal('saved')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
+                isMinimal
+                  ? 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966] uppercase'
+                  : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+              }`}
+              title={t.signSuite.stampLibraryDesc}
+            >
+              <Layers className="w-4 h-4 text-sky-400" />
+              <span>{t.signSuite.stampLibrary}</span>
+              <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-sky-950 text-sky-300 border border-sky-700/50">
+                {stamps.length}
+              </span>
+            </button>
+
+            {/* Button 3: Digital Certificate (PAdES / PKCS#7) */}
+            <button
+              type="button"
+              onClick={() => openSignatureModal('certificate')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                isMinimal
+                  ? 'rounded-md bg-black text-white hover:bg-neutral-800 border border-black shadow-xs'
+                  : isLcars
+                  ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
+                  : 'rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50 ring-1 ring-indigo-400/30'
+              }`}
+              title={t.signSuite.digitalCertDesc}
+            >
+              <ShieldCheck className="w-4 h-4 text-indigo-200" />
+              <span>{t.signSuite.digitalCert}</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Contextual Style Controls (or Edit hint if in Edit tab) */}
+      {/* Contextual Style Controls (or Edit / Sign hint) */}
       <div className="flex items-center gap-3">
         {activeTab === 'edit' && (
           <div className="flex items-center gap-2">
@@ -534,6 +625,24 @@ export const Toolbar: React.FC = () => {
               }`}
             >
               {t.streamReplaceModal.hintInfo}
+            </span>
+          </div>
+        )}
+
+        {activeTab === 'sign' && (
+          <div className="flex items-center gap-2">
+            <span
+              className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border ${
+                isMinimal
+                  ? 'bg-neutral-100 border-neutral-300 text-neutral-700'
+                  : isLcars
+                  ? 'bg-amber-950/40 border-amber-500/40 text-[#ffff66]'
+                  : 'bg-indigo-950/40 border-indigo-700/50 text-indigo-300'
+              }`}
+              title={t.signSuite.padesBadgeDesc}
+            >
+              <Lock className="w-3 h-3 text-indigo-400" />
+              <span>{t.signSuite.padesBadge}</span>
             </span>
           </div>
         )}

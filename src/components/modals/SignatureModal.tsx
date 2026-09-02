@@ -36,6 +36,7 @@ export const SignatureModal: React.FC = () => {
   const {
     isSignatureModalOpen,
     setIsSignatureModalOpen,
+    signatureModalInitialTab,
     stamps,
     addStamp,
     removeStamp,
@@ -46,6 +47,13 @@ export const SignatureModal: React.FC = () => {
   const { pages, activePageIndex, addAnnotation, signAndDownload } = useDocument();
 
   const [activeTab, setActiveTab] = useState<'draw' | 'type' | 'upload' | 'saved' | 'certificate'>('draw');
+
+  useEffect(() => {
+    if (isSignatureModalOpen && signatureModalInitialTab) {
+      setActiveTab(signatureModalInitialTab);
+    }
+  }, [isSignatureModalOpen, signatureModalInitialTab]);
+
   const [stampTitle, setStampTitle] = useState<string>('');
 
   // Draw State
@@ -447,7 +455,7 @@ export const SignatureModal: React.FC = () => {
         {/* Tab Body */}
         <div className="p-6">
           {/* Optional Stamp Title Field for Draw, Type & Upload */}
-          {activeTab !== 'saved' && (
+          {activeTab !== 'saved' && activeTab !== 'certificate' && (
             <div className="mb-3">
               <input
                 type="text"

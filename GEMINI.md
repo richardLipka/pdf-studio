@@ -16,9 +16,10 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Reordering**: Drag-and-drop thumbnail grid reordering.
    - **Rotation**: Rotate individual or selected pages by 90° increments.
 
-2. **Dual-Tab Interface: Review vs Edit**:
-   - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes, Digital signatures & stamps, High-res image cropper, and Eraser.
-   - **Editace (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files with modular expansion capability.
+2. **Triple-Tab Interface: Review vs Edit vs Sign**:
+   - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes, High-res image cropper, and Eraser.
+   - **Editace (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files: Visual Rewrite (Whiteout + Overlay), Content Stream Editor, and Remove Elements (permanent removal of text blocks & images).
+   - **Podpis (Sign Tab)**: Dedicated signing & certification workspace: Visual signature pad (Draw/Type/Upload), Reusable stamp library with live counter, and direct Cryptographic PAdES / PKCS#7 signing conforming to ISO 32000-1.
 
 3. **Direct Content Stream Segment & Page Editor**:
    - **Segment Isolation & Inspection**: Decodes and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.

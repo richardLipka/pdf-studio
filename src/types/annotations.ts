@@ -105,7 +105,7 @@ export type Annotation =
   | SignatureAnnotation
   | ShapeAnnotation;
 
-export type EditorTab = 'review' | 'edit';
+export type EditorTab = 'review' | 'edit' | 'sign';
 
 export type ToolType =
   | 'select'
