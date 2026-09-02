@@ -26,6 +26,7 @@ import {
   PageImageInfo,
   findBestMatchingBlock,
   normalizeTextForSearch,
+  replaceTextInStreamString,
 } from '../../services/contentStreamEditor';
 
 export const EditSidePanel: React.FC = () => {
@@ -39,7 +40,9 @@ export const EditSidePanel: React.FC = () => {
     selectedStreamBlockId,
     setSelectedStreamBlockId,
     streamReplaceTargetText,
+    setStreamReplaceTargetText,
     streamReplaceTargetPosition,
+    setStreamReplaceTargetPosition,
     setIsRemoveElementsModalOpen,
     setIsStreamReplaceModalOpen,
   } = useEditor();
@@ -85,7 +88,11 @@ export const EditSidePanel: React.FC = () => {
   }>({ type: 'idle' });
 
   // Load stream and images when panel opens or page changes
-  const loadPageData = async () => {
+  // Load stream and images when panel opens or page changes
+  const loadPageData = async (
+    preferredTargetText?: string,
+    preferredTargetPos?: { x: number; y: number } | null
+  ) => {
     setIsLoading(true);
     setStatusMessage({ type: 'idle' });
 
@@ -112,13 +119,14 @@ export const EditSidePanel: React.FC = () => {
         setImages([]);
       }
 
+      const targetText =
+        preferredTargetText !== undefined ? preferredTargetText : streamReplaceTargetText;
+      const targetPos =
+        preferredTargetPos !== undefined ? preferredTargetPos : streamReplaceTargetPosition;
+
       // If opened with target block from canvas click, find best matching block
-      if (streamReplaceTargetText || streamReplaceTargetPosition) {
-        const best = findBestMatchingBlock(
-          textSegments,
-          streamReplaceTargetText,
-          streamReplaceTargetPosition
-        );
+      if (targetText || targetPos) {
+        const best = findBestMatchingBlock(textSegments, targetText, targetPos);
         if (best) {
           setSelectedStreamBlockId(best.id);
           setSelectedBlockIds(new Set([best.id]));
@@ -133,7 +141,10 @@ export const EditSidePanel: React.FC = () => {
             }
           }, 150);
         }
-      } else if (textSegments.length > 0 && !selectedStreamBlockId) {
+      } else if (
+        textSegments.length > 0 &&
+        (!selectedStreamBlockId || !textSegments.some((s) => s.id === selectedStreamBlockId))
+      ) {
         setSelectedStreamBlockId(textSegments[0].id);
         setEditorContent(textSegments[0].rawContent);
         setQuickReplaceNewText(textSegments[0].previewText);
@@ -152,7 +163,7 @@ export const EditSidePanel: React.FC = () => {
     if (isEditSidePanelOpen) {
       loadPageData();
     }
-  }, [isEditSidePanelOpen, activePageIndex, streamReplaceTargetText, streamReplaceTargetPosition]);
+  }, [isEditSidePanelOpen, activePageIndex]);
 
   // When selectedStreamBlockId changes, update editorContent
   useEffect(() => {
@@ -262,8 +273,34 @@ export const EditSidePanel: React.FC = () => {
           type: 'success',
           text: `Úspěšně odstraněno ${totalCount} prvků ze strany ${activePageIndex + 1}.`,
         });
+
         clearSelection();
-        await loadPageData();
+        setStreamReplaceTargetText('');
+        setStreamReplaceTargetPosition(null);
+
+        if (res.updatedStream !== undefined) {
+          setFullStreamText(res.updatedStream);
+          const parsed = parseStreamSegments(res.updatedStream);
+          const textSegments = parsed.filter((s) => s.type === 'text');
+          setSegments(textSegments);
+
+          if (textSegments.length > 0) {
+            setSelectedStreamBlockId(textSegments[0].id);
+            setEditorContent(textSegments[0].rawContent);
+            setQuickReplaceNewText(textSegments[0].previewText);
+          } else {
+            setSelectedStreamBlockId(null);
+            setEditorContent('');
+            setQuickReplaceNewText('');
+          }
+        } else {
+          await loadPageData('', null);
+        }
+
+        const imagesRes = await getPageImagesList(activePageIndex);
+        if (imagesRes.images) {
+          setImages(imagesRes.images);
+        }
       } else {
         setStatusMessage({
           type: 'error',
@@ -294,7 +331,38 @@ export const EditSidePanel: React.FC = () => {
           type: 'success',
           text: `Blok ${id} byl úspěšně odstraněn.`,
         });
-        await loadPageData();
+
+        setSelectedBlockIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+
+        if (selectedStreamBlockId === id) {
+          setStreamReplaceTargetText('');
+          setStreamReplaceTargetPosition(null);
+        }
+
+        if (res.updatedStream !== undefined) {
+          setFullStreamText(res.updatedStream);
+          const parsed = parseStreamSegments(res.updatedStream);
+          const textSegments = parsed.filter((s) => s.type === 'text');
+          setSegments(textSegments);
+
+          if (selectedStreamBlockId === id) {
+            if (textSegments.length > 0) {
+              setSelectedStreamBlockId(textSegments[0].id);
+              setEditorContent(textSegments[0].rawContent);
+              setQuickReplaceNewText(textSegments[0].previewText);
+            } else {
+              setSelectedStreamBlockId(null);
+              setEditorContent('');
+              setQuickReplaceNewText('');
+            }
+          }
+        } else {
+          await loadPageData('', null);
+        }
       } else {
         setStatusMessage({
           type: 'error',
@@ -332,7 +400,27 @@ export const EditSidePanel: React.FC = () => {
           type: 'success',
           text: `Změny v bloku ${selectedStreamBlockId} byly úspěšně uloženy.`,
         });
-        await loadPageData();
+
+        if (res.updatedStream !== undefined) {
+          setFullStreamText(res.updatedStream);
+          const parsed = parseStreamSegments(res.updatedStream);
+          const textSegments = parsed.filter((s) => s.type === 'text');
+          setSegments(textSegments);
+
+          const updatedBlock =
+            textSegments.find((s) => s.id === selectedStreamBlockId) ||
+            textSegments.find((s) => s.rawContent === editorContent) ||
+            textSegments[0];
+
+          if (updatedBlock) {
+            setSelectedStreamBlockId(updatedBlock.id);
+            setEditorContent(updatedBlock.rawContent);
+            setQuickReplaceNewText(updatedBlock.previewText);
+            setStreamReplaceTargetText(updatedBlock.previewText);
+          }
+        } else {
+          await loadPageData();
+        }
       } else {
         setStatusMessage({
           type: 'error',
@@ -353,25 +441,37 @@ export const EditSidePanel: React.FC = () => {
   const handleApplyQuickReplace = () => {
     if (!selectedStreamBlockId || !editorContent) return;
 
-    let updated = editorContent;
     const currentBlock = segments.find((s) => s.id === selectedStreamBlockId);
     if (!currentBlock) return;
 
-    if (currentBlock.previewText && quickReplaceNewText) {
+    const { modifiedContent, count } = replaceTextInStreamString(
+      editorContent,
+      currentBlock.previewText,
+      quickReplaceNewText,
+      { matchCase: false }
+    );
+
+    if (count > 0) {
+      setEditorContent(modifiedContent);
+      setStatusMessage({
+        type: 'idle',
+        text: `Nahrazeno ${count} výskytů v kódu bloku. Klikněte na Uložit pro aplikaci.`,
+      });
+    } else {
       const escapedTarget = currentBlock.previewText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const literalRegex = new RegExp(`\\(${escapedTarget}\\)`, 'g');
+      const literalRegex = new RegExp(`\\(${escapedTarget}\\)`, 'gi');
+      let updated = editorContent;
       if (literalRegex.test(updated)) {
         updated = updated.replace(literalRegex, `(${quickReplaceNewText})`);
       } else {
         updated = updated.replace(/\((.*?)\)\s*Tj/g, `(${quickReplaceNewText}) Tj`);
       }
+      setEditorContent(updated);
+      setStatusMessage({
+        type: 'idle',
+        text: 'Náhrada byla vložena do kódu bloku. Klikněte na Uložit pro aplikaci.',
+      });
     }
-
-    setEditorContent(updated);
-    setStatusMessage({
-      type: 'idle',
-      text: 'Náhrada byla vložena do kódu bloku. Klikněte na Uložit pro aplikaci.',
-    });
   };
 
   // Save Full Stream Edit
@@ -388,7 +488,15 @@ export const EditSidePanel: React.FC = () => {
           type: 'success',
           text: `Celý stream strany ${activePageIndex + 1} byl úspěšně aktualizován.`,
         });
-        await loadPageData();
+
+        if (res.updatedStream !== undefined) {
+          setFullStreamText(res.updatedStream);
+          const parsed = parseStreamSegments(res.updatedStream);
+          const textSegments = parsed.filter((s) => s.type === 'text');
+          setSegments(textSegments);
+        } else {
+          await loadPageData();
+        }
       } else {
         setStatusMessage({
           type: 'error',
@@ -484,7 +592,7 @@ export const EditSidePanel: React.FC = () => {
 
           <div className="flex items-center gap-1">
             <button
-              onClick={loadPageData}
+              onClick={() => loadPageData()}
               disabled={isLoading}
               className={`p-1 rounded-lg transition-colors ${
                 isMinimal

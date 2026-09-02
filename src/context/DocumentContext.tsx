@@ -86,8 +86,8 @@ interface DocumentContextType {
 
   // Direct Content Stream Editing
   getPageStream: (pageIndex?: number) => Promise<{ streamText: string; streamCount: number; error?: string }>;
-  applyPageContentStreamEdit: (newStreamContent: string, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
-  applyStreamSegmentEdit: (originalSegment: string, newSegment: string, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
+  applyPageContentStreamEdit: (newStreamContent: string, pageIndex?: number) => Promise<{ success: boolean; updatedStream?: string; error?: string }>;
+  applyStreamSegmentEdit: (originalSegment: string, newSegment: string, pageIndex?: number) => Promise<{ success: boolean; updatedStream?: string; error?: string }>;
   applyContentStreamReplacement: (
     searchText: string,
     replaceText: string,
@@ -99,12 +99,12 @@ interface DocumentContextType {
   ) => Promise<{ success: boolean; totalReplaced: number; error?: string }>;
   getPageImagesList: (pageIndex?: number) => Promise<{ images: PageImageInfo[]; error?: string }>;
   removePageImage: (imageName: string, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
-  removePageBlock: (segment: StreamSegment, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
+  removePageBlock: (segment: StreamSegment, pageIndex?: number) => Promise<{ success: boolean; updatedStream?: string; error?: string }>;
   removeMultiplePageElements: (
     segmentIds: string[],
     imageNames: string[],
     pageIndex?: number
-  ) => Promise<{ success: boolean; removedCount: number; error?: string }>;
+  ) => Promise<{ success: boolean; removedCount: number; updatedStream?: string; error?: string }>;
   
   // Interactive Form Fields (AcroForms)
   formFields: FormFieldModel[];
@@ -735,7 +735,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const applyPageContentStreamEdit = async (
     newStreamContent: string,
     pageIndex: number = activePageIndex
-  ): Promise<{ success: boolean; error?: string }> => {
+  ): Promise<{ success: boolean; updatedStream?: string; error?: string }> => {
     const targetPage = pages[pageIndex];
     if (!targetPage) {
       return { success: false, error: 'Stránka nenalezena' };
@@ -771,14 +771,14 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     clearPdfCache();
     setSources(updatedSources);
     pushHistory(pages, annotations, activePageIndex, updatedSources);
-    return { success: true };
+    return { success: true, updatedStream: result.updatedStream };
   };
 
   const applyStreamSegmentEdit = async (
     originalSegment: string,
     newSegment: string,
     pageIndex: number = activePageIndex
-  ): Promise<{ success: boolean; error?: string }> => {
+  ): Promise<{ success: boolean; updatedStream?: string; error?: string }> => {
     const targetPage = pages[pageIndex];
     if (!targetPage) {
       return { success: false, error: 'Stránka nenalezena' };
@@ -815,7 +815,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     clearPdfCache();
     setSources(updatedSources);
     pushHistory(pages, annotations, activePageIndex, updatedSources);
-    return { success: true };
+    return { success: true, updatedStream: result.updatedStream };
   };
 
   const getPageImagesList = async (
@@ -847,16 +847,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const removePageBlock = async (
     segment: StreamSegment,
     pageIndex: number = activePageIndex
-  ): Promise<{ success: boolean; error?: string }> => {
+  ): Promise<{ success: boolean; updatedStream?: string; error?: string }> => {
     const res = await removeMultiplePageElements([segment.id], [], pageIndex);
-    return { success: res.success, error: res.error };
+    return { success: res.success, updatedStream: res.updatedStream, error: res.error };
   };
 
   const removeMultiplePageElements = async (
     segmentIds: string[],
     imageNames: string[],
     pageIndex: number = activePageIndex
-  ): Promise<{ success: boolean; removedCount: number; error?: string }> => {
+  ): Promise<{ success: boolean; removedCount: number; updatedStream?: string; error?: string }> => {
     const targetPage = pages[pageIndex];
     if (!targetPage) {
       return { success: false, removedCount: 0, error: 'Stránka nenalezena' };
@@ -895,7 +895,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     clearPdfCache();
     setSources(updatedSources);
     pushHistory(pages, annotations, activePageIndex, updatedSources);
-    return { success: true, removedCount: result.removedCount };
+    return { success: true, removedCount: result.removedCount, updatedStream: result.updatedStream };
   };
 
   const saveAndDownload = async (

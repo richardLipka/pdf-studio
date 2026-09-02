@@ -958,11 +958,11 @@ export async function updatePageContentStream(
   pdfDocBytes: ArrayBuffer,
   pageIndex: number,
   newStreamContent: string
-): Promise<{ updatedPdfBytes: ArrayBuffer; error?: string }> {
+): Promise<{ updatedPdfBytes: ArrayBuffer; updatedStream: string; error?: string }> {
   const startTime = Date.now();
-  logger.info('edit', `Zahájena přímá aktualizace content streamu na straně ${pageIndex + 1}`, {
+  logger.info('edit', `Zahájen přímý zápis content streamu na straně ${pageIndex + 1}`, {
     pageIndex: pageIndex + 1,
-    newLengthBytes: newStreamContent.length,
+    streamLength: newStreamContent.length,
   });
 
   try {
@@ -975,7 +975,7 @@ export async function updatePageContentStream(
     if (pageIndex < 0 || pageIndex >= pageCount) {
       const err = `Neplatný index stránky ${pageIndex + 1} (celkem stran: ${pageCount})`;
       logger.error('edit', err);
-      return { updatedPdfBytes: pdfDocBytes, error: err };
+      return { updatedPdfBytes: pdfDocBytes, updatedStream: '', error: err };
     }
 
     const page = pdfDoc.getPage(pageIndex);
@@ -992,13 +992,16 @@ export async function updatePageContentStream(
       savedBytes: savedBytes.byteLength,
     });
 
-    return { updatedPdfBytes: savedBytes.buffer as ArrayBuffer };
+    return {
+      updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
+      updatedStream: newStreamContent,
+    };
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
     logger.error('edit', `Chyba při zápisu content streamu strany ${pageIndex + 1}: ${errorMsg}`, {
       stack: err?.stack,
     });
-    return { updatedPdfBytes: pdfDocBytes, error: errorMsg };
+    return { updatedPdfBytes: pdfDocBytes, updatedStream: '', error: errorMsg };
   }
 }
 
@@ -1010,10 +1013,10 @@ export async function updateStreamSegmentInPage(
   pageIndex: number,
   originalSegment: string,
   newSegment: string
-): Promise<{ updatedPdfBytes: ArrayBuffer; error?: string }> {
+): Promise<{ updatedPdfBytes: ArrayBuffer; updatedStream: string; error?: string }> {
   const { streamText, error } = await getPageContentStream(pdfDocBytes, pageIndex);
   if (error || !streamText) {
-    return { updatedPdfBytes: pdfDocBytes, error: error || 'Nelze načíst stream stránky' };
+    return { updatedPdfBytes: pdfDocBytes, updatedStream: '', error: error || 'Nelze načíst stream stránky' };
   }
 
   let updatedStream: string;
@@ -1025,10 +1028,20 @@ export async function updateStreamSegmentInPage(
     if (normalizedStream.includes(normalizedOrig)) {
       updatedStream = normalizedStream.replace(normalizedOrig, newSegment);
     } else {
-      return {
-        updatedPdfBytes: pdfDocBytes,
-        error: 'Původní segment nebyl v content streamu nalezen pro přesnou náhradu.',
-      };
+      const trimmedOrig = originalSegment.trim();
+      const parsed = parseStreamSegments(streamText);
+      const matched = parsed.find(
+        (s) => s.rawContent === originalSegment || s.rawContent.trim() === trimmedOrig
+      );
+      if (matched && streamText.includes(matched.rawContent)) {
+        updatedStream = streamText.replace(matched.rawContent, newSegment);
+      } else {
+        return {
+          updatedPdfBytes: pdfDocBytes,
+          updatedStream: streamText,
+          error: 'Původní segment nebyl v content streamu nalezen pro přesnou náhradu.',
+        };
+      }
     }
   }
 
@@ -1216,7 +1229,7 @@ export async function removeMultipleElementsFromPage(
   pageIndex: number,
   segmentIds: string[],
   imageNames: string[]
-): Promise<{ updatedPdfBytes: ArrayBuffer; removedCount: number; error?: string }> {
+): Promise<{ updatedPdfBytes: ArrayBuffer; removedCount: number; updatedStream: string; error?: string }> {
   const startTime = Date.now();
   logger.info('edit', `Zahájeno odstraňování prvků ze strany ${pageIndex + 1}`, {
     pageIndex: pageIndex + 1,
@@ -1233,7 +1246,7 @@ export async function removeMultipleElementsFromPage(
     const pageCount = pdfDoc.getPageCount();
     if (pageIndex < 0 || pageIndex >= pageCount) {
       const err = `Neplatný index stránky ${pageIndex + 1}`;
-      return { updatedPdfBytes: pdfDocBytes, removedCount: 0, error: err };
+      return { updatedPdfBytes: pdfDocBytes, removedCount: 0, updatedStream: '', error: err };
     }
 
     const page = pdfDoc.getPage(pageIndex);
@@ -1242,6 +1255,7 @@ export async function removeMultipleElementsFromPage(
       return {
         updatedPdfBytes: pdfDocBytes,
         removedCount: 0,
+        updatedStream: '',
         error: streamErr || 'Nelze načíst stream stránky',
       };
     }
@@ -1323,13 +1337,14 @@ export async function removeMultipleElementsFromPage(
     return {
       updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
       removedCount,
+      updatedStream: modifiedStream,
     };
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
     logger.error('edit', `Chyba při odstraňování prvků ze strany ${pageIndex + 1}: ${errorMsg}`, {
       stack: err?.stack,
     });
-    return { updatedPdfBytes: pdfDocBytes, removedCount: 0, error: errorMsg };
+    return { updatedPdfBytes: pdfDocBytes, removedCount: 0, updatedStream: '', error: errorMsg };
   }
 }
 
