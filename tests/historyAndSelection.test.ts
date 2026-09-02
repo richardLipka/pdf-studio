@@ -161,5 +161,90 @@ describe('Undo/Redo History & Multi-Selection Engine', () => {
     expect(reverted.arrayBuffer?.byteLength).toBe(5);
     expect(new Uint8Array(reverted.arrayBuffer!)[0]).toBe(1);
   });
+
+  it('should support multi-feature undo/redo combining annotations, form fields, and stream changes', () => {
+    interface ComprehensiveSnapshot {
+      pages: { id: string; rotation: number }[];
+      annotations: { id: string; type: string; text?: string }[];
+      formValues: Record<string, string | boolean>;
+      sources: { id: string; byteLength: number }[];
+    }
+
+    const past: ComprehensiveSnapshot[] = [];
+    let present: ComprehensiveSnapshot = {
+      pages: [{ id: 'p1', rotation: 0 }],
+      annotations: [],
+      formValues: { fullName: 'Jan Novak' },
+      sources: [{ id: 'main', byteLength: 500 }],
+    };
+    const future: ComprehensiveSnapshot[] = [];
+
+    const push = (snap: ComprehensiveSnapshot) => {
+      past.push(JSON.parse(JSON.stringify(present)));
+      present = JSON.parse(JSON.stringify(snap));
+      future.length = 0;
+    };
+
+    const undo = () => {
+      if (past.length === 0) return;
+      future.unshift(present);
+      present = past.pop()!;
+    };
+
+    const redo = () => {
+      if (future.length === 0) return;
+      past.push(present);
+      present = future.shift()!;
+    };
+
+    // Step 1: Add annotation (highlight)
+    push({
+      ...present,
+      annotations: [{ id: 'ann_1', type: 'highlight', text: 'Important' }],
+    });
+    expect(present.annotations.length).toBe(1);
+
+    // Step 2: Update form field value
+    push({
+      ...present,
+      formValues: { ...present.formValues, fullName: 'Petr Svoboda' },
+    });
+    expect(present.formValues.fullName).toBe('Petr Svoboda');
+
+    // Step 3: Stream modification (reduce byteLength after element removal)
+    push({
+      ...present,
+      sources: [{ id: 'main', byteLength: 420 }],
+    });
+    expect(present.sources[0].byteLength).toBe(420);
+
+    // Undo Step 3 -> ByteLength restored to 500
+    undo();
+    expect(present.sources[0].byteLength).toBe(500);
+    expect(present.formValues.fullName).toBe('Petr Svoboda');
+    expect(present.annotations.length).toBe(1);
+
+    // Undo Step 2 -> Form field restored to 'Jan Novak'
+    undo();
+    expect(present.formValues.fullName).toBe('Jan Novak');
+    expect(present.annotations.length).toBe(1);
+
+    // Undo Step 1 -> Annotations restored to empty
+    undo();
+    expect(present.annotations.length).toBe(0);
+
+    // Redo Step 1 -> Annotations restored
+    redo();
+    expect(present.annotations.length).toBe(1);
+
+    // Redo Step 2 -> Form field updated
+    redo();
+    expect(present.formValues.fullName).toBe('Petr Svoboda');
+
+    // Redo Step 3 -> Stream modification reapplied
+    redo();
+    expect(present.sources[0].byteLength).toBe(420);
+  });
 });
+
 

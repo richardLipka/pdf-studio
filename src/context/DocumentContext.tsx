@@ -194,7 +194,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           pages: deepClone(newPages),
           annotations: deepClone(newAnnotations),
           activePageIndex: newActiveIndex,
-          sources: newSources ? cloneSources(newSources) : sources,
+          sources: cloneSources(newSources || sources),
           formValues: deepClone(newFormValues !== undefined ? newFormValues : formValues),
         };
 
