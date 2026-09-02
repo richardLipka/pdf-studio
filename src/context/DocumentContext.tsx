@@ -20,6 +20,7 @@ import {
 
 import { FormFieldModel, FormExportMode } from '../types/form';
 import { extractFormFieldsFromPdf } from '../services/formService';
+import { signPdfWithCertificate, DigitalSignatureOptions } from '../services/digitalSignatureService';
 
 interface HistorySnapshot {
   pages: PdfPageModel[];
@@ -120,6 +121,13 @@ interface DocumentContextType {
     rasterSettings?: RasterizationSettings,
     metadataOverride?: DocumentMetadata,
     formExportMode?: FormExportMode
+  ) => Promise<boolean>;
+  signAndDownload: (
+    privateKeyPem: string,
+    certificatePem: string,
+    options?: DigitalSignatureOptions,
+    customName?: string,
+    rasterSettings?: RasterizationSettings
   ) => Promise<boolean>;
 }
 
@@ -922,6 +930,72 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const signAndDownload = async (
+    privateKeyPem: string,
+    certificatePem: string,
+    options: DigitalSignatureOptions = {},
+    customName?: string,
+    rasterSettings?: RasterizationSettings
+  ): Promise<boolean> => {
+    if (pages.length === 0) return false;
+    setIsSaving(true);
+    try {
+      const baseName = customName || fileName.replace(/\.pdf$/i, '');
+      const outName = baseName.endsWith('.pdf') ? baseName.replace(/\.pdf$/i, '-signed.pdf') : `${baseName}-signed.pdf`;
+
+      // 1. Generate base edited PDF
+      const baseBytes = await exportEditedPdf(
+        sources,
+        pages,
+        annotations,
+        outName,
+        rasterSettings,
+        metadata,
+        formValues,
+        'interactive'
+      );
+
+      if (!baseBytes || baseBytes.length === 0) {
+        throw new Error('Nepodařilo se vygenerovat podkladový PDF soubor k podepsání.');
+      }
+
+      // 2. Cryptographically sign via PAdES PKCS#7
+      const pdfArrayBuffer = baseBytes.buffer.slice(
+        baseBytes.byteOffset,
+        baseBytes.byteOffset + baseBytes.byteLength
+      ) as ArrayBuffer;
+
+      const signResult = await signPdfWithCertificate(
+        pdfArrayBuffer,
+        privateKeyPem,
+        certificatePem,
+        {
+          ...options,
+          pageIndex: options.pageIndex !== undefined ? options.pageIndex : activePageIndex,
+        }
+      );
+
+      // 3. Download signed PDF
+      const blob = new Blob([signResult.signedPdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = outName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      return true;
+    } catch (e: any) {
+      logger.error('crypto', `Chyba při digitálním podepisování a stahování PDF: ${e?.message || e}`, e);
+      console.error('Failed to digitally sign PDF:', e);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Keyboard shortcut listener for Ctrl+Z / Ctrl+Y / Delete / PageUp / PageDown / Arrows / Ctrl+A
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1053,6 +1127,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     redo,
     commitHistorySnapshot,
     saveAndDownload,
+    signAndDownload,
   };
 
   return <DocumentContext.Provider value={value}>{children}</DocumentContext.Provider>;

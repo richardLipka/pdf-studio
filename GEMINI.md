@@ -40,12 +40,18 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **High-Resolution Image Cropper**: Crop rectangular regions directly from pages to the system clipboard in high quality.
    - **Eraser**: Delete individual annotations.
 
-5. **Digital Signatures & Stamp Library**:
-   - **Draw**: Canvas signature pad with touch, mouse, and stylus support.
+5. **Digital Signatures, Certificates & Stamp Library (PAdES / PKCS#7)**:
+   - **Visual Draw**: Canvas signature pad with touch, mouse, and stylus support.
    - **Upload**: Upload signature/stamp image with background transparency cleaning.
    - **Type**: Generate signature using handwriting-style cursive script fonts.
    - **Named Stamp Library**: Save multiple reusable stamps in browser `localStorage`.
    - **JSON Portability**: Download and restore full stamp collections as JSON packages containing Base64-encoded bitmap images.
+   - **Cryptographic PAdES / PKCS#7 Signing (Certificate Tab)**:
+     - Direct in-browser cryptographic signing conforming to ISO 32000-1 (`/Filter /Adobe.PPKLite`, `/SubFilter /adbe.pkcs7.detached`).
+     - Import `.p12` / `.pfx` software certificates with password decryption and certificate chain parsing.
+     - Built-in in-memory 2048-bit RSA key pair & X.509 self-signed test certificate generator with immediate `.p12` export.
+     - Automatic `/ByteRange` SHA-256 calculation and ASN.1 PKCS#7 detached signature injection.
+     - Optional visual verification badge with signer CN, date, time, and custom reason/location.
 
 6. **Document Metadata Inspection & Editing**:
    - **Properties**: Read and edit Title, Author, Subject, Keywords, Creator, and Producer directly in the browser.

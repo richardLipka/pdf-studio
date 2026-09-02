@@ -6,6 +6,11 @@ import { useDocument } from '../../context/DocumentContext';
 import { cleanSignatureBackground, readFileAsDataUrl } from '../../utils/file';
 import { SignatureAnnotation } from '../../types/annotations';
 import {
+  parsePkcs12,
+  generateSelfSignedCertificate,
+  ParsedCertificateInfo,
+} from '../../services/digitalSignatureService';
+import {
   PenLine,
   Type,
   Upload,
@@ -18,6 +23,12 @@ import {
   Download,
   UploadCloud,
   Layers,
+  ShieldCheck,
+  KeyRound,
+  FileCheck2,
+  Sparkles,
+  AlertCircle,
+  Lock,
 } from 'lucide-react';
 
 export const SignatureModal: React.FC = () => {
@@ -32,9 +43,9 @@ export const SignatureModal: React.FC = () => {
     importStampsFromJson,
   } = useEditor();
 
-  const { pages, activePageIndex, addAnnotation } = useDocument();
+  const { pages, activePageIndex, addAnnotation, signAndDownload } = useDocument();
 
-  const [activeTab, setActiveTab] = useState<'draw' | 'type' | 'upload' | 'saved'>('draw');
+  const [activeTab, setActiveTab] = useState<'draw' | 'type' | 'upload' | 'saved' | 'certificate'>('draw');
   const [stampTitle, setStampTitle] = useState<string>('');
 
   // Draw State
@@ -54,6 +65,30 @@ export const SignatureModal: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jsonImportInputRef = useRef<HTMLInputElement>(null);
+  const certFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Certificate / PAdES State
+  const [certFile, setCertFile] = useState<File | null>(null);
+  const [certPassword, setCertPassword] = useState<string>('');
+  const [isUnlockingCert, setIsUnlockingCert] = useState<boolean>(false);
+  const [certError, setCertError] = useState<string | null>(null);
+  const [loadedCertInfo, setLoadedCertInfo] = useState<ParsedCertificateInfo | null>(null);
+  const [loadedPrivateKeyPem, setLoadedPrivateKeyPem] = useState<string | null>(null);
+  const [loadedCertPem, setLoadedCertPem] = useState<string | null>(null);
+
+  // Digital Signature Options
+  const [sigReason, setSigReason] = useState<string>('Schváleno a odsouhlaseno');
+  const [sigLocation, setSigLocation] = useState<string>('');
+  const [sigVisualBadge, setSigVisualBadge] = useState<boolean>(true);
+  const [isSigning, setIsSigning] = useState<boolean>(false);
+
+  // Generator Drawer State
+  const [showGenDrawer, setShowGenDrawer] = useState<boolean>(false);
+  const [genName, setGenName] = useState<string>('');
+  const [genOrg, setGenOrg] = useState<string>('Moje Společnost');
+  const [genEmail, setGenEmail] = useState<string>('');
+  const [genPassword, setGenPassword] = useState<string>('1234');
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
   // Initialize SignaturePad when draw tab is open
   useEffect(() => {
@@ -182,7 +217,7 @@ export const SignatureModal: React.FC = () => {
       color: '#000000',
       opacity: 1.0,
       imageDataUrl: dataUrl,
-      signatureType: activeTab === 'saved' ? 'draw' : activeTab,
+      signatureType: activeTab === 'type' ? 'type' : activeTab === 'upload' ? 'upload' : 'draw',
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -231,6 +266,92 @@ export const SignatureModal: React.FC = () => {
     }
     setTimeout(() => setImportMessage(null), 4000);
     if (jsonImportInputRef.current) jsonImportInputRef.current.value = '';
+  };
+
+  const handleCertFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setCertFile(file);
+      setCertError(null);
+    }
+  };
+
+  const handleUnlockCert = async () => {
+    if (!certFile) return;
+    setIsUnlockingCert(true);
+    setCertError(null);
+    try {
+      const buffer = await certFile.arrayBuffer();
+      const res = parsePkcs12(buffer, certPassword);
+      setLoadedCertInfo(res.certInfo);
+      setLoadedPrivateKeyPem(res.privateKeyPem);
+      setLoadedCertPem(res.certificatePem);
+      if (!sigReason) setSigReason('Schváleno a odsouhlaseno');
+    } catch (err: any) {
+      setCertError(err?.message || 'Chyba při odemykání certifikátu');
+    } finally {
+      setIsUnlockingCert(false);
+    }
+  };
+
+  const handleGenerateSelfSigned = async () => {
+    if (!genName.trim()) return;
+    setIsGenerating(true);
+    setCertError(null);
+    try {
+      const res = await generateSelfSignedCertificate({
+        commonName: genName.trim(),
+        organization: genOrg.trim(),
+        email: genEmail.trim() || undefined,
+        password: genPassword,
+        validityDays: 365,
+      });
+      setLoadedCertInfo(res.certInfo);
+      setLoadedPrivateKeyPem(res.privateKeyPem);
+      setLoadedCertPem(res.certificatePem);
+      setShowGenDrawer(false);
+    } catch (err: any) {
+      setCertError(err?.message || 'Chyba při generování certifikátu');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleClearLoadedCert = () => {
+    setLoadedCertInfo(null);
+    setLoadedPrivateKeyPem(null);
+    setLoadedCertPem(null);
+    setCertFile(null);
+    setCertPassword('');
+    setCertError(null);
+    if (certFileInputRef.current) certFileInputRef.current.value = '';
+  };
+
+  const handleDigitalSignAndDownload = async () => {
+    if (!loadedPrivateKeyPem || !loadedCertPem) return;
+    setIsSigning(true);
+    setCertError(null);
+    try {
+      const success = await signAndDownload(
+        loadedPrivateKeyPem,
+        loadedCertPem,
+        {
+          reason: sigReason,
+          location: sigLocation,
+          visualAppearance: sigVisualBadge,
+          signerName: loadedCertInfo?.commonName,
+        }
+      );
+      if (success) {
+        setIsSignatureModalOpen(false);
+      } else {
+        setCertError(t.signatureModal.signError);
+      }
+    } catch (err: any) {
+      setCertError(err?.message || t.signatureModal.signError);
+    } finally {
+      setIsSigning(false);
+    }
   };
 
   const fonts = [
@@ -308,6 +429,18 @@ export const SignatureModal: React.FC = () => {
           >
             <Layers className="w-3.5 h-3.5" />
             {t.signatureModal.tabSaved} ({stamps.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('certificate')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all ${
+              activeTab === 'certificate'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            {t.signatureModal.tabCertificate}
           </button>
         </div>
 
@@ -571,6 +704,261 @@ export const SignatureModal: React.FC = () => {
               )}
             </div>
           )}
+
+          {/* TAB 5: DIGITAL CERTIFICATE (PAdES) */}
+          {activeTab === 'certificate' && (
+            <div className="space-y-4">
+              <input
+                type="file"
+                ref={certFileInputRef}
+                onChange={handleCertFileSelect}
+                accept=".p12,.pfx,application/x-pkcs12"
+                className="hidden"
+              />
+
+              {!loadedCertInfo ? (
+                <div className="space-y-4">
+                  {/* File Dropzone */}
+                  <div
+                    onClick={() => certFileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-2xl p-5 flex flex-col items-center justify-center cursor-pointer transition-all ${
+                      certFile
+                        ? 'border-indigo-500/80 bg-indigo-950/20'
+                        : 'border-slate-700 hover:border-indigo-500/60 bg-slate-800/40 hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-900/40 border border-indigo-700/50 flex items-center justify-center text-indigo-400 mb-2.5">
+                      <ShieldCheck className="w-6 h-6" />
+                    </div>
+                    <p className="text-xs font-semibold text-slate-200 text-center">
+                      {certFile ? certFile.name : t.signatureModal.certUploadTitle}
+                    </p>
+                    <p className="text-[11px] text-slate-400 text-center mt-1">
+                      {t.signatureModal.certUploadDesc}
+                    </p>
+                  </div>
+
+                  {/* Password Input & Unlock */}
+                  {certFile && (
+                    <div className="bg-slate-800/70 border border-slate-700/80 rounded-xl p-3.5 space-y-2.5 animate-in fade-in duration-150">
+                      <label className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>{t.signatureModal.certPasswordLabel}</span>
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          value={certPassword}
+                          onChange={(e) => setCertPassword(e.target.value)}
+                          placeholder={t.signatureModal.certPasswordPlaceholder}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUnlockCert();
+                            }
+                          }}
+                          className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleUnlockCert}
+                          disabled={isUnlockingCert}
+                          className="px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 disabled:opacity-50 transition-all"
+                        >
+                          {isUnlockingCert ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Lock className="w-3.5 h-3.5" />
+                          )}
+                          <span>{t.signatureModal.certUnlockBtn}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Self-Signed Generator Trigger */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowGenDrawer(!showGenDrawer)}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border border-indigo-500/30 bg-indigo-950/20 hover:bg-indigo-950/40 text-indigo-300 text-xs font-medium transition-all"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{t.signatureModal.certGenerateBtn}</span>
+                    </button>
+                  </div>
+
+                  {/* Self-Signed Generator Drawer */}
+                  {showGenDrawer && (
+                    <div className="bg-slate-800/90 border border-indigo-500/40 rounded-2xl p-4 space-y-3 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileCheck2 className="w-4 h-4 text-indigo-400" />
+                          <h4 className="text-xs font-bold text-white">{t.signatureModal.certGenerateTitle}</h4>
+                        </div>
+                        <button
+                          onClick={() => setShowGenDrawer(false)}
+                          className="text-slate-400 hover:text-white text-xs p-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-tight">
+                        {t.signatureModal.certGenerateDesc}
+                      </p>
+
+                      <div className="space-y-2 text-xs">
+                        <div>
+                          <label className="text-[11px] text-slate-300 block mb-1">{t.signatureModal.certCommonName}</label>
+                          <input
+                            type="text"
+                            value={genName}
+                            onChange={(e) => setGenName(e.target.value)}
+                            placeholder="Ing. Jan Novák"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white outline-none focus:border-indigo-500 text-xs"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] text-slate-300 block mb-1">{t.signatureModal.certOrganization}</label>
+                            <input
+                              type="text"
+                              value={genOrg}
+                              onChange={(e) => setGenOrg(e.target.value)}
+                              placeholder="Firma s.r.o."
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white outline-none focus:border-indigo-500 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-slate-300 block mb-1">{t.signatureModal.certEmail}</label>
+                            <input
+                              type="email"
+                              value={genEmail}
+                              onChange={(e) => setGenEmail(e.target.value)}
+                              placeholder="jan.novak@example.cz"
+                              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white outline-none focus:border-indigo-500 text-xs"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] text-slate-300 block mb-1">Heslo klíčenky (.p12 / .pfx)</label>
+                          <input
+                            type="password"
+                            value={genPassword}
+                            onChange={(e) => setGenPassword(e.target.value)}
+                            placeholder="1234"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white outline-none focus:border-indigo-500 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleGenerateSelfSigned}
+                        disabled={isGenerating || !genName.trim()}
+                        className="w-full py-2 px-3 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center gap-1.5 disabled:opacity-40 shadow-lg shadow-indigo-600/30 transition-all"
+                      >
+                        {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                        <span>{t.signatureModal.certGenerateBtn}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* Loaded Certificate Card & Signature Options */
+                <div className="space-y-4">
+                  {/* Verified Certificate Card */}
+                  <div className="bg-gradient-to-br from-indigo-950/60 to-slate-900 border border-indigo-500/50 rounded-2xl p-4 shadow-xl space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                          <ShieldCheck className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-white">{loadedCertInfo.commonName}</h4>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                              {loadedCertInfo.isExpired ? t.signatureModal.certExpired : t.signatureModal.certValid}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">
+                            {loadedCertInfo.organization || 'Osobní digitální certifikát'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleClearLoadedCert}
+                        className="text-[11px] font-medium text-slate-400 hover:text-rose-400 transition-colors p-1"
+                        title={t.signatureModal.removeLoadedCert}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 text-[11px] text-slate-300">
+                      <div>
+                        <span className="text-slate-500 block">{t.signatureModal.certIssuer}:</span>
+                        <span className="truncate block font-mono text-[10px]">{loadedCertInfo.issuerName}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">{t.signatureModal.certValidUntil}:</span>
+                        <span className="font-mono text-[10px]">{loadedCertInfo.validTo.toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Signature Parameters */}
+                  <div className="space-y-2.5 bg-slate-800/50 border border-slate-700/60 rounded-xl p-3.5">
+                    <div>
+                      <label className="text-[11px] font-medium text-slate-300 block mb-1">
+                        {t.signatureModal.sigReason}
+                      </label>
+                      <input
+                        type="text"
+                        value={sigReason}
+                        onChange={(e) => setSigReason(e.target.value)}
+                        placeholder={t.signatureModal.sigReasonPlaceholder}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-medium text-slate-300 block mb-1">
+                        {t.signatureModal.sigLocation}
+                      </label>
+                      <input
+                        type="text"
+                        value={sigLocation}
+                        onChange={(e) => setSigLocation(e.target.value)}
+                        placeholder={t.signatureModal.sigLocationPlaceholder}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-2 pt-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={sigVisualBadge}
+                        onChange={(e) => setSigVisualBadge(e.target.checked)}
+                        className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                      />
+                      <span className="text-xs text-slate-300">{t.signatureModal.sigVisualBadge}</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Error Box */}
+              {certError && (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-950/80 border border-rose-600 text-rose-300 text-xs animate-in fade-in duration-100">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{certError}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Modal Footer */}
@@ -582,7 +970,20 @@ export const SignatureModal: React.FC = () => {
             {t.addPageModal.cancel}
           </button>
 
-          {activeTab !== 'saved' && (
+          {activeTab === 'certificate' ? (
+            <button
+              onClick={handleDigitalSignAndDownload}
+              disabled={!loadedPrivateKeyPem || !loadedCertPem || isSigning}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 disabled:opacity-40 active:scale-95 transition-all"
+            >
+              {isSigning ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-3.5 h-3.5" />
+              )}
+              <span>{t.signatureModal.signAndDownloadPdf}</span>
+            </button>
+          ) : activeTab !== 'saved' ? (
             <>
               <button
                 onClick={() => handleConfirmInsert(true)}
@@ -600,7 +1001,7 @@ export const SignatureModal: React.FC = () => {
                 <span>{t.signatureModal.insert}</span>
               </button>
             </>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
