@@ -146,6 +146,11 @@ export interface VisualTextBlock {
   width: number;
   height: number;
   text: string;
+  type?: 'text' | 'image';
+  segmentIds?: string[];
+  imageName?: string;
+  pixelWidth?: number;
+  pixelHeight?: number;
 }
 
 /**

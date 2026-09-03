@@ -85,7 +85,7 @@ interface DocumentContextType {
   setSelectedAnnotationId: (id: string | null) => void;
 
   // Direct Content Stream Editing
-  getPageStream: (pageIndex?: number) => Promise<{ streamText: string; streamCount: number; error?: string }>;
+  getPageStream: (pageIndex?: number) => Promise<{ streamText: string; streamCount: number; isEncrypted?: boolean; error?: string }>;
   applyPageContentStreamEdit: (newStreamContent: string, pageIndex?: number) => Promise<{ success: boolean; updatedStream?: string; error?: string }>;
   applyStreamSegmentEdit: (originalSegment: string, newSegment: string, pageIndex?: number) => Promise<{ success: boolean; updatedStream?: string; error?: string }>;
   applyContentStreamReplacement: (

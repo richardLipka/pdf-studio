@@ -709,6 +709,93 @@ export const renderPdfTextLayer = async (
 };
 
 /**
+ * Discovers and calculates exact viewport bounding boxes for all images painted on a page.
+ */
+export const extractPageVisualImages = async (
+  pdfPage: pdfjsLib.PDFPageProxy,
+  viewport: pdfjsLib.PageViewport
+): Promise<import('../utils/textSnap').VisualTextBlock[]> => {
+  try {
+    const opList = await pdfPage.getOperatorList();
+    const ops = pdfjsLib.OPS;
+    const detected: import('../utils/textSnap').VisualTextBlock[] = [];
+
+    let currentMatrix = [1, 0, 0, 1, 0, 0];
+    const matrixStack: number[][] = [];
+    let imgCounter = 0;
+
+    const multiplyTransform = (m1: number[], m2: number[]): number[] => [
+      m1[0] * m2[0] + m1[2] * m2[1],
+      m1[1] * m2[0] + m1[3] * m2[1],
+      m1[0] * m2[2] + m1[2] * m2[3],
+      m1[1] * m2[2] + m1[3] * m2[3],
+      m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+      m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+    ];
+
+    for (let i = 0; i < opList.fnArray.length; i++) {
+      const fn = opList.fnArray[i];
+      const args = opList.argsArray[i];
+
+      if (fn === ops.save) {
+        matrixStack.push([...currentMatrix]);
+      } else if (fn === ops.restore) {
+        currentMatrix = matrixStack.pop() || [1, 0, 0, 1, 0, 0];
+      } else if (fn === ops.transform) {
+        currentMatrix = multiplyTransform(currentMatrix, args);
+      } else if (
+        fn === ops.paintImageXObject ||
+        fn === ops.paintInlineImageXObject ||
+        fn === ops.paintImageMaskXObject
+      ) {
+        imgCounter++;
+        const rawName = args ? String(args[0] || '') : `img_${imgCounter}`;
+        const cleanName = rawName.replace(/^\//, '');
+
+        const p0x = currentMatrix[4];
+        const p0y = currentMatrix[5];
+        const p1x = currentMatrix[0] + currentMatrix[4];
+        const p1y = currentMatrix[1] + currentMatrix[5];
+        const p2x = currentMatrix[0] + currentMatrix[2] + currentMatrix[4];
+        const p2y = currentMatrix[1] + currentMatrix[3] + currentMatrix[5];
+        const p3x = currentMatrix[2] + currentMatrix[4];
+        const p3y = currentMatrix[3] + currentMatrix[5];
+
+        const minX = Math.min(p0x, p1x, p2x, p3x);
+        const maxX = Math.max(p0x, p1x, p2x, p3x);
+        const minY = Math.min(p0y, p1y, p2y, p3y);
+        const maxY = Math.max(p0y, p1y, p2y, p3y);
+
+        const vpRect = viewport.convertToViewportRectangle([minX, minY, maxX, maxY]);
+        const vx = Math.min(vpRect[0], vpRect[2]);
+        const vy = Math.min(vpRect[1], vpRect[3]);
+        const vw = Math.abs(vpRect[2] - vpRect[0]);
+        const vh = Math.abs(vpRect[3] - vpRect[1]);
+
+        if (vw > 4 && vh > 4) {
+          detected.push({
+            id: `img_${cleanName || imgCounter}`,
+            type: 'image',
+            imageName: cleanName,
+            x: Math.max(0, vx),
+            y: Math.max(0, vy),
+            width: Math.max(8, vw),
+            height: Math.max(8, vh),
+            text: `/${cleanName}`,
+            pixelWidth: args ? args[1] : undefined,
+            pixelHeight: args ? args[2] : undefined,
+          });
+        }
+      }
+    }
+    return detected;
+  } catch (err) {
+    console.warn('extractPageVisualImages error:', err);
+    return [];
+  }
+};
+
+/**
  * Extracts exact line/block text geometries and content directly from PDF page vectors
  */
 export const getPageTextBlocks = async (
@@ -728,7 +815,7 @@ export const getPageTextBlocks = async (
 
     const textContent = await pdfPage.getTextContent();
     if (!textContent.items || textContent.items.length === 0) {
-      return [];
+      return await extractPageVisualImages(pdfPage, viewport);
     }
 
     interface ItemEntry {
@@ -787,7 +874,31 @@ export const getPageTextBlocks = async (
         );
         if (streamText) {
           const rawSegments = parseStreamSegments(streamText);
-          const textSegments = rawSegments.filter((s) => s.type === 'text');
+          const rawTextSegments = rawSegments.filter((s) => s.type === 'text');
+
+          // Merge contiguous same-line fragments (e.g. bullet number + text body)
+          const textSegments: Array<(typeof rawTextSegments)[0] & { segmentIds: string[] }> = [];
+          for (const seg of rawTextSegments) {
+            const last = textSegments[textSegments.length - 1];
+            const isSameLine =
+              last &&
+              last.x !== undefined &&
+              last.y !== undefined &&
+              seg.x !== undefined &&
+              seg.y !== undefined &&
+              Math.abs(last.y - seg.y) < 2.5 &&
+              seg.x >= last.x - 5;
+
+            if (isSameLine) {
+              last.segmentIds.push(seg.id);
+              last.previewText = `${last.previewText} ${seg.previewText}`.trim();
+            } else {
+              textSegments.push({
+                ...seg,
+                segmentIds: [seg.id],
+              });
+            }
+          }
 
           if (textSegments.length > 0) {
             const visualBlocks: import('../utils/textSnap').VisualTextBlock[] = [];
@@ -797,23 +908,75 @@ export const getPageTextBlocks = async (
               const normSeg = normalizeTextForSearch(seg.previewText);
               const segWords = normSeg.split(' ').filter((w) => w.length > 1);
 
+              let vpMinX = 0;
+              let vpMaxX = 0;
+              let vpMinY = 0;
+              let vpMaxY = 0;
+              let hasSpatialBox = false;
+
+              if (seg.x !== undefined && seg.y !== undefined) {
+                const fs = seg.fontSize || 12;
+                const lc = seg.lineCount || 1;
+                const lines = seg.previewText.split(/\r?\n/);
+                const maxLineLen = lines.reduce((max, l) => Math.max(max, l.length), 0) || seg.previewText.length;
+                const estWidth = Math.max(30, maxLineLen * fs * 0.75);
+                const pdfRect = [
+                  seg.x - 4,
+                  seg.y - fs * 0.3,
+                  seg.x + estWidth,
+                  seg.y + (lc - 1) * fs * 1.25 + fs * 0.9,
+                ];
+                const vpRect = viewport.convertToViewportRectangle(pdfRect);
+                vpMinX = Math.min(vpRect[0], vpRect[2]);
+                vpMaxX = Math.max(vpRect[0], vpRect[2]);
+                vpMinY = Math.min(vpRect[1], vpRect[3]);
+                vpMaxY = Math.max(vpRect[1], vpRect[3]);
+                hasSpatialBox = true;
+              }
+
               const matchedItems: ItemEntry[] = [];
 
+              // Priority 1: High-confidence text match bounded by spatial proximity
               items.forEach((item, itemIdx) => {
                 if (usedItemIndices.has(itemIdx)) return;
                 const normItem = normalizeTextForSearch(item.text);
                 if (!normItem) return;
 
-                const isWordMatch =
-                  normSeg.includes(normItem) ||
-                  normItem.includes(normSeg) ||
-                  segWords.some((w) => normItem.includes(w) || w.includes(normItem));
+                const isSubstrMatch = normSeg.includes(normItem) || normItem.includes(normSeg);
+                const longWords = segWords.filter((w) => w.length >= 4);
+                const isDistinctWordMatch = longWords.length > 0 && longWords.some((w) => normItem.includes(w));
+                const isWordMatch = isSubstrMatch || isDistinctWordMatch;
 
                 if (isWordMatch) {
-                  matchedItems.push(item);
-                  usedItemIndices.add(itemIdx);
+                  const isWithinSpatial =
+                    !hasSpatialBox ||
+                    (item.centerY >= vpMinY - 6 &&
+                      item.centerY <= vpMaxY + 6 &&
+                      item.x >= vpMinX - 12 &&
+                      item.x <= vpMaxX + 25);
+
+                  if (isWithinSpatial) {
+                    matchedItems.push(item);
+                    usedItemIndices.add(itemIdx);
+                  }
                 }
               });
+
+              // Priority 2: 2D Spatial intersection if text match didn't find items (e.g. subset fonts / hex CMap)
+              if (matchedItems.length === 0 && hasSpatialBox) {
+                const boxHeight = vpMaxY - vpMinY;
+                items.forEach((item, itemIdx) => {
+                  if (usedItemIndices.has(itemIdx)) return;
+
+                  const yOverlap = Math.abs(item.centerY - (vpMinY + vpMaxY) / 2) <= Math.max(6, boxHeight / 2 + 1);
+                  const xOverlap = (item.x + item.w) >= (vpMinX - 4) && item.x <= (vpMaxX + 8);
+
+                  if (yOverlap && xOverlap) {
+                    matchedItems.push(item);
+                    usedItemIndices.add(itemIdx);
+                  }
+                });
+              }
 
               if (matchedItems.length > 0) {
                 const minX = Math.min(...matchedItems.map((s) => s.x));
@@ -824,86 +987,43 @@ export const getPageTextBlocks = async (
 
                 visualBlocks.push({
                   id: seg.id,
+                  segmentIds: seg.segmentIds,
+                  type: 'text',
                   x: Math.max(0, minX - 2),
                   y: Math.max(0, minY - 1),
                   width: Math.max(12, maxX - minX + 4),
                   height: Math.max(10, maxY - minY + 2),
                   text: decodedText || seg.previewText,
                 });
+              } else if (hasSpatialBox) {
+                // High-precision stream coordinate fallback
+                visualBlocks.push({
+                  id: seg.id,
+                  segmentIds: seg.segmentIds,
+                  type: 'text',
+                  x: Math.max(0, vpMinX - 2),
+                  y: Math.max(0, vpMinY - 1),
+                  width: Math.max(14, vpMaxX - vpMinX + 4),
+                  height: Math.max(10, vpMaxY - vpMinY + 2),
+                  text: seg.previewText,
+                });
               } else {
-                // Secondary check: look for unassigned items nearest to this segment position
-                let matchedFallback: ItemEntry[] = [];
-                if (seg.x !== undefined && seg.y !== undefined) {
-                  const fs = seg.fontSize || 12;
-                  const lc = seg.lineCount || 1;
-                  const pdfRect = [
-                    seg.x,
-                    seg.y - fs * lc,
-                    seg.x + 300,
-                    seg.y + fs * 0.5,
-                  ];
-                  const vpRect = viewport.convertToViewportRectangle(pdfRect);
-                  const targetY = Math.min(vpRect[1], vpRect[3]);
-
-                  items.forEach((item, itemIdx) => {
-                    if (usedItemIndices.has(itemIdx)) return;
-                    const dy = Math.abs(item.y - targetY);
-                    if (dy < Math.max(15, fs * 1.5)) {
-                      matchedFallback.push(item);
-                      usedItemIndices.add(itemIdx);
-                    }
-                  });
-                }
-
-                if (matchedFallback.length > 0) {
-                  const minX = Math.min(...matchedFallback.map((s) => s.x));
-                  const maxX = Math.max(...matchedFallback.map((s) => s.x + s.w));
-                  const minY = Math.min(...matchedFallback.map((s) => s.y));
-                  const maxY = Math.max(...matchedFallback.map((s) => s.y + s.h));
-                  const decodedText = matchedFallback.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
-
-                  visualBlocks.push({
-                    id: seg.id,
-                    x: Math.max(0, minX - 2),
-                    y: Math.max(0, minY - 1),
-                    width: Math.max(12, maxX - minX + 4),
-                    height: Math.max(10, maxY - minY + 2),
-                    text: decodedText || seg.previewText,
-                  });
-                } else {
-                  // Fallback: estimate viewport position from stream coordinates
-                  let posX = 30;
-                  let posY = 50;
-                  let width = 200;
-                  let height = 20;
-
-                  if (seg.x !== undefined && seg.y !== undefined) {
-                    const fs = seg.fontSize || 12;
-                    const lc = seg.lineCount || 1;
-                    const pdfRect = [
-                      seg.x,
-                      seg.y - fs * lc,
-                      seg.x + Math.min(500, Math.max(50, seg.previewText.length * fs * 0.55)),
-                      seg.y + fs * 0.5,
-                    ];
-                    const vpRect = viewport.convertToViewportRectangle(pdfRect);
-                    posX = Math.min(vpRect[0], vpRect[2]);
-                    posY = Math.min(vpRect[1], vpRect[3]);
-                    width = Math.abs(vpRect[2] - vpRect[0]);
-                    height = Math.abs(vpRect[3] - vpRect[1]);
-                  }
-
-                  visualBlocks.push({
-                    id: seg.id,
-                    x: Math.max(0, posX - 2),
-                    y: Math.max(0, posY - 1),
-                    width: Math.max(12, width + 4),
-                    height: Math.max(10, height + 2),
-                    text: seg.previewText,
-                  });
-                }
+                visualBlocks.push({
+                  id: seg.id,
+                  segmentIds: seg.segmentIds,
+                  type: 'text',
+                  x: 30,
+                  y: 50,
+                  width: 200,
+                  height: 20,
+                  text: seg.previewText,
+                });
               }
             }
+
+            // Also discover images on page and append as interactive visualBlocks
+            const visualImages = await extractPageVisualImages(pdfPage, viewport);
+            visualBlocks.push(...visualImages);
 
             if (visualBlocks.length > 0) {
               return visualBlocks;
@@ -931,7 +1051,7 @@ export const getPageTextBlocks = async (
       }
     }
 
-    return lineGroups.map((group, idx) => {
+    const fallbackBlocks: import('../utils/textSnap').VisualTextBlock[] = lineGroups.map((group, idx) => {
       group.sort((a, b) => a.x - b.x);
       const minX = Math.min(...group.map((s) => s.x));
       const maxX = Math.max(...group.map((s) => s.x + s.w));
@@ -941,6 +1061,7 @@ export const getPageTextBlocks = async (
 
       return {
         id: `block_${idx + 1}`,
+        type: 'text',
         x: Math.max(0, minX - 2),
         y: Math.max(0, minY - 1),
         width: Math.max(12, maxX - minX + 4),
@@ -948,6 +1069,9 @@ export const getPageTextBlocks = async (
         text,
       };
     });
+
+    const fallbackImages = await extractPageVisualImages(pdfPage, viewport);
+    return [...fallbackBlocks, ...fallbackImages];
   } catch (err) {
     console.warn(`Failed to extract text blocks for page ${pageModel.id}:`, err);
     return [];

@@ -133,3 +133,10 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Test assets & files
+src/assets/testfiles/
+testfiles/
+*.testfiles
+analysis_report.json
+

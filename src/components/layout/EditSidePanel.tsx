@@ -24,6 +24,7 @@ import {
   CornerDownRight,
   ChevronLeft,
   ChevronRight,
+  Lock,
 } from 'lucide-react';
 import {
   parseStreamSegments,
@@ -32,6 +33,7 @@ import {
   findBestMatchingBlock,
   normalizeTextForSearch,
   replaceTextInStreamString,
+  replaceTextBlockText,
 } from '../../services/contentStreamEditor';
 import { getPageTextBlocks } from '../../services/pdfLoader';
 
@@ -67,7 +69,6 @@ export const EditSidePanel: React.FC = () => {
     removeMultiplePageElements,
     applyStreamSegmentEdit,
     applyPageContentStreamEdit,
-    removePageBlock,
   } = useDocument();
 
   const activeSourceDoc = sources.find((s) => s.id === pages[activePageIndex]?.sourceDocId);
@@ -97,13 +98,13 @@ export const EditSidePanel: React.FC = () => {
   const [streamEditorSubTab, setStreamEditorSubTab] = useState<'segment' | 'fullStream'>('segment');
   const [editorContent, setEditorContent] = useState<string>('');
   const [quickReplaceNewText, setQuickReplaceNewText] = useState<string>('');
+  const [isDocumentEncrypted, setIsDocumentEncrypted] = useState(false);
 
   const [statusMessage, setStatusMessage] = useState<{
     type: 'idle' | 'success' | 'error';
     text?: string;
   }>({ type: 'idle' });
 
-  // Load stream and images when panel opens or page changes
   // Load stream and images when panel opens or page changes
   const loadPageData = async (
     preferredTargetText?: string,
@@ -117,6 +118,8 @@ export const EditSidePanel: React.FC = () => {
         getPageStream(activePageIndex),
         getPageImagesList(activePageIndex),
       ]);
+
+      setIsDocumentEncrypted(Boolean(streamRes.isEncrypted));
 
       let textSegments: StreamSegment[] = [];
       if (streamRes.streamText) {
@@ -344,12 +347,24 @@ export const EditSidePanel: React.FC = () => {
     const totalCount = selectedBlockIds.size + selectedImageNames.size;
     if (totalCount === 0) return;
 
+    // Expand selectedBlockIds with any same-line companions
+    const allTargetSegmentIds = new Set<string>();
+    for (const id of selectedBlockIds) {
+      allTargetSegmentIds.add(id);
+      const orig = segments.find((s) => s.id === id);
+      if (orig && orig.x !== undefined && orig.y !== undefined) {
+        segments
+          .filter((s) => s.x !== undefined && s.y !== undefined && Math.abs(s.y - orig.y!) < 2.5)
+          .forEach((s) => allTargetSegmentIds.add(s.id));
+      }
+    }
+
     setIsSaving(true);
     setStatusMessage({ type: 'idle' });
 
     try {
       const res = await removeMultiplePageElements(
-        Array.from(selectedBlockIds),
+        Array.from(allTargetSegmentIds),
         Array.from(selectedImageNames),
         activePageIndex
       );
@@ -409,9 +424,23 @@ export const EditSidePanel: React.FC = () => {
     const origBlock = segments.find((s) => s.id === id);
     if (!origBlock) return;
 
+    // Find same-line companions (e.g. number bullet + text chunk)
+    const sameLineCompanions = segments.filter(
+      (s) =>
+        s.x !== undefined &&
+        s.y !== undefined &&
+        origBlock.x !== undefined &&
+        origBlock.y !== undefined &&
+        Math.abs(s.y - origBlock.y) < 2.5
+    );
+    const targetSegmentIds =
+      sameLineCompanions.length > 1
+        ? sameLineCompanions.map((s) => s.id)
+        : [id];
+
     setIsSaving(true);
     try {
-      const res = await removePageBlock(origBlock, activePageIndex);
+      const res = await removeMultiplePageElements(targetSegmentIds, [], activePageIndex);
       if (res.success) {
         setStatusMessage({
           type: 'success',
@@ -420,11 +449,11 @@ export const EditSidePanel: React.FC = () => {
 
         setSelectedBlockIds((prev) => {
           const next = new Set(prev);
-          next.delete(id);
+          targetSegmentIds.forEach((sid) => next.delete(sid));
           return next;
         });
 
-        if (selectedStreamBlockId === id) {
+        if (targetSegmentIds.includes(selectedStreamBlockId || '')) {
           setStreamReplaceTargetText('');
           setStreamReplaceTargetPosition(null);
         }
@@ -435,7 +464,7 @@ export const EditSidePanel: React.FC = () => {
           const textSegments = parsed.filter((s) => s.type === 'text');
           setSegments(textSegments);
 
-          if (selectedStreamBlockId === id) {
+          if (targetSegmentIds.includes(selectedStreamBlockId || '')) {
             if (textSegments.length > 0) {
               setSelectedStreamBlockId(textSegments[0].id);
               setEditorContent(textSegments[0].rawContent);
@@ -447,7 +476,7 @@ export const EditSidePanel: React.FC = () => {
             }
           }
         } else {
-          await loadPageData('', null);
+          await loadPageData();
         }
       } else {
         setStatusMessage({
@@ -530,6 +559,18 @@ export const EditSidePanel: React.FC = () => {
     const currentBlock = segments.find((s) => s.id === selectedStreamBlockId);
     if (!currentBlock) return;
 
+    // First try targeted block text replacement (handles TJ arrays, kerning, hex, multiline, etc.)
+    const updated = replaceTextBlockText(editorContent, quickReplaceNewText);
+    if (updated !== editorContent) {
+      setEditorContent(updated);
+      setStatusMessage({
+        type: 'idle',
+        text: 'Náhrada byla vložena do kódu bloku. Klikněte na Uložit pro aplikaci.',
+      });
+      return;
+    }
+
+    // Fallback to stream string replacement
     const { modifiedContent, count } = replaceTextInStreamString(
       editorContent,
       currentBlock.previewText,
@@ -544,14 +585,6 @@ export const EditSidePanel: React.FC = () => {
         text: `Nahrazeno ${count} výskytů v kódu bloku. Klikněte na Uložit pro aplikaci.`,
       });
     } else {
-      const escapedTarget = currentBlock.previewText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const literalRegex = new RegExp(`\\(${escapedTarget}\\)`, 'gi');
-      let updated = editorContent;
-      if (literalRegex.test(updated)) {
-        updated = updated.replace(literalRegex, `(${quickReplaceNewText})`);
-      } else {
-        updated = updated.replace(/\((.*?)\)\s*Tj/g, `(${quickReplaceNewText}) Tj`);
-      }
       setEditorContent(updated);
       setStatusMessage({
         type: 'idle',
@@ -786,6 +819,18 @@ export const EditSidePanel: React.FC = () => {
              TAB 1: REMOVE ELEMENTS (BLOCKS & IMAGES)
              ========================================================================= */
           <div className="p-3 flex flex-col gap-3">
+            {isDocumentEncrypted && (
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <div className="flex-1">
+                  <div className="font-bold text-amber-200">Šifrovaný PDF dokument</div>
+                  <div className="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
+                    Tento soubor obsahuje standardní šifrování oprávnění. Přímé mazání streamových segmentů je uzamčeno. Pro úpravu využijte <strong>Vizuální přepis</strong> v liště nástrojů nebo nástroje v záložce <strong>Revize</strong>.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -1017,6 +1062,16 @@ export const EditSidePanel: React.FC = () => {
                             </span>
                           )}
 
+                          {/* Scope / Container Badge */}
+                          {b.parentScope && (
+                            <span
+                              className="text-[9px] font-mono px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                              title={`Grafický kontext: ${b.parentScope}`}
+                            >
+                              {b.parentScope}
+                            </span>
+                          )}
+
                           {/* Indentation Depth Badge */}
                           {indentMm > 0 && (
                             <span
@@ -1105,6 +1160,7 @@ export const EditSidePanel: React.FC = () => {
                   return (
                     <div
                       key={im.name}
+                      id={`panel_item_img_${im.cleanName}`}
                       onClick={() => toggleImageSelection(im.name)}
                       className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                         isChecked
@@ -1133,6 +1189,45 @@ export const EditSidePanel: React.FC = () => {
                           </div>
                         </div>
                       </div>
+
+                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            setIsSaving(true);
+                            try {
+                              const res = await removeMultiplePageElements([], [im.name], activePageIndex);
+                              if (res.success) {
+                                setStatusMessage({
+                                  type: 'success',
+                                  text: `Obrázek ${im.cleanName} byl úspěšně odstraněn.`,
+                                });
+                                setSelectedImageNames((prev) => {
+                                  const next = new Set(prev);
+                                  next.delete(im.name);
+                                  return next;
+                                });
+                                const imagesRes = await getPageImagesList(activePageIndex);
+                                if (imagesRes.images) setImages(imagesRes.images);
+                              } else {
+                                setStatusMessage({
+                                  type: 'error',
+                                  text: res.error || 'Odstranění obrázku selhalo.',
+                                });
+                              }
+                            } catch (err: any) {
+                              setStatusMessage({ type: 'error', text: err?.message || String(err) });
+                            } finally {
+                              setIsSaving(false);
+                            }
+                          }}
+                          className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors"
+                          title="Smazat pouze tento obrázek"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1144,6 +1239,18 @@ export const EditSidePanel: React.FC = () => {
              TAB 2: STREAM & OPERATOR EDITOR
              ========================================================================= */
           <div className="p-3 flex flex-col gap-3">
+            {isDocumentEncrypted && (
+              <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+                <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                <div className="flex-1">
+                  <div className="font-bold text-amber-200">Šifrovaný PDF dokument</div>
+                  <div className="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
+                    Content streamy tohoto dokumentu jsou šifrovány autorem PDF (Standard Security). Přímá editace kódu operátorů je uzamčena. Můžete využít <strong>Vizuální přepis (Whiteout)</strong>.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Stream Sub-tab switch */}
             <div className="flex rounded-md p-0.5 bg-slate-800/60 border border-slate-700 text-[11px] font-semibold">
               <button

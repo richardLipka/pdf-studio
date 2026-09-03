@@ -23,6 +23,7 @@ import {
   SquarePen,
   Trash2,
   Code,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   parseStreamSegments,
@@ -486,13 +487,16 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
         {/* Visual Block Highlight Overlay for Remove Elements & Stream Mode */}
         {isRemoveActive &&
           visualBlocks.map((block) => {
+            const isImage = block.type === 'image';
             const isStreamMode =
-              activeTool === 'streamReplace' ||
-              (isEditSidePanelOpen && editSidePanelTab === 'stream');
+              !isImage &&
+              (activeTool === 'streamReplace' ||
+                (isEditSidePanelOpen && editSidePanelTab === 'stream'));
 
             const isSelected =
               selectedStreamBlockId === block.id ||
-              (Boolean(streamReplaceTargetText) &&
+              (isImage && Boolean(block.imageName) && (selectedStreamBlockId === `img_${block.imageName}` || selectedStreamBlockId === `/${block.imageName}`)) ||
+              (!isImage && Boolean(streamReplaceTargetText) &&
                 (block.text.toLowerCase().includes(streamReplaceTargetText.toLowerCase()) ||
                   streamReplaceTargetText.toLowerCase().includes(block.text.toLowerCase()))) ||
               (Boolean(streamReplaceTargetPosition) &&
@@ -501,7 +505,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
 
             const isHovered =
               hoveredBlockId === block.id ||
-              (Boolean(hoveredBlockText) &&
+              (!isImage && Boolean(hoveredBlockText) &&
                 (block.text.toLowerCase().includes(hoveredBlockText!.toLowerCase()) ||
                   hoveredBlockText!.toLowerCase().includes(block.text.toLowerCase())));
 
@@ -523,13 +527,17 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   setStreamReplaceTargetText(block.text);
 
                   setTimeout(() => {
-                    const el = document.getElementById(`panel_item_${block.id}`);
+                    const el = document.getElementById(
+                      isImage ? `panel_item_img_${block.imageName || block.id}` : `panel_item_${block.id}`
+                    );
                     if (el) {
                       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
                   }, 80);
 
-                  if (activeTool === 'streamReplace') {
+                  if (isImage) {
+                    setEditSidePanelTab('remove');
+                  } else if (activeTool === 'streamReplace') {
                     setEditSidePanelTab('stream');
                   } else {
                     setEditSidePanelTab('remove');
@@ -544,7 +552,25 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   height: `${block.height * scale}px`,
                 }}
                 className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
-                  isStreamMode
+                  isImage
+                    ? isSelected
+                      ? isMinimal
+                        ? 'border-2 border-dashed border-amber-600 bg-amber-600/25 ring-2 ring-amber-500 shadow-md z-40'
+                        : isLcars
+                        ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/35 ring-2 ring-[#ffcc00] z-40'
+                        : 'border-2 border-dashed border-amber-400 bg-amber-500/30 ring-2 ring-amber-400/80 shadow-[0_0_14px_rgba(251,191,36,0.7)] z-40'
+                      : isHovered
+                      ? isMinimal
+                        ? 'border-2 border-dashed border-amber-600/90 bg-amber-600/20 ring-1 ring-amber-400 z-30'
+                        : isLcars
+                        ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/25 z-30'
+                        : 'border-2 border-dashed border-amber-400 bg-amber-500/20 ring-1 ring-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)] z-30'
+                      : isMinimal
+                      ? 'border border-dashed border-amber-600/70 bg-amber-600/10 hover:bg-amber-600/25 hover:border-amber-700'
+                      : isLcars
+                      ? 'border border-dashed border-[#ffcc00]/70 bg-[#ffcc00]/15 hover:bg-[#ffcc00]/30'
+                      : 'border border-dashed border-amber-500/60 bg-amber-500/10 hover:border-amber-400 hover:bg-amber-500/25 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)]'
+                    : isStreamMode
                     ? isSelected
                       ? isMinimal
                         ? 'border-2 border-indigo-600 bg-indigo-600/20 ring-2 ring-indigo-500 shadow-md z-40'
@@ -580,15 +606,27 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                     ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
                     : 'border border-rose-500/60 bg-rose-500/5 hover:border-rose-400 hover:bg-rose-500/20 hover:shadow-[0_0_8px_rgba(244,63,94,0.35)]'
                 }`}
-                title={`${block.text}`}
+                title={
+                  isImage
+                    ? `Obrázek: ${block.imageName || block.text}${
+                        block.pixelWidth && block.pixelHeight ? ` (${block.pixelWidth}×${block.pixelHeight} px)` : ''
+                      }`
+                    : `${block.text}`
+                }
               >
                 {/* Small Icon Badge on Hover or Active */}
                 <div
                   className={`opacity-0 group-hover:opacity-100 transition-opacity text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none ${
-                    isStreamMode ? 'bg-indigo-600' : 'bg-rose-600'
+                    isImage ? 'bg-amber-600' : isStreamMode ? 'bg-indigo-600' : 'bg-rose-600'
                   }`}
                 >
-                  {isStreamMode ? <Code className="w-2.5 h-2.5" /> : <Trash2 className="w-2.5 h-2.5" />}
+                  {isImage ? (
+                    <ImageIcon className="w-2.5 h-2.5" />
+                  ) : isStreamMode ? (
+                    <Code className="w-2.5 h-2.5" />
+                  ) : (
+                    <Trash2 className="w-2.5 h-2.5" />
+                  )}
                 </div>
               </div>
             );
