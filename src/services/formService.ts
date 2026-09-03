@@ -30,12 +30,21 @@ export const extractFormFieldsFromPdf = async (
       if (pageModel.sourceType !== 'pdf') continue;
 
       let annotations: any[] = [];
+      let pdfPage: any = null;
       try {
-        const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+        pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
         annotations = await pdfPage.getAnnotations({ intent: 'display' });
       } catch (err) {
         logger.warn('load', `Nepodařilo se načíst formulářová pole ze strany ${pageIdx + 1}: ${err}`);
         continue;
+      } finally {
+        if (pdfPage) {
+          try {
+            pdfPage.cleanup();
+          } catch {
+            // ignore
+          }
+        }
       }
 
       // Filter for Widget annotations (AcroForm form fields)

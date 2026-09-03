@@ -584,6 +584,22 @@ export const exportEditedPdf = async (
     const srcDoc = sourceDocsMap.get(src.id);
     if (!srcDoc) continue;
 
+    // ISO 32000-1 Section 7.6: Encrypted source document detection
+    // pdf-lib does NOT decrypt stream contents; copying raw encrypted streams into an unencrypted
+    // outputDoc causes corrupted FlateDecode streams in viewers. We must use high-res render fallback!
+    const isEncrypted = Boolean(srcDoc.context.trailerInfo.Encrypt);
+    if (isEncrypted) {
+      logger.warn(
+        'save',
+        `Zdrojový dokument "${src.name || src.id}" je chráněn standardním šifrováním oprávnění (ISO 32000-1 Section 7.6). Strany budou uloženy pomocí bezztrátového vykreslení pro zaručení čitelnosti ve všech prohlížečích.`,
+        {
+          sourceId: src.id,
+          reason: 'Přímé binární kopírování šifrovaných streamů do nešifrovaného PDF by způsobilo neplatné kompresní bloky (Unknown compression method in flate stream).',
+        }
+      );
+      continue;
+    }
+
     // Find all pages originating from this source
     const srcPages = pages.filter((p) => p.sourceDocId === src.id && p.sourceType === 'pdf');
     if (srcPages.length > 0) {
@@ -608,11 +624,43 @@ export const exportEditedPdf = async (
           logger.warn('save', `Nelze zkopírovat AcroForm ze zdroje ${src.id}: ${acroErr}`);
         }
 
+        // Preserve Document Outlines (bookmarks / TOC tree) if present in primary source document (ISO 32000-1 Section 12.3.3)
+        try {
+          const srcOutlines = srcDoc.catalog.get(PDFName.of('Outlines'));
+          if (srcOutlines && !outputDoc.catalog.has(PDFName.of('Outlines'))) {
+            const copied = copier.copy(srcOutlines);
+            const outlinesRef = copied instanceof PDFRef ? copied : outputDoc.context.register(copied);
+            outputDoc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+          }
+        } catch (outlinesErr) {
+          // ignore outlines copy error
+        }
+
         // Copy pages with the same copier so all widget and page references map 1-to-1 identically
         const rawSrcPages = srcDoc.getPages();
         const copiedList: PDFPage[] = new Array(indicesToCopy.length);
         for (let idx = 0, len = indicesToCopy.length; idx < len; idx++) {
           const rawSrcPage = rawSrcPages[indicesToCopy[idx]];
+
+          // ISO 32000-1 Section 7.7.3.4: Resolve inherited attributes before copying
+          // (Resources, MediaBox, CropBox may reside in parent /Pages nodes)
+          try {
+            if (!rawSrcPage.node.has(PDFName.of('Resources'))) {
+              const inheritedRes = rawSrcPage.node.Resources();
+              if (inheritedRes) rawSrcPage.node.set(PDFName.of('Resources'), inheritedRes);
+            }
+            if (!rawSrcPage.node.has(PDFName.of('MediaBox'))) {
+              const inheritedMedia = rawSrcPage.node.MediaBox();
+              if (inheritedMedia) rawSrcPage.node.set(PDFName.of('MediaBox'), inheritedMedia);
+            }
+            if (!rawSrcPage.node.has(PDFName.of('CropBox'))) {
+              const inheritedCrop = rawSrcPage.node.CropBox();
+              if (inheritedCrop) rawSrcPage.node.set(PDFName.of('CropBox'), inheritedCrop);
+            }
+          } catch {
+            // ignore attribute resolution errors
+          }
+
           const copiedPageLeaf = copier.copy(rawSrcPage.node);
           const ref = outputDoc.context.register(copiedPageLeaf);
           copiedList[idx] = PDFPage.of(copiedPageLeaf, ref, outputDoc);
@@ -694,13 +742,24 @@ export const exportEditedPdf = async (
         srcCounter.set(pageModel.sourceDocId, count + 1);
       } else {
         const srcDoc = sourceDocsMap.get(pageModel.sourceDocId);
-        if (srcDoc) {
+        if (srcDoc && !srcDoc.context.trailerInfo.Encrypt) {
           try {
             const pageCount = srcDoc.getPageCount();
             const pageIdx = Math.min(
               Math.max(0, pageModel.originalPageIndex ?? 0),
               Math.max(0, pageCount - 1)
             );
+            const rawSrcPage = srcDoc.getPage(pageIdx);
+            try {
+              if (!rawSrcPage.node.has(PDFName.of('Resources'))) {
+                const inheritedRes = rawSrcPage.node.Resources();
+                if (inheritedRes) rawSrcPage.node.set(PDFName.of('Resources'), inheritedRes);
+              }
+              if (!rawSrcPage.node.has(PDFName.of('MediaBox'))) {
+                const inheritedMedia = rawSrcPage.node.MediaBox();
+                if (inheritedMedia) rawSrcPage.node.set(PDFName.of('MediaBox'), inheritedMedia);
+              }
+            } catch {}
             const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageIdx]);
             targetPage = outputDoc.addPage(copiedPage);
           } catch (copyErr: any) {
@@ -784,9 +843,34 @@ export const exportEditedPdf = async (
       targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
     }
 
-    // Clear pre-existing annotations dictionary on copied page so deleted/modified annotations don't conflict
+    // Filter pre-existing annotations on copied pages:
+    // Retain structural annotations like /Link (hyperlinks/TOC) and /Widget (forms)
+    // per ISO 32000-1 Section 12.5, while removing stale review markups managed by PDF Studio
     try {
-      targetPage.node.delete(PDFName.of('Annots'));
+      const existingAnnotsObj = targetPage.node.get(PDFName.of('Annots'));
+      const existingAnnots = targetPage.node.context.lookup(existingAnnotsObj);
+      if (existingAnnots instanceof PDFArray) {
+        const editableSubtypes = new Set([
+          'Highlight', 'Underline', 'StrikeOut', 'FreeText', 'Ink', 'Square', 'Circle', 'Line', 'Stamp'
+        ]);
+        const preservedAnnots = outputDoc.context.obj([]);
+        for (let i = 0; i < existingAnnots.size(); i++) {
+          const annotRef = existingAnnots.get(i);
+          const annotDict = targetPage.node.context.lookup(annotRef);
+          if (annotDict instanceof PDFDict) {
+            const subtype = annotDict.lookup(PDFName.of('Subtype'));
+            const subName = subtype instanceof PDFName ? subtype.asString().replace(/^\//, '') : '';
+            if (!editableSubtypes.has(subName)) {
+              preservedAnnots.push(annotRef);
+            }
+          }
+        }
+        if (preservedAnnots.size() > 0) {
+          targetPage.node.set(PDFName.of('Annots'), preservedAnnots);
+        } else {
+          targetPage.node.delete(PDFName.of('Annots'));
+        }
+      }
     } catch {
       // Ignore if no Annots node
     }
@@ -1076,7 +1160,17 @@ export const exportEditedPdf = async (
           default:
             break;
         }
-      } catch (err) {
+      } catch (err: any) {
+        logger.warn(
+          'save',
+          `Anotaci "${ann.id}" (${ann.type}) se nepodařilo zapsat do výsledného PDF: ${err?.message || err}`,
+          {
+            annotationId: ann.id,
+            annotationType: ann.type,
+            pageId: pageModel.id,
+            error: err?.message || String(err),
+          }
+        );
         console.warn(`Error drawing annotation ${ann.id}:`, err);
       }
     }

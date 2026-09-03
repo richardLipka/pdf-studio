@@ -102,6 +102,11 @@ class PdfRenderQueue {
     if (item) {
       item.isCancelled = true;
       this.queue = this.queue.filter((q) => q.id !== id);
+      try {
+        item.resolve(); // Cleanly unblock awaiting callers
+      } catch {
+        // ignore
+      }
     }
   }
 
@@ -111,6 +116,11 @@ class PdfRenderQueue {
   public clear(): void {
     for (const item of this.queue) {
       item.isCancelled = true;
+      try {
+        item.resolve(); // Cleanly unblock awaiting callers
+      } catch {
+        // ignore
+      }
     }
     this.queue = [];
   }

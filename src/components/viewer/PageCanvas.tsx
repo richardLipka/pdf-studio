@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState, memo } from 'react';
 import { PdfPageModel, SourceDocument } from '../../types/document';
 import { renderPdfPageToCanvas } from '../../services/pdfLoader';
 import { renderQueue, RenderPriority } from '../../services/renderQueue';
-import { Loader2 } from 'lucide-react';
+import { useI18n } from '../../i18n/context';
+import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface PageCanvasProps {
   page: PdfPageModel;
@@ -15,9 +16,12 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
   sourceDoc,
   scale,
 }) => {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState<number>(0);
   const hasDrawnRef = useRef<boolean>(false);
   const isIntersectingRef = useRef<boolean>(false);
 
@@ -80,12 +84,16 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
       .then(() => {
         if (!isCancelled) {
           hasDrawnRef.current = true;
+          setRenderError(null);
           setInitialLoading(false);
         }
       })
       .catch((err) => {
         if (!isCancelled) {
-          console.error(`Failed to render page ${page.id}:`, err);
+          if (err?.name !== 'RenderingCancelledException') {
+            console.error(`Failed to render page ${page.id}:`, err);
+            setRenderError(err?.message || 'Chyba při vykreslování strany');
+          }
           setInitialLoading(false);
         }
       });
@@ -106,7 +114,18 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
     sourceDoc,
     sourceDoc?.updatedAt,
     scale,
+    retryNonce,
   ]);
+
+  const handleRetry = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const taskId = `canvas_${page.id}_${page.rotation}_${scale}`;
+    renderQueue.cancel(taskId);
+    hasDrawnRef.current = false;
+    setRenderError(null);
+    setInitialLoading(true);
+    setRetryNonce((prev) => prev + 1);
+  };
 
   return (
     <div
@@ -119,9 +138,31 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
     >
       <canvas ref={canvasRef} className="block select-none" />
 
-      {initialLoading && !hasDrawnRef.current && (
+      {initialLoading && !hasDrawnRef.current && !renderError && (
         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+        </div>
+      )}
+
+      {renderError && !hasDrawnRef.current && (
+        <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-10 animate-in fade-in duration-200">
+          <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-3">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <p className="text-sm font-semibold text-white mb-1">
+            {t.app.renderFailed}
+          </p>
+          <p className="text-xs text-slate-400 max-w-xs mb-4 line-clamp-2">
+            {renderError}
+          </p>
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-500 text-white transition-all shadow-md active:scale-95"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>{t.app.retry}</span>
+          </button>
         </div>
       )}
     </div>

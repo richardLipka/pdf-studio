@@ -16,32 +16,45 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Reordering**: Drag-and-drop thumbnail grid reordering.
    - **Rotation**: Rotate individual or selected pages by 90° increments.
 
-2. **Triple-Tab Interface: Review vs Edit vs Sign**:
-   - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes, High-res image cropper, and Eraser.
+2. **Triple-Tab Interface & Unified Right Dock**:
+   - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes suite (Rectangle, Ellipse, Line), High-res image cropper, and Eraser.
    - **Editace (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files: Visual Rewrite (Whiteout + Overlay), Content Stream Editor, and Remove Elements (permanent removal of text blocks & images).
    - **Podpis (Sign Tab)**: Dedicated signing & certification workspace: Visual signature pad (Draw/Type/Upload), Reusable stamp library with live counter, and direct Cryptographic PAdES / PKCS#7 signing conforming to ISO 32000-1.
+   - **Unified Right Dock**: Automatically switches and maintains mutual exclusivity between the `NotesPanel` (Review & Sign tabs) and the `EditSidePanel` (Edit tab), providing a clean, uncluttered workspace.
 
-3. **Direct Content Stream Segment & Page Editor**:
+3. **Geometric Shapes Suite (ISO 32000-1 `/Square`, `/Circle`, `/Line`)**:
+   - **Drawing Tools**: Draw Rectangles, Ellipses, and Straight Lines with live SVG drag previews.
+   - **Dynamic Morphing**: Select existing shapes and dynamically switch their subtype between Rectangle, Ellipse, and Line without recreating them.
+   - **Styling Controls**: Adjustable stroke widths (1pt - 12pt), curated stroke color palette, and optional background fill colors with instant transparency toggle.
+   - **Native PDF Conformance**: Generates ISO 32000-1 compliant Appearance Streams (`/AP /N`) and Border dictionaries (`/BS /W`), guaranteeing exact rendering in all external PDF viewers.
+
+4. **Direct Content Stream Segment & Page Editor**:
    - **Segment Isolation & Inspection**: Decodes and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.
    - **Interactive Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly focuses and selects that specific stream segment in the Stream Editor.
    - **Direct Code Editor & Quick Replacer**: Live monospaced code editor allowing direct byte/operator edits or quick text replacement inside the selected block, plus a Full Page Stream tab.
+   - **Cascading Double-Replacement Prevention**: Isolates and masks `[...] TJ` kerning arrays first so nested word substitutions (e.g. `test` → `testing`) never produce corrupted duplicates (`testinging`).
    - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time.
    - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
    - **Logging**: Captures duration in ms, stream sizes, and detailed error logs under `'edit'` category.
 
-4. **Document Review & Annotation Suite**:
+5. **Document Review & Annotation Suite**:
    - **Interactive PDF Text Layer & Selection**: Built-in text layer allows natural mouse selection, native clipboard copying (`Ctrl + C`), and floating quick-actions for instant highlighting, underlining, crossing out, or stream replacing selected text.
    - **Right-Side Notes & Reviews Panel**: Hidable side panel listing all document notes, review comments, highlights, underlines, and strikethroughs with full-text instant search and direct click navigation.
    - **Comments on Markups**: Attach review comments and notes to underlines, strikethroughs, and highlights with visual indicator badges on canvas.
-   - **Full Line Width Storage & Display (1pt - 12pt)**: Complete support for line thicknesses (1, 2, 4, 6, 8, 12 pt) with ISO 32000-1 Appearance Streams (`/AP /N`) and Border dictionaries (`/BS /W`) ensuring exact line width rendering across all PDF readers.
+   - **Full Line Width Storage & Display (1pt - 12pt)**: Complete support for line thicknesses (1, 2, 4, 6, 8, 12 pt) with ISO 32000-1 Appearance Streams (`/AP /N`) and Border dictionaries (`/BS /W`).
    - **PDF Annotation Extraction**: Automatically parses and loads existing comments, sticky notes, shapes, lines, and text markups from imported PDF files via `pdfjs-dist`.
    - **Text Markups & Smart Text Line Alignment**: Highlight, Underline, Strikethrough (Crossing text) with customizable colors and line widths. Automatically detects text lines when drawn across text, snapping underlines under letters/baseline and strikethroughs across the center of letters.
    - **Text Insertion & Typography**: Add custom text boxes with immediate font family selection (Inter, Caveat, Dancing Script, Courier, Times New Roman, Georgia, Arial), custom font sizes, and instant color changes.
-   - **Freehand Drawing & Shapes**: Pen tool, lines, rectangles, and ellipses with color palette and stroke width adjustment.
    - **High-Resolution Image Cropper**: Crop rectangular regions directly from pages to the system clipboard in high quality.
    - **Eraser**: Delete individual annotations.
 
-5. **Digital Signatures, Certificates & Stamp Library (PAdES / PKCS#7)**:
+6. **ISO 32000-1 Conformance for Saving Unchanged Pages**:
+   - **Encrypted Source Protection (ISO 32000-1 Section 7.6)**: Detects documents protected with Standard Security (`/Encrypt`). Prevents copying raw encrypted ciphertext into unencrypted output files (which causes `"Unknown compression method in flate stream"` and blank pages in readers) by automatically routing encrypted pages to high-resolution vector-rendered preservation.
+   - **Structural Annotation Preservation (ISO 32000-1 Section 12.5)**: Selectively filters out stale review markups while preserving non-conflicting `/Link` annotations (hyperlinks, TOC navigation) and `/Widget` annotations across all unchanged pages.
+   - **Inherited Attributes Resolution (ISO 32000-1 Section 7.7.3.4)**: Automatically resolves inherited `/Resources`, `/MediaBox`, and `/CropBox` definitions from parent `/Pages` tree nodes onto copied leaf pages so fonts and dimensions are never lost.
+   - **Document Outlines Preservation (ISO 32000-1 Section 12.3.3)**: Preserves existing bookmark hierarchies (`/Outlines`) from the primary source document.
+
+7. **Digital Signatures, Certificates & Stamp Library (PAdES / PKCS#7)**:
    - **Visual Draw**: Canvas signature pad with touch, mouse, and stylus support.
    - **Upload**: Upload signature/stamp image with background transparency cleaning.
    - **Type**: Generate signature using handwriting-style cursive script fonts.
@@ -54,52 +67,43 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
      - Automatic `/ByteRange` SHA-256 calculation and ASN.1 PKCS#7 detached signature injection.
      - Optional visual verification badge with signer CN, date, time, and custom reason/location.
 
-6. **Document Metadata Inspection & Editing**:
+8. **Document Metadata Inspection & Editing**:
    - **Properties**: Read and edit Title, Author, Subject, Keywords, Creator, and Producer directly in the browser.
    - **Technical File Inspection**: View source file size, total page count, creation date, modification timestamp, and PDF format version.
    - **Persistence**: Writes metadata directly to the exported PDF document trailer information dictionary.
 
-7. **Configurable Rasterization & Export Settings**:
+9. **Configurable Rasterization & Export Settings**:
    - **Customizable Fallback Parameters**: Full user control over fallback rasterization settings whenever a page cannot be directly vector-copied:
      - Resolution/Scale: `1.0×` (72 DPI), `1.5×` (108 DPI), `2.0×` (144 DPI - default), `3.0×` (216 DPI - high-res print).
      - Image Format: `JPEG` (recommended with DCTDecode compression for scans/comics) or `PNG` (lossless).
      - JPEG Quality: Configurable slider and presets (75%, 85%, 90% default, 95%, 100%).
    - **Persistent Storage**: Saved in `localStorage` and indicated dynamically in StatusBar.
 
-8. **Switchable URL-Encoded Themes**:
+10. **Switchable URL-Encoded Themes**:
    - **Studio (Dark)**: Modern dark glassmorphic interface (`?theme=default`).
    - **Minimal (Light)**: Pure white background, clean black lines, monochrome aesthetic (`?theme=minimal`).
    - **LCARS (Star Trek: TNG)**: 24th-century LCARS interface with amber, lilac, cyan palette and pill buttons (`?theme=lcars`).
 
-9. **Flicker-Free 100-Step Undo/Redo**:
-   - Deep-cloned immutable history stack (100 snapshots) tracking all page modifications, markups, rotations, and annotations.
-   - Memoized canvas rendering without full-screen blinking during history steps.
-   - Atomic history snapshots captured on mouse release (`onMouseUp`).
-
-10. **Smart Zoom & Prioritized Lazy Page Rendering**:
+11. **Prioritized Lazy Page Rendering & Canvas Error Recovery**:
    - **Prioritized Lazy Rendering Queue**: For large documents (> 5 pages), renders the first 5 pages and active viewport pages with highest priority without blocking CPU/GPU.
-   - **Dynamic Viewport Priority Elevation**: If the user scrolls to any offscreen page, `IntersectionObserver` immediately elevates its priority to the front of the queue (`VIEWPORT` priority) for instant rendering.
-   - **Background Sequential Completion**: Background pages render one-by-one seamlessly so the entire document is rendered without UI lag.
-   - **Smart Zoom**: **Zoom to Selected Page** (`Ctrl + 0` / *"Na vybranou"* button), **Fit Width**, and **Fit Page** auto-scaling.
-   - Automatic smooth scrolling to centered active page in main viewer and sidebar.
+   - **Dynamic Viewport Priority Elevation**: `IntersectionObserver` elevates offscreen pages to the front of the queue (`VIEWPORT` priority) when scrolled into view.
+   - **WebWorker Resource Cleanup**: Calls `pdfPage.cleanup()` across all renderers and annotation parsers to release operator lists and decoded bitmaps immediately.
+   - **Concurrent Load Deduplication**: In-flight `getCachedPdfDocument` tasks are deduplicated via shared loading promises.
+   - **Interactive Canvas Failure Recovery**: If a page fails to render, a non-blocking error overlay provides a clear description and an interactive "Zkusit znovu / Retry" button that cleanly resets state and re-enqueues render.
 
-11. **Event Log & Diagnostic Protocol Screen**:
-   - **Real-Time Operation Tracking**: Captures all loading, saving, rendering, editing, and system events with timestamps and severity levels (`INFO`, `WARN`, `ERROR`, `SUCCESS`).
-   - **Comprehensive PDF-Lib Diagnostics & Sanitization**: Strips pre-header/post-EOF noise, captures 7 parse attempts with stack traces, and catalog/PageTree repair tracking.
-   - **Rasterization Fallback Reason, Impact & JPEG Transformation Tracking**: Captures specific reasons, image dimensions, scale factors, data sizes, and JPEG/PNG transformation parameters whenever fallback rasterization is triggered.
-   - **Diagnostics & Error Inspection**: Dedicated diagnostic modal with level filtering, instant search, JSON/stack trace expandable blocks, and one-click clipboard copying.
+12. **Event Log & Diagnostic Protocol Screen**:
+   - **Safe Detail Serialization**: `safeSerializeDetails` prevents OOM by replacing large binary buffers (`Uint8Array`, `ArrayBuffer`) with metadata summaries, safely catches circular references (`WeakSet`), serializes `BigInt`, and unwinds nested `Error.cause` chains.
+   - **Listener Isolation**: All event subscribers are protected with per-listener `try/catch` blocks.
+   - **Log Exports**: One-click download of all logs via `exportAsJson()` and `exportAsText()`.
    - **Status Indicators**: Dynamic badge counters in Header and StatusBar indicating warning/error totals.
 
-12. **Interactive PDF Form Filling & Dual Save Mode (AcroForms)**:
+13. **Interactive PDF Form Filling & Dual Save Mode (AcroForms)**:
    - **Interactive Visual Form Layer**: Automatically parses and detects form widgets (Text fields, Multiline text areas, Checkboxes, Radio buttons, Dropdowns, Option lists) from imported PDF documents via `pdfjs-dist`.
-   - **Real-Time Canvas Interaction**: Allows direct in-place typing, selecting, and toggling of form fields on the canvas with full zoom scaling and theme integration (Studio, Minimal, LCARS).
-   - **Full Czech Unicode & Diacritics Support**: Seamless handling of Czech characters (`ěščřžýáíéůúťďň ĚŠČŘŽÝÁÍÉŮÚŤĎŇ`) encoded as UTF-16BE hex strings with `/NeedAppearances true` standard ISO 32000-1 conformance.
-   - **Dual Export Prompt & Modality**: When exporting/saving a PDF containing form fields, prompts the user to choose:
-     - **Ponechat interaktivní formulář (Interactive AcroForm)**: Preserves editable PDF fields, default resources, and field values for subsequent filling in Adobe Acrobat and other viewers.
-     - **Zploštit formulář (Flatten into static PDF)**: Permanently burns form values directly into the PDF static page contents (`form.flatten()`) for official submissions and unalterable archiving.
-   - **100-Step History Tracking**: Undo/Redo (`Ctrl + Z` / `Ctrl + Y`) seamlessly tracks form value changes across all fields.
+   - **Real-Time Canvas Interaction**: Allows direct in-place typing, selecting, and toggling of form fields on the canvas with full zoom scaling and theme integration.
+   - **Full Czech Unicode & Diacritics Support**: Seamless handling of Czech characters (`ěščřžýáíéůúťďň ĚŠČŘŽÝÁÍÉŮÚŤĎŇ`) encoded as UTF-16BE hex strings with `/NeedAppearances true` ISO 32000-1 conformance.
+   - **Dual Export Prompt & Modality**: Prompts user to choose between **Interactive AcroForm** (editable fields) and **Flattened PDF** (permanently burned for official archival).
 
-13. **100% Client-Side Privacy & Native Page Preservation**:
+14. **100% Client-Side Privacy & Native Page Preservation**:
    - Zero file upload to servers. All operations happen in-memory via Web Workers and Web APIs.
    - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
@@ -116,7 +120,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive unit & integration testing (59 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (26 test files, 133 tests) |
 
 ---
 
@@ -131,7 +135,7 @@ pdf-editor/
 │   ├── assets/             # Static assets & sample files
 │   ├── components/
 │   │   ├── common/         # Dropzone, Toast, Icons
-│   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel
+│   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel, EditSidePanel
 │   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal
 │   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer
 │   ├── context/
@@ -143,13 +147,15 @@ pdf-editor/
 │   │   ├── en.ts           # English translations
 │   │   └── context.tsx     # i18n Provider and translation hooks
 │   ├── services/
-│   │   ├── logger.ts       # Structured logging, event subscription & issue counters
-│   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures)
-│   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist
+│   │   ├── logger.ts       # Structured logging, safe serialization, event subscription & issue counters
+│   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures/shapes)
+│   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with WebWorker memory cleanup
 │   │   ├── renderQueue.ts  # Prioritized lazy rendering queue for viewport & large files
+│   │   ├── contentStreamEditor.ts # Direct stream parser, token replacer, and structural segment tree
+│   │   ├── formService.ts  # AcroForm detection, widget mapping, and value persistence
 │   │   └── pageManager.ts  # Adds, deletes, reorders, and rotates pages
 │   ├── types/
-│   │   ├── annotations.ts  # Types for highlights, notes, lines, signatures
+│   │   ├── annotations.ts  # Types for highlights, notes, lines, shapes, signatures
 │   │   ├── document.ts     # Document and page data models
 │   │   ├── i18n.ts         # Translation schema
 │   │   └── stamp.ts        # Stamp data model & JSON export schema
@@ -160,7 +166,7 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite
+├── tests/                  # Automated Vitest test suite (133 tests)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
@@ -193,4 +199,3 @@ npm run build
 
 - **Author**: [Richard Lipka](https://home.zcu.cz/~lipka/) ([lipka@fav.zcu.cz](mailto:lipka@fav.zcu.cz))
 - **Institution**: [Faculty of Applied Sciences (FAV), University of West Bohemia](https://www.fav.zcu.cz/cs/)
-

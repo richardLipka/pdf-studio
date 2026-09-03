@@ -51,6 +51,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     strokeWidth,
     fontSize,
     fontFamily,
+    selectedShape,
     isNotesPanelOpen,
     addStamp,
   } = useEditor();
@@ -220,7 +221,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         ann.type === 'strikethrough' ||
         ann.type === 'text' ||
         ann.type === 'whiteout' ||
-        ann.type === 'drawing'
+        ann.type === 'drawing' ||
+        ann.type === 'shape'
       ) {
         return (
           pt.x >= ann.x - pad &&
@@ -253,7 +255,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       }
     }
 
-    if (activeTool === 'crop' || activeTool === 'whiteout') {
+    if (activeTool === 'crop' || activeTool === 'whiteout' || activeTool === 'shape') {
       setIsDrawing(true);
       setStartPoint(pt);
       setCurrentPoints([pt]);
@@ -328,7 +330,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         activeTool === 'underline' ||
         activeTool === 'strikethrough' ||
         activeTool === 'crop' ||
-        activeTool === 'whiteout'
+        activeTool === 'whiteout' ||
+        activeTool === 'shape'
       ) {
         // Immediate visual preview updating as mouse moves
         setCurrentPoints([pt]);
@@ -632,6 +635,32 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 console.error('Crop failed:', err);
               });
           }
+        } else if (activeTool === 'shape') {
+          const sType = selectedShape || 'rectangle';
+          const shapeWidth = Math.max(8, Math.abs(endPoint.x - startPoint.x));
+          const shapeHeight = Math.max(8, Math.abs(endPoint.y - startPoint.y));
+          const shapeX = Math.min(startPoint.x, endPoint.x);
+          const shapeY = Math.min(startPoint.y, endPoint.y);
+
+          const newShape: ShapeAnnotation = {
+            id: `shape_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            pageId: page.id,
+            type: 'shape',
+            shapeType: sType,
+            x: sType === 'line' ? startPoint.x : shapeX,
+            y: sType === 'line' ? startPoint.y : shapeY,
+            width: sType === 'line' ? endPoint.x - startPoint.x : shapeWidth,
+            height: sType === 'line' ? endPoint.y - startPoint.y : shapeHeight,
+            endPoint: sType === 'line' ? { x: endPoint.x, y: endPoint.y } : undefined,
+            color: strokeColor || '#0284c7',
+            fillColor: fillColor && fillColor !== 'transparent' ? fillColor : undefined,
+            strokeWidth: strokeWidth || 2,
+            opacity: 1.0,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+          addAnnotation(newShape);
+          setSelectedAnnotationId(newShape.id);
         }
       }
 
@@ -1194,6 +1223,59 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 </text>
               </g>
             </g>
+          );
+        })()}
+
+        {/* LIVE DRAWING PREVIEW: Shape (Rectangle, Ellipse, Line) */}
+        {isDrawing && activeTool === 'shape' && startPoint && currentPoints.length > 0 && (() => {
+          const p2 = currentPoints[0];
+          const sWidth = strokeWidth || 2;
+          const sColor = strokeColor || '#0284c7';
+          const hasFill = fillColor && fillColor !== 'transparent';
+          if (selectedShape === 'line') {
+            return (
+              <line
+                x1={startPoint.x}
+                y1={startPoint.y}
+                x2={p2.x}
+                y2={p2.y}
+                stroke={sColor}
+                strokeWidth={sWidth}
+                strokeLinecap="round"
+              />
+            );
+          }
+          const x1 = Math.min(startPoint.x, p2.x);
+          const y1 = Math.min(startPoint.y, p2.y);
+          const w = Math.max(4, Math.abs(p2.x - startPoint.x));
+          const h = Math.max(4, Math.abs(p2.y - startPoint.y));
+
+          if (selectedShape === 'ellipse') {
+            return (
+              <ellipse
+                cx={x1 + w / 2}
+                cy={y1 + h / 2}
+                rx={Math.max(1, w / 2)}
+                ry={Math.max(1, h / 2)}
+                fill={hasFill ? fillColor : 'transparent'}
+                stroke={sColor}
+                strokeWidth={sWidth}
+                strokeDasharray="4 2"
+              />
+            );
+          }
+
+          return (
+            <rect
+              x={x1}
+              y={y1}
+              width={w}
+              height={h}
+              fill={hasFill ? fillColor : 'transparent'}
+              stroke={sColor}
+              strokeWidth={sWidth}
+              strokeDasharray="4 2"
+            />
           );
         })()}
       </svg>

@@ -3,7 +3,7 @@ import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
-import { ToolType, TextAnnotation } from '../../types/annotations';
+import { ToolType, TextAnnotation, ShapeType } from '../../types/annotations';
 import {
   MousePointer,
   Hand,
@@ -13,8 +13,6 @@ import {
   StickyNote,
   Type,
   PenTool,
-  FileSignature,
-  FilePlus2,
   Eraser,
   Trash2,
   Crop,
@@ -25,6 +23,10 @@ import {
   Layers,
   PenLine,
   Lock,
+  PanelRight,
+  Square,
+  Circle,
+  Minus,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -67,10 +69,13 @@ export const Toolbar: React.FC = () => {
     setFontFamily,
     openSignatureModal,
     stamps,
-    setIsAddPageModalOpen,
+    selectedShape,
+    setSelectedShape,
     setIsNotesPanelOpen,
     setIsStreamReplaceModalOpen,
     setIsRemoveElementsModalOpen,
+    isEditSidePanelOpen,
+    toggleEditSidePanel,
   } = useEditor();
 
   const {
@@ -95,11 +100,15 @@ export const Toolbar: React.FC = () => {
     activeTool === 'drawing' ||
     activeTool === 'underline' ||
     activeTool === 'strikethrough' ||
+    activeTool === 'shape' ||
     (selectedAnn &&
       (selectedAnn.type === 'drawing' ||
         selectedAnn.type === 'underline' ||
         selectedAnn.type === 'strikethrough' ||
         selectedAnn.type === 'shape'));
+
+  const showShapeStyles =
+    activeTool === 'shape' || (selectedAnn && selectedAnn.type === 'shape');
 
   const showTextStyles =
     activeTool === 'text' ||
@@ -111,6 +120,34 @@ export const Toolbar: React.FC = () => {
 
   const showNoteStyles =
     activeTool === 'note' || (selectedAnn && selectedAnn.type === 'note');
+
+  const handleShapeTypeChange = (st: ShapeType) => {
+    setSelectedShape(st);
+    if (selectedAnn && selectedAnn.type === 'shape') {
+      updateAnnotation(
+        {
+          ...selectedAnn,
+          shapeType: st,
+          updatedAt: Date.now(),
+        },
+        true
+      );
+    }
+  };
+
+  const handleShapeFillColorChange = (c: string) => {
+    setFillColor(c);
+    if (selectedAnn && selectedAnn.type === 'shape') {
+      updateAnnotation(
+        {
+          ...selectedAnn,
+          fillColor: c === 'transparent' ? undefined : c,
+          updatedAt: Date.now(),
+        },
+        true
+      );
+    }
+  };
 
   // Change color of active tool AND any currently selected element immediately
   const handleHighlightColorChange = (c: string) => {
@@ -278,6 +315,12 @@ export const Toolbar: React.FC = () => {
       desc: t.tools.drawingDesc,
     },
     {
+      id: 'shape',
+      label: t.tools.shapes,
+      icon: <Square className="w-4 h-4" />,
+      desc: t.tools.shapesDesc,
+    },
+    {
       id: 'eraser',
       label: t.tools.eraser,
       icon: <Eraser className="w-4 h-4" />,
@@ -348,7 +391,9 @@ export const Toolbar: React.FC = () => {
             type="button"
             onClick={() => {
               setActiveTab('edit');
-              setActiveTool('whiteout');
+              if (activeTool !== 'whiteout' && activeTool !== 'streamReplace' && activeTool !== 'removeElements') {
+                setActiveTool('removeElements');
+              }
             }}
             className={`flex items-center gap-2 px-3.5 py-1 text-xs font-semibold transition-all ${
               activeTab === 'edit'
@@ -441,52 +486,6 @@ export const Toolbar: React.FC = () => {
                   </button>
                 );
               })}
-
-              <div
-                className={`h-6 w-px mx-1 ${
-                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
-                }`}
-              />
-
-              {/* Signature Action Button */}
-              <button
-                onClick={() => openSignatureModal('draw')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
-                  isMinimal
-                    ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
-                    : isLcars
-                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffff66] border border-[#ffff66] uppercase'
-                    : 'rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/50'
-                }`}
-                title={t.tools.signatureDesc}
-              >
-                <FileSignature
-                  className={`w-4 h-4 ${
-                    isMinimal ? 'text-black' : isLcars ? 'text-[#ffff66]' : 'text-emerald-400'
-                  }`}
-                />
-                <span>{t.tools.signature}</span>
-              </button>
-
-              {/* Add Page Action Button */}
-              <button
-                onClick={() => setIsAddPageModalOpen(true)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all ${
-                  isMinimal
-                    ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
-                    : isLcars
-                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border border-[#99ccff] uppercase'
-                    : 'rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 hover:border-indigo-500/50'
-                }`}
-                title={t.tools.addPageDesc}
-              >
-                <FilePlus2
-                  className={`w-4 h-4 ${
-                    isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-indigo-400'
-                  }`}
-                />
-                <span>{t.tools.addPage}</span>
-              </button>
             </div>
           )}
 
@@ -566,6 +565,35 @@ export const Toolbar: React.FC = () => {
               >
                 <Trash2 className="w-4 h-4 text-rose-400" />
                 <span>{t.tools.removeElements}</span>
+              </button>
+
+              <div
+                className={`h-5 w-px mx-1 ${
+                  isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#333333]' : 'bg-slate-800'
+                }`}
+              />
+
+              {/* Button 4: Toggle Edit Side Panel */}
+              <button
+                type="button"
+                onClick={() => toggleEditSidePanel()}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? isEditSidePanelOpen
+                      ? 'rounded-md bg-neutral-900 text-white border border-neutral-900 shadow-xs'
+                      : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-700 border border-neutral-300'
+                    : isLcars
+                    ? isEditSidePanelOpen
+                      ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] uppercase'
+                      : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                    : isEditSidePanelOpen
+                    ? 'rounded-lg bg-indigo-600/30 text-indigo-200 border border-indigo-500/50 shadow-sm'
+                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                }`}
+                title={isEditSidePanelOpen ? 'Skrýt boční panel úprav' : 'Zobrazit boční panel úprav'}
+              >
+                <PanelRight className="w-4 h-4 text-indigo-400" />
+                <span>{isEditSidePanelOpen ? 'Skrýt panel' : 'Boční panel'}</span>
               </button>
             </div>
           )}
@@ -714,6 +742,133 @@ export const Toolbar: React.FC = () => {
                 />
               );
             })}
+          </div>
+        )}
+
+        {/* Shape Subtypes & Fill Color */}
+        {showShapeStyles && (
+          <div
+            className={`flex items-center gap-2 px-2.5 py-1 border animate-in fade-in duration-150 ${
+              isMinimal
+                ? 'rounded-md bg-neutral-50 border-neutral-200'
+                : isLcars
+                ? 'rounded-full bg-[#111111] border-[#ff9900]'
+                : 'rounded-lg bg-slate-800 border-slate-700'
+            }`}
+          >
+            {/* Shape Subtype Buttons */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleShapeTypeChange('rectangle')}
+                className={`p-1 rounded transition-all ${
+                  (selectedAnn && (selectedAnn as any).shapeType === 'rectangle') || (!selectedAnn && selectedShape === 'rectangle')
+                    ? isMinimal
+                      ? 'bg-black text-white'
+                      : isLcars
+                      ? 'bg-[#ff9900] text-black font-bold'
+                      : 'bg-sky-600 text-white shadow-xs'
+                    : isMinimal
+                    ? 'text-neutral-500 hover:text-black hover:bg-neutral-200'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title={t.tools.shapeRectangle}
+              >
+                <Square className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleShapeTypeChange('ellipse')}
+                className={`p-1 rounded transition-all ${
+                  (selectedAnn && (selectedAnn as any).shapeType === 'ellipse') || (!selectedAnn && selectedShape === 'ellipse')
+                    ? isMinimal
+                      ? 'bg-black text-white'
+                      : isLcars
+                      ? 'bg-[#ff9900] text-black font-bold'
+                      : 'bg-sky-600 text-white shadow-xs'
+                    : isMinimal
+                    ? 'text-neutral-500 hover:text-black hover:bg-neutral-200'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title={t.tools.shapeEllipse}
+              >
+                <Circle className="w-3.5 h-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleShapeTypeChange('line')}
+                className={`p-1 rounded transition-all ${
+                  (selectedAnn && (selectedAnn as any).shapeType === 'line') || (!selectedAnn && selectedShape === 'line')
+                    ? isMinimal
+                      ? 'bg-black text-white'
+                      : isLcars
+                      ? 'bg-[#ff9900] text-black font-bold'
+                      : 'bg-sky-600 text-white shadow-xs'
+                    : isMinimal
+                    ? 'text-neutral-500 hover:text-black hover:bg-neutral-200'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title={t.tools.shapeLine}
+              >
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Fill Color Picker (Only for rectangle & ellipse) */}
+            {((selectedAnn && (selectedAnn as any).shapeType !== 'line') || (!selectedAnn && selectedShape !== 'line')) && (
+              <>
+                <div
+                  className={`h-4 w-px ${
+                    isMinimal ? 'bg-neutral-300' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                  }`}
+                />
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className={`text-[11px] font-medium mr-0.5 ${
+                      isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                    }`}
+                  >
+                    {t.styles.fillColor}:
+                  </span>
+                  {['transparent', '#ffffff', '#f8fafc', '#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#000000'].map((c) => {
+                    const currFill = (selectedAnn && (selectedAnn as any).fillColor) || fillColor || 'transparent';
+                    const isCurr = currFill === c;
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => handleShapeFillColorChange(c)}
+                        style={{ backgroundColor: c === 'transparent' ? 'transparent' : c }}
+                        className={`w-4 h-4 rounded border transition-transform ${
+                          c === 'transparent'
+                            ? isMinimal
+                              ? 'relative overflow-hidden bg-white border-neutral-300'
+                              : 'relative overflow-hidden bg-slate-900 border-slate-600'
+                            : isMinimal
+                            ? 'border-neutral-300'
+                            : 'border-slate-600'
+                        } ${
+                          isCurr
+                            ? isMinimal
+                              ? 'scale-125 ring-2 ring-black'
+                              : 'scale-125 ring-2 ring-sky-400'
+                            : 'hover:scale-110'
+                        }`}
+                        title={c === 'transparent' ? 'Průhledná / Transparent' : c}
+                      >
+                        {c === 'transparent' && (
+                          <span className="absolute inset-0 flex items-center justify-center text-[10px] text-rose-500 font-bold leading-none">
+                            /
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
 

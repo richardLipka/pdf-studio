@@ -330,9 +330,6 @@ export function extractLiteralStrings(text: string): { raw: string; inner: strin
   return results;
 }
 
-/**
- * Replaces occurrences of searchText with replaceText in a single decoded content stream string.
- */
 export function replaceTextInStreamString(
   streamContent: string,
   searchText: string,
@@ -345,67 +342,17 @@ export function replaceTextInStreamString(
 
   const { matchCase = true } = options;
   let count = 0;
+  const regex = matchCase
+    ? new RegExp(escapeRegex(searchText), 'g')
+    : new RegExp(escapeRegex(searchText), 'gi');
 
-  // Strategy 1: Replace inside literal PDF strings: ( ... ) using linear scanner
-  const literalMatches = extractLiteralStrings(streamContent);
-  let modifiedContent = '';
-  let lastPos = 0;
+  // Step 1: Process TJ arrays with kerning: [ (...) 20 (...) ] TJ
+  // We mask replaced TJ arrays with a unique placeholder so Strategy 2 (literal strings) won't re-process them.
+  const tjReplacements: Map<string, string> = new Map();
+  let tjPlaceholderIndex = 0;
 
-  for (const item of literalMatches) {
-    modifiedContent += streamContent.substring(lastPos, item.start);
-    const unescaped = unescapePdfLiteralString(item.inner);
-
-    const regex = matchCase
-      ? new RegExp(escapeRegex(searchText), 'g')
-      : new RegExp(escapeRegex(searchText), 'gi');
-
-    let matchCount = 0;
-    const replaced = unescaped.replace(regex, () => {
-      matchCount++;
-      return replaceText;
-    });
-
-    if (matchCount > 0) {
-      count += matchCount;
-      modifiedContent += `(${escapePdfLiteralString(replaced)})`;
-    } else {
-      modifiedContent += item.raw;
-    }
-    lastPos = item.end;
-  }
-  modifiedContent += streamContent.substring(lastPos);
-
-  // Strategy 2: Replace inside hex PDF strings: < ... >
-  const hexRegex = /<([0-9a-fA-F\s]+)>/g;
-  modifiedContent = modifiedContent.replace(hexRegex, (match, hexBody) => {
-    const cleanHex = hexBody.replace(/\s+/g, '');
-    const isTwoByte = cleanHex.length >= 4 && (
-      cleanHex.startsWith('feff') || 
-      cleanHex.startsWith('FEFF') || 
-      cleanHex.length % 4 === 0
-    );
-    const text = hexToString(hexBody);
-    const regex = matchCase
-      ? new RegExp(escapeRegex(searchText), 'g')
-      : new RegExp(escapeRegex(searchText), 'gi');
-
-    let matchCount = 0;
-    const replaced = text.replace(regex, () => {
-      matchCount++;
-      return replaceText;
-    });
-
-    if (matchCount > 0) {
-      count += matchCount;
-      return `<${stringToHex(replaced, isTwoByte)}>`;
-    }
-
-    return match;
-  });
-
-  // Strategy 2.5: Replace inside TJ arrays with kerning: [ (...) 20 (...) ] TJ
   const tjRegex = /\[([\s\S]*?)\]\s*TJ/g;
-  modifiedContent = modifiedContent.replace(tjRegex, (match, arrayBody) => {
+  const intermediate = streamContent.replace(tjRegex, (match, arrayBody) => {
     const tokenRegex = /\((?:[^\\()]+|\\.)*\)|<[0-9a-fA-F\s]+>|[-+]?\d+(?:\.\d+)?/g;
     let tok: RegExpExecArray | null;
     let fullText = '';
@@ -426,10 +373,6 @@ export function replaceTextInStreamString(
       }
     }
 
-    const regex = matchCase
-      ? new RegExp(escapeRegex(searchText), 'g')
-      : new RegExp(escapeRegex(searchText), 'gi');
-
     if (regex.test(fullText)) {
       let localCount = 0;
       const replacedFull = fullText.replace(regex, () => {
@@ -439,30 +382,88 @@ export function replaceTextInStreamString(
 
       if (localCount > 0) {
         count += localCount;
-        return `[ (${escapePdfLiteralString(replacedFull, true)}) ] TJ`;
+        const placeholder = `__PDF_STUDIO_TJ_MASK_${tjPlaceholderIndex++}__`;
+        const newTj = `[ (${escapePdfLiteralString(replacedFull, true)}) ] TJ`;
+        tjReplacements.set(placeholder, newTj);
+        return placeholder;
       }
     }
 
     return match;
   });
 
-  // Strategy 3: Fallback direct literal replacement if not inside standard parens
+  // Step 2: Replace inside remaining literal PDF strings: ( ... ) using linear scanner
+  const literalMatches = extractLiteralStrings(intermediate);
+  let literalPassContent = '';
+  let lastPos = 0;
+
+  for (const item of literalMatches) {
+    literalPassContent += intermediate.substring(lastPos, item.start);
+    const unescaped = unescapePdfLiteralString(item.inner);
+
+    let matchCount = 0;
+    const replaced = unescaped.replace(regex, () => {
+      matchCount++;
+      return replaceText;
+    });
+
+    if (matchCount > 0) {
+      count += matchCount;
+      literalPassContent += `(${escapePdfLiteralString(replaced)})`;
+    } else {
+      literalPassContent += item.raw;
+    }
+    lastPos = item.end;
+  }
+  literalPassContent += intermediate.substring(lastPos);
+
+  // Step 3: Replace inside remaining hex PDF strings: < ... >
+  const hexRegex = /<([0-9a-fA-F\s]+)>/g;
+  let hexPassContent = literalPassContent.replace(hexRegex, (match, hexBody) => {
+    const cleanHex = hexBody.replace(/\s+/g, '');
+    const isTwoByte = cleanHex.length >= 4 && (
+      cleanHex.startsWith('feff') || 
+      cleanHex.startsWith('FEFF') || 
+      cleanHex.length % 4 === 0
+    );
+    const text = hexToString(hexBody);
+
+    let matchCount = 0;
+    const replaced = text.replace(regex, () => {
+      matchCount++;
+      return replaceText;
+    });
+
+    if (matchCount > 0) {
+      count += matchCount;
+      return `<${stringToHex(replaced, isTwoByte)}>`;
+    }
+
+    return match;
+  });
+
+  // Step 4: Restore masked TJ arrays
+  for (const [placeholder, replacedTj] of tjReplacements.entries()) {
+    hexPassContent = hexPassContent.replace(placeholder, replacedTj);
+  }
+
+  // Step 5: Fallback direct literal replacement ONLY if zero matches were found in any PDF string/array
   if (count === 0) {
     const directRegex = matchCase
       ? new RegExp(escapeRegex(searchText), 'g')
       : new RegExp(escapeRegex(searchText), 'gi');
 
-    const directReplaced = modifiedContent.replace(directRegex, () => {
+    const directReplaced = hexPassContent.replace(directRegex, () => {
       count++;
       return replaceText;
     });
 
     if (count > 0) {
-      modifiedContent = directReplaced;
+      return { modifiedContent: directReplaced, count };
     }
   }
 
-  return { modifiedContent, count };
+  return { modifiedContent: hexPassContent, count };
 }
 
 /**

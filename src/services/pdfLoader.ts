@@ -25,6 +25,7 @@ if (typeof window !== 'undefined') {
 
 // In-memory cache of loaded pdf documents
 const docCache = new Map<string, pdfjsLib.PDFDocumentProxy>();
+const loadingPromises = new Map<string, Promise<pdfjsLib.PDFDocumentProxy>>();
 const activeRenderTasks = new WeakMap<HTMLCanvasElement, any>();
 
 export const getCachedPdfDocument = async (
@@ -34,15 +35,30 @@ export const getCachedPdfDocument = async (
   if (docCache.has(sourceId)) {
     return docCache.get(sourceId)!;
   }
+  if (loadingPromises.has(sourceId)) {
+    return loadingPromises.get(sourceId)!;
+  }
+
   // Create a copy of the buffer because pdfjs-dist may transfer ownership
   const copyBuffer = arrayBuffer.slice(0);
   const loadingTask = pdfjsLib.getDocument({ data: copyBuffer });
-  const pdfDoc = await loadingTask.promise;
-  docCache.set(sourceId, pdfDoc);
-  return pdfDoc;
+  const promise = loadingTask.promise
+    .then((pdfDoc) => {
+      docCache.set(sourceId, pdfDoc);
+      loadingPromises.delete(sourceId);
+      return pdfDoc;
+    })
+    .catch((err) => {
+      loadingPromises.delete(sourceId);
+      throw err;
+    });
+
+  loadingPromises.set(sourceId, promise);
+  return promise;
 };
 
 export const clearPdfCache = () => {
+  loadingPromises.clear();
   for (const doc of docCache.values()) {
     try {
       doc.cleanup();
@@ -298,7 +314,15 @@ export const extractPdfAnnotations = async (
       let pdfAnnotations: any[] = [];
       try {
         const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
-        pdfAnnotations = await page.getAnnotations();
+        try {
+          pdfAnnotations = await page.getAnnotations();
+        } finally {
+          try {
+            page.cleanup();
+          } catch {
+            // ignore
+          }
+        }
       } catch (pageAnnErr: any) {
         logger.warn(
           'load',
@@ -644,6 +668,11 @@ export const renderPdfPageToCanvas = async (
     if (activeRenderTasks.get(canvas) === renderTask) {
       activeRenderTasks.delete(canvas);
     }
+    try {
+      pdfPage.cleanup();
+    } catch {
+      // ignore
+    }
   }
 };
 
@@ -657,6 +686,9 @@ export const renderPdfPageToDataUrl = async (
   format: 'image/jpeg' | 'image/png' = 'image/jpeg',
   quality: number = 0.88
 ): Promise<string> => {
+  if (typeof document === 'undefined') {
+    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  }
   const canvas = document.createElement('canvas');
   await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
   if (format === 'image/jpeg') {
@@ -679,9 +711,10 @@ export const renderPdfTextLayer = async (
     return;
   }
 
+  let pdfPage: pdfjsLib.PDFPageProxy | null = null;
   try {
     const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
-    const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+    pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
 
     const viewport = pdfPage.getViewport({
       scale,
@@ -705,6 +738,14 @@ export const renderPdfTextLayer = async (
       return;
     }
     console.warn(`Text layer render skipped for page ${pageModel.id}:`, err);
+  } finally {
+    if (pdfPage) {
+      try {
+        pdfPage.cleanup();
+      } catch {
+        // ignore
+      }
+    }
   }
 };
 

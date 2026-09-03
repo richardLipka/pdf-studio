@@ -106,7 +106,7 @@ const LEGACY_SIGS_KEY = 'pdf_studio_saved_sigs_v1';
 const RASTER_SETTINGS_STORAGE_KEY = 'pdf_studio_raster_settings_v1';
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeTab, setActiveTab] = useState<EditorTab>('review');
+  const [activeTab, setActiveTabState] = useState<EditorTab>('review');
   const [activeTool, setActiveTool] = useState<ToolType>('select');
   const [strokeColor, setStrokeColor] = useState<string>('#0284c7');
   const [highlightColor, setHighlightColor] = useState<string>('#fde047');
@@ -119,10 +119,48 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [selectedShape, setSelectedShape] = useState<ShapeType>('rectangle');
 
   // Review & Notes Panel (Right side)
-  const [isNotesPanelOpen, setIsNotesPanelOpen] = useState<boolean>(false);
+  const [isNotesPanelOpen, setIsNotesPanelOpenState] = useState<boolean>(false);
+
+  // Edit & Stream Right-Side Panel state
+  const [isEditSidePanelOpen, setIsEditSidePanelOpenState] = useState<boolean>(false);
+  const [editSidePanelTab, setEditSidePanelTab] = useState<'remove' | 'stream'>('remove');
+  const [selectedStreamBlockId, setSelectedStreamBlockId] = useState<string | null>(null);
+  const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
+  const [hoveredBlockText, setHoveredBlockText] = useState<string | null>(null);
+
+  // Set active tab with auto-switching & mutual exclusivity for right dock
+  const setActiveTab = (tab: EditorTab) => {
+    setActiveTabState(tab);
+    if (tab === 'edit') {
+      setIsNotesPanelOpenState(false);
+      setIsEditSidePanelOpenState(true);
+    } else if (tab === 'review') {
+      setIsEditSidePanelOpenState(false);
+    } else if (tab === 'sign') {
+      setIsNotesPanelOpenState(false);
+      setIsEditSidePanelOpenState(false);
+    }
+  };
+
+  const setIsNotesPanelOpen: React.Dispatch<React.SetStateAction<boolean>> = (value) => {
+    setIsNotesPanelOpenState((prev) => {
+      const next = typeof value === 'function' ? value(prev) : value;
+      if (next) {
+        setIsEditSidePanelOpenState(false);
+      }
+      return next;
+    });
+  };
 
   const toggleNotesPanel = () => {
-    setIsNotesPanelOpen((prev) => !prev);
+    setIsNotesPanelOpenState((prev) => {
+      const next = !prev;
+      if (next) {
+        setIsEditSidePanelOpenState(false);
+        setActiveTabState('review');
+      }
+      return next;
+    });
   };
 
   // Modals
@@ -147,19 +185,28 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
   const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
 
-  // Edit & Stream Right-Side Panel state
-  const [isEditSidePanelOpen, setIsEditSidePanelOpen] = useState<boolean>(false);
-  const [editSidePanelTab, setEditSidePanelTab] = useState<'remove' | 'stream'>('remove');
-  const [selectedStreamBlockId, setSelectedStreamBlockId] = useState<string | null>(null);
-  const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
-  const [hoveredBlockText, setHoveredBlockText] = useState<string | null>(null);
+  const setIsEditSidePanelOpen = (open: boolean) => {
+    setIsEditSidePanelOpenState(open);
+    if (open) {
+      setIsNotesPanelOpenState(false);
+    }
+  };
 
   const toggleEditSidePanel = (tab?: 'remove' | 'stream') => {
     if (tab) {
       setEditSidePanelTab(tab);
-      setIsEditSidePanelOpen(true);
+      setIsEditSidePanelOpenState(true);
+      setIsNotesPanelOpenState(false);
+      setActiveTabState('edit');
     } else {
-      setIsEditSidePanelOpen((prev) => !prev);
+      setIsEditSidePanelOpenState((prev) => {
+        const next = !prev;
+        if (next) {
+          setIsNotesPanelOpenState(false);
+          setActiveTabState('edit');
+        }
+        return next;
+      });
     }
   };
 
@@ -167,9 +214,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsStreamReplaceModalOpenState(open);
     if (open) {
       setEditSidePanelTab('stream');
-      setIsEditSidePanelOpen(true);
+      setIsEditSidePanelOpenState(true);
+      setIsNotesPanelOpenState(false);
+      setActiveTabState('edit');
     } else if (!isRemoveElementsModalOpen) {
-      setIsEditSidePanelOpen(false);
+      setIsEditSidePanelOpenState(false);
     }
   };
 
@@ -177,9 +226,11 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsRemoveElementsModalOpenState(open);
     if (open) {
       setEditSidePanelTab('remove');
-      setIsEditSidePanelOpen(true);
+      setIsEditSidePanelOpenState(true);
+      setIsNotesPanelOpenState(false);
+      setActiveTabState('edit');
     } else if (!isStreamReplaceModalOpen) {
-      setIsEditSidePanelOpen(false);
+      setIsEditSidePanelOpenState(false);
     }
   };
 
@@ -197,22 +248,26 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const toggleStreamReplaceModal = () => {
     if (isEditSidePanelOpen && editSidePanelTab === 'stream') {
-      setIsEditSidePanelOpen(false);
+      setIsEditSidePanelOpenState(false);
       setIsStreamReplaceModalOpenState(false);
     } else {
       setEditSidePanelTab('stream');
-      setIsEditSidePanelOpen(true);
+      setIsEditSidePanelOpenState(true);
+      setIsNotesPanelOpenState(false);
+      setActiveTabState('edit');
       setIsStreamReplaceModalOpenState(true);
     }
   };
 
   const toggleRemoveElementsModal = () => {
     if (isEditSidePanelOpen && editSidePanelTab === 'remove') {
-      setIsEditSidePanelOpen(false);
+      setIsEditSidePanelOpenState(false);
       setIsRemoveElementsModalOpenState(false);
     } else {
       setEditSidePanelTab('remove');
-      setIsEditSidePanelOpen(true);
+      setIsEditSidePanelOpenState(true);
+      setIsNotesPanelOpenState(false);
+      setActiveTabState('edit');
       setIsRemoveElementsModalOpenState(true);
     }
   };

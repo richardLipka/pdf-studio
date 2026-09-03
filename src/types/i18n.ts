@@ -21,6 +21,8 @@ export interface TranslationSchema {
     page: string;
     of: string;
     pages: string;
+    renderFailed: string;
+    retry: string;
   };
   tabs: {
     review: string;
@@ -67,6 +69,10 @@ export interface TranslationSchema {
     signature: string;
     signatureDesc: string;
     shapes: string;
+    shapesDesc: string;
+    shapeRectangle: string;
+    shapeEllipse: string;
+    shapeLine: string;
     crop: string;
     cropDesc: string;
     eraser: string;
