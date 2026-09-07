@@ -24,8 +24,51 @@ import {
   CornerDownRight,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Lock,
+  Download,
 } from 'lucide-react';
+
+/**
+ * Utility to crop a high-quality thumbnail from the rendered page canvas.
+ */
+function cropImageThumbnail(
+  canvas: HTMLCanvasElement,
+  pdfBox: { x: number; y: number; width: number; height: number },
+  pageWidth: number,
+  pageHeight: number,
+  maxThumbSize = 96
+): string | null {
+  try {
+    const scaleX = canvas.width / pageWidth;
+    const scaleY = canvas.height / pageHeight;
+    const sx = Math.max(0, Math.round(pdfBox.x * scaleX));
+    const sy = Math.max(0, Math.round(pdfBox.y * scaleY));
+    const sw = Math.min(canvas.width - sx, Math.round(pdfBox.width * scaleX));
+    const sh = Math.min(canvas.height - sy, Math.round(pdfBox.height * scaleY));
+
+    if (sw <= 2 || sh <= 2) return null;
+
+    const aspect = sw / sh;
+    let tw = maxThumbSize;
+    let th = maxThumbSize;
+    if (aspect >= 1) {
+      th = Math.max(16, Math.round(maxThumbSize / aspect));
+    } else {
+      tw = Math.max(16, Math.round(maxThumbSize * aspect));
+    }
+
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = tw;
+    thumbCanvas.height = th;
+    const ctx = thumbCanvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, tw, th);
+    return thumbCanvas.toDataURL('image/jpeg', 0.85);
+  } catch {
+    return null;
+  }
+}
 import {
   parseStreamSegments,
   StreamSegment,
@@ -66,6 +109,8 @@ export const EditSidePanel: React.FC = () => {
     historyIndex,
     getPageStream,
     getPageImagesList,
+    replacePageImage,
+    exportPageImage,
     removeMultiplePageElements,
     applyStreamSegmentEdit,
     applyPageContentStreamEdit,
@@ -89,6 +134,7 @@ export const EditSidePanel: React.FC = () => {
 
   // Search & Filters
   const [filterQuery, setFilterQuery] = useState<string>('');
+  const [filterType, setFilterType] = useState<'all' | 'text' | 'image'>('all');
 
   // Selection for Deletion
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<string>>(new Set());
@@ -165,7 +211,27 @@ export const EditSidePanel: React.FC = () => {
       }
 
       if (imagesRes.images) {
-        setImages(imagesRes.images);
+        const enrichedImages = [...imagesRes.images];
+        const activePageModel = pages[activePageIndex];
+        const canvasEl = document.getElementById(
+          `page_canvas_${activePageModel?.id}`
+        ) as HTMLCanvasElement | null;
+        if (canvasEl && activePageModel) {
+          enrichedImages.forEach((im) => {
+            if (im.x !== undefined && im.y !== undefined && im.width && im.height) {
+              const pageH = activePageModel.height;
+              const boxY = pageH - im.y - im.height;
+              im.thumbnailDataUrl =
+                cropImageThumbnail(
+                  canvasEl,
+                  { x: im.x, y: Math.max(0, boxY), width: im.width, height: im.height },
+                  activePageModel.width,
+                  activePageModel.height
+                ) || undefined;
+            }
+          });
+        }
+        setImages(enrichedImages);
       } else {
         setImages([]);
       }
@@ -209,6 +275,142 @@ export const EditSidePanel: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const imageReplaceInputRef = useRef<HTMLInputElement>(null);
+  const [targetReplacingImage, setTargetReplacingImage] = useState<PageImageInfo | null>(null);
+
+  const triggerImageReplace = (im: PageImageInfo) => {
+    setTargetReplacingImage(im);
+    if (imageReplaceInputRef.current) {
+      imageReplaceInputRef.current.value = '';
+      imageReplaceInputRef.current.click();
+    }
+  };
+
+  const handleImageFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !targetReplacingImage) return;
+    setIsSaving(true);
+    try {
+      const res = await replacePageImage(targetReplacingImage.name, file);
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: `Obrázek ${targetReplacingImage.cleanName} byl úspěšně nahrazen.`,
+        });
+        await loadPageData();
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: res.error || 'Výměna obrázku selhala.',
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || String(err),
+      });
+    } finally {
+      setIsSaving(false);
+      setTargetReplacingImage(null);
+    }
+  };
+
+  const handleExportImage = async (im: PageImageInfo) => {
+    const activePageModel = pages[activePageIndex];
+    const canvasEl = document.getElementById(
+      `page_canvas_${activePageModel?.id}`
+    ) as HTMLCanvasElement | null;
+    const pdfBox =
+      im.x !== undefined && im.y !== undefined && im.width && im.height && activePageModel
+        ? {
+            x: im.x,
+            y: activePageModel.height - im.y - im.height,
+            width: im.width,
+            height: im.height,
+          }
+        : undefined;
+
+    const res = await exportPageImage(im.name, activePageIndex, canvasEl, pdfBox);
+    if (res.success) {
+      setStatusMessage({
+        type: 'success',
+        text: `Obrázek ${im.cleanName} byl úspěšně exportován.`,
+      });
+    } else {
+      setStatusMessage({
+        type: 'error',
+        text: res.error || 'Export obrázku selhal.',
+      });
+    }
+  };
+
+  const handleDeleteImage = async (im: PageImageInfo) => {
+    setIsSaving(true);
+    try {
+      const res = await removeMultiplePageElements([], [im.name], activePageIndex);
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: `Obrázek ${im.cleanName} byl úspěšně odstraněn.`,
+        });
+        setSelectedImageNames((prev) => {
+          const next = new Set(prev);
+          next.delete(im.name);
+          return next;
+        });
+        await loadPageData();
+      } else {
+        setStatusMessage({
+          type: 'error',
+          text: res.error || 'Odstranění obrázku selhalo.',
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        type: 'error',
+        text: err?.message || String(err),
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Generate thumbnails if canvas finishes rendering after loadPageData
+  useEffect(() => {
+    const activePageModel = pages[activePageIndex];
+    if (!activePageModel || images.length === 0) return;
+    if (images.some((im) => !im.thumbnailDataUrl)) {
+      const timer = setTimeout(() => {
+        const canvasEl = document.getElementById(
+          `page_canvas_${activePageModel.id}`
+        ) as HTMLCanvasElement | null;
+        if (!canvasEl || canvasEl.width <= 0) return;
+        setImages((prev) =>
+          prev.map((im) => {
+            if (
+              im.thumbnailDataUrl ||
+              im.x === undefined ||
+              im.y === undefined ||
+              !im.width ||
+              !im.height
+            )
+              return im;
+            const pageH = activePageModel.height;
+            const boxY = pageH - im.y - im.height;
+            const thumb = cropImageThumbnail(
+              canvasEl,
+              { x: im.x, y: Math.max(0, boxY), width: im.width, height: im.height },
+              activePageModel.width,
+              activePageModel.height
+            );
+            return thumb ? { ...im, thumbnailDataUrl: thumb } : im;
+          })
+        );
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [images, pages, activePageIndex]);
 
   // Sort Mode State: 'reading' (Visual top-to-bottom hierarchy) vs 'stream' (Raw stream byte order)
   const [sortMode, setSortMode] = useState<'reading' | 'stream'>('reading');
@@ -298,6 +500,181 @@ export const EditSidePanel: React.FC = () => {
     });
   }, [images, filterQuery]);
 
+  // Unified page elements (text and bitmap images interleaved in reading order)
+  type PageElement =
+    | { kind: 'text'; block: StreamSegment; y: number; x: number }
+    | { kind: 'image'; image: PageImageInfo; y: number; x: number };
+
+  const allPageElements = useMemo<PageElement[]>(() => {
+    const textItems: PageElement[] =
+      filterType === 'all' || filterType === 'text'
+        ? filteredBlocks.map((b) => ({
+            kind: 'text',
+            block: b,
+            y: b.y !== undefined ? b.y : -999999,
+            x: b.x !== undefined ? b.x : 0,
+          }))
+        : [];
+
+    const imageItems: PageElement[] =
+      filterType === 'all' || filterType === 'image'
+        ? filteredImages
+            .filter((im) => im.x !== undefined && im.y !== undefined)
+            .map((im) => ({
+              kind: 'image',
+              image: im,
+              y: im.y!,
+              x: im.x!,
+            }))
+        : [];
+
+    if (sortMode === 'stream') {
+      return [...textItems, ...imageItems];
+    }
+
+    // Top-of-page first (higher Y in PDF points)
+    return [...textItems, ...imageItems].sort((a, b) => {
+      if (Math.abs(a.y - b.y) > 5) {
+        return b.y - a.y;
+      }
+      return a.x - b.x;
+    });
+  }, [filteredBlocks, filteredImages, sortMode, filterType]);
+
+  const unplacedImages = useMemo(() => {
+    return filteredImages.filter((im) => im.x === undefined || im.y === undefined);
+  }, [filteredImages]);
+
+  const fullPageScanImage = useMemo(() => {
+    return images.find((im) => im.isFullPageScan);
+  }, [images]);
+
+  const hasFullPageScan = Boolean(fullPageScanImage && segments.length <= 2);
+
+  // Semantic document sections for true tree hierarchy (Reading mode)
+  interface DocumentSection {
+    id: string;
+    headingBlock?: StreamSegment;
+    title: string;
+    role: 'h1' | 'h2' | 'intro';
+    items: PageElement[];
+  }
+
+  const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(new Set());
+
+  const toggleSectionCollapse = (secId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setCollapsedSectionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(secId)) next.delete(secId);
+      else next.add(secId);
+      return next;
+    });
+  };
+
+  const documentSections = useMemo(() => {
+    if (allPageElements.length === 0) return [];
+    const sections: DocumentSection[] = [];
+    let currentSec: DocumentSection | null = null;
+    let secIndex = 1;
+
+    for (const el of allPageElements) {
+      if (el.kind === 'text' && (el.block.headingRole === 'h1' || el.block.headingRole === 'h2')) {
+        currentSec = {
+          id: `sec_${el.block.id}`,
+          headingBlock: el.block,
+          title: el.block.previewText,
+          role: el.block.headingRole,
+          items: [],
+        };
+        sections.push(currentSec);
+        secIndex++;
+      } else {
+        if (!currentSec) {
+          currentSec = {
+            id: `sec_intro_${secIndex}`,
+            title: 'Úvodní obsah / Záhlaví',
+            role: 'intro',
+            items: [],
+          };
+          sections.push(currentSec);
+          secIndex++;
+        }
+        currentSec.items.push(el);
+      }
+    }
+    return sections;
+  }, [allPageElements]);
+
+  const toggleSectionSelection = (section: DocumentSection, e?: React.SyntheticEvent) => {
+    e?.stopPropagation();
+    const allTextIds: string[] = [];
+    const allImageNames: string[] = [];
+    if (section.headingBlock) allTextIds.push(section.headingBlock.id);
+    section.items.forEach((c) => {
+      if (c.kind === 'text') allTextIds.push(c.block.id);
+      else allImageNames.push(c.image.name);
+    });
+
+    const allTextSelected = allTextIds.every((id) => selectedBlockIds.has(id));
+    const allImgSelected = allImageNames.every((name) => selectedImageNames.has(name));
+    const allSelected = allTextSelected && allImgSelected;
+
+    setSelectedBlockIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) allTextIds.forEach((id) => next.delete(id));
+      else allTextIds.forEach((id) => next.add(id));
+      return next;
+    });
+
+    setSelectedImageNames((prev) => {
+      const next = new Set(prev);
+      if (allSelected) allImageNames.forEach((name) => next.delete(name));
+      else allImageNames.forEach((name) => next.add(name));
+      return next;
+    });
+  };
+
+  const handleDeleteSection = async (section: DocumentSection, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const allTextIds: string[] = [];
+    const allImageNames: string[] = [];
+    if (section.headingBlock) allTextIds.push(section.headingBlock.id);
+    section.items.forEach((c) => {
+      if (c.kind === 'text') allTextIds.push(c.block.id);
+      else allImageNames.push(c.image.name);
+    });
+    if (allTextIds.length === 0 && allImageNames.length === 0) return;
+
+    setIsSaving(true);
+    try {
+      const res = await removeMultiplePageElements(allTextIds, allImageNames, activePageIndex);
+      if (res.success) {
+        setStatusMessage({
+          type: 'success',
+          text: `Celá sekce (${allTextIds.length + allImageNames.length} prvků) byla úspěšně odstraněna.`,
+        });
+        setSelectedBlockIds((prev) => {
+          const next = new Set(prev);
+          allTextIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        setSelectedImageNames((prev) => {
+          const next = new Set(prev);
+          allImageNames.forEach((name) => next.delete(name));
+          return next;
+        });
+        await loadPageData();
+      } else {
+        setStatusMessage({ type: 'error', text: res.error || 'Odstranění sekce selhalo.' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err?.message || String(err) });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Selection toggles
   const toggleBlockSelection = (id: string) => {
     setSelectedBlockIds((prev) => {
@@ -311,7 +688,8 @@ export const EditSidePanel: React.FC = () => {
     if (found) {
       setStreamReplaceTargetText(found.previewText);
       if (found.x !== undefined && found.y !== undefined) {
-        setStreamReplaceTargetPosition({ x: found.x, y: found.y });
+        const pageHeight = pages[activePageIndex]?.height || 842;
+        setStreamReplaceTargetPosition({ x: found.x, y: pageHeight - found.y });
       }
     }
   };
@@ -670,6 +1048,347 @@ export const EditSidePanel: React.FC = () => {
     );
   };
 
+  const renderBlockCard = (b: StreamSegment, isChild: boolean = false) => {
+    const isChecked = selectedBlockIds.has(b.id);
+    const isCurrentActive = selectedStreamBlockId === b.id;
+    const isHovered =
+      hoveredBlockId === b.id ||
+      (Boolean(hoveredBlockText) &&
+        b.previewText.length >= 4 &&
+        (b.previewText === hoveredBlockText ||
+          b.previewText.toLowerCase().includes(hoveredBlockText!.toLowerCase())));
+
+    const indentMm =
+      b.x !== undefined && b.x > minPageX + 6
+        ? Math.round((b.x - minPageX) * 0.3527)
+        : 0;
+
+    return (
+      <div
+        key={b.id}
+        id={`panel_item_${b.id}`}
+        onClick={() => toggleBlockSelection(b.id)}
+        onMouseEnter={() => {
+          setHoveredBlockId(b.id);
+          setHoveredBlockText(b.previewText);
+        }}
+        onMouseLeave={() => {
+          setHoveredBlockId(null);
+          setHoveredBlockText(null);
+        }}
+        className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 ${
+          isChild ? 'border-l-2 border-l-indigo-400/60' : ''
+        } ${
+          isCurrentActive
+            ? isMinimal
+              ? 'bg-rose-50 border-rose-500 shadow-sm ring-1 ring-rose-400'
+              : isLcars
+              ? 'bg-[#ff9900]/25 border-[#ff9900] ring-1 ring-[#ff9900]'
+              : 'bg-rose-950/40 border-rose-500 ring-1 ring-rose-500/60 shadow-lg shadow-rose-950/30'
+            : isChecked
+            ? isMinimal
+              ? 'bg-rose-50/60 border-rose-300'
+              : 'bg-rose-950/20 border-rose-700/60'
+            : isHovered
+            ? isMinimal
+              ? 'bg-sky-50 border-sky-400 ring-1 ring-sky-300 shadow-xs'
+              : isLcars
+              ? 'bg-[#111111] border-[#99ccff] ring-1 ring-[#99ccff]'
+              : 'bg-slate-800/80 border-sky-400/80 ring-1 ring-sky-400/40 shadow-md shadow-sky-950/30'
+            : isMinimal
+            ? 'bg-neutral-50/70 hover:bg-neutral-100 border-neutral-200'
+            : isLcars
+            ? 'bg-[#111111] hover:bg-[#1a1a1a] border-[#333333]'
+            : 'bg-slate-800/30 hover:bg-slate-800/70 border-slate-750'
+        }`}
+      >
+        {/* Top Bar with Checkbox, ID, and Badges */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onChange={() => {}}
+              className="rounded border-slate-600 text-rose-600 focus:ring-rose-500"
+            />
+            <span
+              className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                isCurrentActive
+                  ? 'bg-rose-600 text-white'
+                  : isMinimal
+                  ? 'bg-neutral-200 text-neutral-800'
+                  : 'bg-slate-900 text-indigo-300 border border-slate-700'
+              }`}
+            >
+              {b.id}
+            </span>
+
+            {/* Role Badge */}
+            {b.headingRole === 'h1' && (
+              <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                H1 Nadpis
+              </span>
+            )}
+            {b.headingRole === 'h2' && (
+              <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                H2 Podnadpis
+              </span>
+            )}
+            {b.headingRole === 'small' && (
+              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                Zápatí / Pozn.
+              </span>
+            )}
+
+            {/* Marked Content Tag */}
+            {b.markedContentTag && (
+              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                {b.markedContentTag}
+              </span>
+            )}
+
+            {/* Indentation Depth Badge (only if genuine text indent) */}
+            {indentMm > 6 && indentMm < 75 && b.headingRole !== 'h1' && b.headingRole !== 'h2' && (
+              <span
+                className="text-[9px] flex items-center gap-0.5 px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40"
+                title={`Odsazeno o ${indentMm} mm od levého okraje`}
+              >
+                <CornerDownRight className="w-2.5 h-2.5" />
+                +{indentMm} mm
+              </span>
+            )}
+
+            {/* Line Count Badge */}
+            {b.lineCount && b.lineCount > 1 && (
+              <span className="text-[9px] text-slate-400 bg-slate-900/60 px-1 py-0.2 rounded border border-slate-750">
+                {b.lineCount} ř.
+              </span>
+            )}
+
+            {isCurrentActive && (
+              <span className="text-[9px] font-bold uppercase tracking-wider text-rose-400 bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40">
+                Aktivní
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0 ml-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedStreamBlockId(b.id);
+                setEditSidePanelTab('stream');
+              }}
+              className={`p-1 rounded transition-colors text-slate-400 hover:text-indigo-300 ${
+                isMinimal ? 'hover:bg-neutral-200' : 'hover:bg-slate-700'
+              }`}
+              title="Upravit kód tohoto bloku"
+            >
+              <Code className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => handleDeleteSingleBlock(b.id, e)}
+              className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors"
+              title="Smazat pouze tento blok"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Highlighted Preview Text */}
+        <div
+          className={`text-xs font-medium line-clamp-3 p-1.5 rounded-md ${
+            isMinimal
+              ? 'bg-white text-black border border-neutral-200'
+              : isLcars
+              ? 'bg-black text-[#ff9900] border border-[#333333]'
+              : 'bg-slate-950/60 text-slate-200 border border-slate-800'
+          }`}
+        >
+          {renderHighlightedText(b.previewText, b.id)}
+        </div>
+
+        {/* Font & Position meta */}
+        <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+          <span className="truncate max-w-[180px]">{b.fontInfo || 'Výchozí písmo'}</span>
+          <span>{b.positionInfo}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderImageCard = (im: PageImageInfo, isChild = false) => {
+    const isChecked = selectedImageNames.has(im.name);
+    const isCurrentActive =
+      selectedStreamBlockId === im.name ||
+      selectedStreamBlockId === `img_${im.cleanName}` ||
+      selectedStreamBlockId === `/${im.cleanName}`;
+
+    return (
+      <div
+        key={im.name}
+        id={`panel_item_img_${im.cleanName}`}
+        onClick={() => {
+          setSelectedStreamBlockId(im.name);
+          toggleImageSelection(im.name);
+        }}
+        className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
+          isChild ? 'border-l-2 border-l-amber-500/60' : ''
+        } ${
+          isCurrentActive
+            ? isMinimal
+              ? 'bg-amber-50 border-amber-500 ring-1 ring-amber-400 shadow-sm'
+              : isLcars
+              ? 'bg-[#ffcc00]/25 border-[#ffcc00] ring-1 ring-[#ffcc00]'
+              : 'bg-amber-950/40 border-amber-500 ring-1 ring-amber-500/60 shadow-lg shadow-amber-950/30'
+            : isChecked
+            ? isMinimal
+              ? 'bg-rose-50 border-rose-300'
+              : 'bg-rose-950/20 border-rose-700/60'
+            : isMinimal
+            ? 'bg-neutral-50/70 hover:bg-neutral-100 border-neutral-200'
+            : isLcars
+            ? 'bg-[#111111] hover:bg-[#1a1a1a] border-[#333333]'
+            : 'bg-slate-800/30 hover:bg-slate-800/70 border-slate-750'
+        }`}
+      >
+        {/* Top bar with Checkbox, CleanName, Badges, and Action Buttons */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <input
+              type="checkbox"
+              checked={isChecked}
+              onChange={() => {}}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleImageSelection(im.name);
+              }}
+              className="rounded border-slate-600 text-rose-600 focus:ring-rose-500"
+            />
+            <span
+              className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                isCurrentActive
+                  ? 'bg-amber-600 text-white'
+                  : isMinimal
+                  ? 'bg-neutral-200 text-neutral-800'
+                  : 'bg-slate-900 text-amber-300 border border-slate-700'
+              }`}
+            >
+              /{im.cleanName}
+            </span>
+
+            {/* Format Badge */}
+            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
+              {im.format ? im.format.toUpperCase() : im.filter || 'BITMAP'}
+            </span>
+
+            {/* DPI Badge */}
+            {im.dpi ? (
+              <span
+                className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                  im.dpi >= 200
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                }`}
+                title={im.dpi >= 200 ? 'Vysoké rozlišení (tisk)' : 'Nízké rozlišení (náhled/web)'}
+              >
+                {im.dpi} DPI
+              </span>
+            ) : null}
+
+            {/* Full-Page Scan Badge */}
+            {im.isFullPageScan && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                Sken
+              </span>
+            )}
+          </div>
+
+          {/* Action buttons: Export, Replace, Delete */}
+          <div className="flex items-center gap-1 shrink-0 ml-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleExportImage(im);
+              }}
+              className={`p-1 rounded transition-colors text-slate-400 hover:text-sky-300 ${
+                isMinimal ? 'hover:bg-neutral-200' : 'hover:bg-slate-700'
+              }`}
+              title="Exportovat / Stáhnout obrázek (PNG/JPG)"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerImageReplace(im);
+              }}
+              className={`p-1 rounded transition-colors text-slate-400 hover:text-amber-300 ${
+                isMinimal ? 'hover:bg-neutral-200' : 'hover:bg-slate-700'
+              }`}
+              title="Nahradit obrázek (Vyměnit za jiný soubor)"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDeleteImage(im);
+              }}
+              className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors"
+              title="Smazat obrázek ze stránky"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Thumbnail Preview & Technical Metrics */}
+        <div className="flex items-center gap-3">
+          <div className="w-14 h-14 rounded-lg border border-slate-700 bg-slate-950 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+            {im.thumbnailDataUrl ? (
+              <img
+                src={im.thumbnailDataUrl}
+                alt={im.cleanName}
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <ImageIcon className="w-6 h-6 text-slate-600" />
+            )}
+          </div>
+
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1 text-[10px] font-mono text-slate-400">
+            <div>
+              <span className="text-slate-500">Rozlišení: </span>
+              <span className="text-slate-200 font-semibold">
+                {im.pixelWidth || '?'} × {im.pixelHeight || '?'} px
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-500">Na stránce: </span>
+              <span>
+                {im.width ? Math.round(im.width) : '?'} × {im.height ? Math.round(im.height) : '?'} pt
+              </span>
+            </div>
+            <div className="truncate">
+              <span className="text-slate-500">Barevný prostor: </span>
+              <span>{im.colorSpace || 'DeviceRGB'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (!isEditSidePanelOpen) return null;
 
   const currentSelectedBlock = segments.find((s) => s.id === selectedStreamBlockId);
@@ -831,6 +1550,41 @@ export const EditSidePanel: React.FC = () => {
               </div>
             )}
 
+            {hasFullPageScan && (
+              <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs flex items-start gap-2.5 animate-in fade-in duration-150">
+                <ImageIcon className="w-4 h-4 shrink-0 mt-0.5 text-purple-400" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-purple-200 flex items-center justify-between">
+                    <span>Naskenovaná stránka ({fullPageScanImage?.dpi || 300} DPI)</span>
+                    <span className="text-[10px] font-mono text-purple-300/80">
+                      {fullPageScanImage?.pixelWidth}×{fullPageScanImage?.pixelHeight} px
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-purple-300/80 mt-1 leading-relaxed">
+                    Tato stránka je bitmapový sken. Text nelze editovat jako operátory content streamu, můžete však obrázek vyměnit, exportovat nebo využít Vizuální přepis.
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => fullPageScanImage && triggerImageReplace(fullPageScanImage)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Nahradit sken</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fullPageScanImage && handleExportImage(fullPageScanImage)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-900 border border-purple-500/40 text-purple-200 text-[11px] font-semibold transition-colors"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>Stáhnout PNG</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -844,7 +1598,7 @@ export const EditSidePanel: React.FC = () => {
                     ? 'bg-neutral-100 border-neutral-300 focus:border-rose-500 text-black'
                     : isLcars
                     ? 'bg-[#111111] border-[#ff9900]/40 text-[#ff9900] focus:border-[#ff9900]'
-                    : 'bg-slate-800/60 border-slate-700 text-slate-100 focus:border-rose-500'
+                    : 'bg-slate-800/60 border-slate-750 text-slate-100 focus:border-rose-500'
                 }`}
               />
               {filterQuery && (
@@ -856,6 +1610,68 @@ export const EditSidePanel: React.FC = () => {
                 </button>
               )}
             </div>
+
+            {/* Element Type Segmented Filter Pills */}
+            {images.length > 0 && (
+              <div
+                className={`flex items-center p-0.5 rounded-lg border text-xs ${
+                  isMinimal
+                    ? 'bg-neutral-100 border-neutral-300'
+                    : isLcars
+                    ? 'bg-[#111111] border-[#ff9900]/40'
+                    : 'bg-slate-800/60 border-slate-750'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setFilterType('all')}
+                  className={`flex-1 py-1 px-2 rounded-md font-medium text-[11px] transition-all flex items-center justify-center gap-1 ${
+                    filterType === 'all'
+                      ? isMinimal
+                        ? 'bg-white text-black font-bold shadow-xs'
+                        : isLcars
+                        ? 'bg-[#ff9900] text-black font-bold'
+                        : 'bg-rose-600 text-white font-bold shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Layers className="w-3 h-3" />
+                  <span>Vše ({filteredBlocks.length + filteredImages.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('text')}
+                  className={`flex-1 py-1 px-2 rounded-md font-medium text-[11px] transition-all flex items-center justify-center gap-1 ${
+                    filterType === 'text'
+                      ? isMinimal
+                        ? 'bg-white text-black font-bold shadow-xs'
+                        : isLcars
+                        ? 'bg-[#ff9900] text-black font-bold'
+                        : 'bg-rose-600 text-white font-bold shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Type className="w-3 h-3" />
+                  <span>Text ({filteredBlocks.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('image')}
+                  className={`flex-1 py-1 px-2 rounded-md font-medium text-[11px] transition-all flex items-center justify-center gap-1 ${
+                    filterType === 'image'
+                      ? isMinimal
+                        ? 'bg-white text-black font-bold shadow-xs'
+                        : isLcars
+                        ? 'bg-[#ffcc00] text-black font-bold'
+                        : 'bg-amber-600 text-white font-bold shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <ImageIcon className="w-3 h-3" />
+                  <span>Obrázky ({filteredImages.length})</span>
+                </button>
+              </div>
+            )}
 
             {/* Selection & Batch Actions Bar */}
             <div
@@ -907,7 +1723,13 @@ export const EditSidePanel: React.FC = () => {
             {/* List of text blocks */}
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 px-1">
-                <span>TEXTOVÉ BLOKY ({displayedBlocks.length})</span>
+                <span>
+                  {filterType === 'image'
+                    ? `OBRÁZKY (${allPageElements.length})`
+                    : filterType === 'text'
+                    ? `TEXTOVÉ BLOKY (${allPageElements.length})`
+                    : `PRVKY STRÁNKY (${allPageElements.length})`}
+                </span>
                 {/* Sort Mode Segmented Control */}
                 <div
                   className={`flex items-center p-0.5 rounded-lg border text-[10px] ${
@@ -955,282 +1777,148 @@ export const EditSidePanel: React.FC = () => {
                 </div>
               </div>
 
-              {displayedBlocks.length === 0 ? (
+              {allPageElements.length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-500">
-                  Nebyly nalezeny žádné textové bloky.
+                  Nebyly nalezeny žádné prvky na stránce.
                 </div>
-              ) : (
-                displayedBlocks.map((b) => {
-                  const isChecked = selectedBlockIds.has(b.id);
-                  const isCurrentActive = selectedStreamBlockId === b.id;
-                  const isHovered =
-                    hoveredBlockId === b.id ||
-                    (Boolean(hoveredBlockText) &&
-                      (b.previewText.toLowerCase().includes(hoveredBlockText!.toLowerCase()) ||
-                        hoveredBlockText!.toLowerCase().includes(b.previewText.toLowerCase())));
-                  const indent = b.indentLevel ?? 0;
-                  const indentMm =
-                    b.x !== undefined && b.x > minPageX + 6
-                      ? Math.round((b.x - minPageX) * 0.3527)
-                      : 0;
+              ) : sortMode === 'reading' ? (
+                /* Semantic Document Tree Mode */
+                <div className="flex flex-col gap-2.5">
+                  {documentSections.map((sec) => {
+                    const isCollapsed = collapsedSectionIds.has(sec.id);
+                    const totalItems = (sec.headingBlock ? 1 : 0) + sec.items.length;
+                    const allTextIds = [
+                      ...(sec.headingBlock ? [sec.headingBlock.id] : []),
+                      ...sec.items.filter((c) => c.kind === 'text').map((c) => (c as any).block.id),
+                    ];
+                    const allImgNames = sec.items.filter((c) => c.kind === 'image').map((c) => (c as any).image.name);
+                    const isSecAllChecked =
+                      (allTextIds.length > 0 || allImgNames.length > 0) &&
+                      allTextIds.every((id) => selectedBlockIds.has(id)) &&
+                      allImgNames.every((name) => selectedImageNames.has(name));
+                    const isSecPartiallyChecked =
+                      !isSecAllChecked &&
+                      (allTextIds.some((id) => selectedBlockIds.has(id)) ||
+                        allImgNames.some((name) => selectedImageNames.has(name)));
 
-                  return (
-                    <div
-                      key={b.id}
-                      id={`panel_item_${b.id}`}
-                      onClick={() => toggleBlockSelection(b.id)}
-                      onMouseEnter={() => {
-                        setHoveredBlockId(b.id);
-                        setHoveredBlockText(b.previewText);
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredBlockId(null);
-                        setHoveredBlockText(null);
-                      }}
-                      className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-1.5 ${
-                        indent === 1
-                          ? 'border-l-4 border-l-sky-500/70 ml-2.5'
-                          : indent === 2
-                          ? 'border-l-4 border-l-amber-500/80 ml-5'
-                          : 'border-l-4 border-l-transparent'
-                      } ${
-                        isCurrentActive
-                          ? isMinimal
-                            ? 'bg-rose-50 border-rose-500 shadow-sm ring-1 ring-rose-400'
-                            : isLcars
-                            ? 'bg-[#ff9900]/25 border-[#ff9900] ring-1 ring-[#ff9900]'
-                            : 'bg-rose-950/40 border-rose-500 ring-1 ring-rose-500/60 shadow-lg shadow-rose-950/30'
-                          : isChecked
-                          ? isMinimal
-                            ? 'bg-rose-50/60 border-rose-300'
-                            : 'bg-rose-950/20 border-rose-700/60'
-                          : isHovered
-                          ? isMinimal
-                            ? 'bg-sky-50 border-sky-400 ring-1 ring-sky-300 shadow-xs'
-                            : isLcars
-                            ? 'bg-[#111111] border-[#99ccff] ring-1 ring-[#99ccff]'
-                            : 'bg-slate-800/80 border-sky-400/80 ring-1 ring-sky-400/40 shadow-md shadow-sky-950/30'
-                          : isMinimal
-                          ? 'bg-neutral-50/70 hover:bg-neutral-100 border-neutral-200'
-                          : isLcars
-                          ? 'bg-[#111111] hover:bg-[#1a1a1a] border-[#333333]'
-                          : 'bg-slate-800/30 hover:bg-slate-800/70 border-slate-750'
-                      }`}
-                    >
-                      {/* Top Bar with Checkbox, ID, and Badges */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => {}}
-                            className="rounded border-slate-600 text-rose-600 focus:ring-rose-500"
-                          />
-                          <span
-                            className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                              isCurrentActive
-                                ? 'bg-rose-600 text-white'
-                                : isMinimal
-                                ? 'bg-neutral-200 text-neutral-800'
-                                : 'bg-slate-900 text-indigo-300 border border-slate-700'
-                            }`}
-                          >
-                            {b.id}
-                          </span>
-
-                          {/* Role Badge */}
-                          {b.headingRole === 'h1' && (
-                            <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                              H1 Nadpis
-                            </span>
-                          )}
-                          {b.headingRole === 'h2' && (
-                            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                              H2 Podnadpis
-                            </span>
-                          )}
-                          {b.headingRole === 'small' && (
-                            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                              Zápatí / Pozn.
-                            </span>
-                          )}
-
-                          {/* Marked Content Tag */}
-                          {b.markedContentTag && (
-                            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
-                              Tag: {b.markedContentTag}
-                            </span>
-                          )}
-
-                          {/* Scope / Container Badge */}
-                          {b.parentScope && (
-                            <span
-                              className="text-[9px] font-mono px-1 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
-                              title={`Grafický kontext: ${b.parentScope}`}
-                            >
-                              {b.parentScope}
-                            </span>
-                          )}
-
-                          {/* Indentation Depth Badge */}
-                          {indentMm > 0 && (
-                            <span
-                              className="text-[9px] flex items-center gap-0.5 px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/40"
-                              title={`Odsazeno o ${indentMm} mm od levého okraje`}
-                            >
-                              <CornerDownRight className="w-2.5 h-2.5" />
-                              +{indentMm} mm
-                            </span>
-                          )}
-
-                          {/* Line Count Badge */}
-                          {b.lineCount && b.lineCount > 1 && (
-                            <span className="text-[9px] text-slate-400 bg-slate-900/60 px-1 py-0.2 rounded border border-slate-750">
-                              {b.lineCount} ř.
-                            </span>
-                          )}
-
-                          {isCurrentActive && (
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-rose-400 bg-rose-950/60 px-1 py-0.2 rounded border border-rose-800/40">
-                              Aktivní
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1 shrink-0 ml-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedStreamBlockId(b.id);
-                              setEditSidePanelTab('stream');
-                            }}
-                            className={`p-1 rounded transition-colors text-slate-400 hover:text-indigo-300 ${
-                              isMinimal ? 'hover:bg-neutral-200' : 'hover:bg-slate-700'
-                            }`}
-                            title="Upravit kód tohoto bloku"
-                          >
-                            <Code className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteSingleBlock(b.id, e)}
-                            className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors"
-                            title="Smazat pouze tento blok"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Highlighted Preview Text */}
+                    return (
                       <div
-                        className={`text-xs font-medium line-clamp-3 p-1.5 rounded-md ${
+                        key={sec.id}
+                        className={`rounded-xl border transition-all overflow-hidden ${
                           isMinimal
-                            ? 'bg-white text-black border border-neutral-200'
+                            ? 'bg-neutral-50/50 border-neutral-300 shadow-xs'
                             : isLcars
-                            ? 'bg-black text-[#ff9900] border border-[#333333]'
-                            : 'bg-slate-950/60 text-slate-200 border border-slate-800'
+                            ? 'bg-[#111111] border-[#ff9900]/40'
+                            : 'bg-slate-900/40 border-slate-800 shadow-sm'
                         }`}
                       >
-                        {renderHighlightedText(b.previewText, b.id)}
-                      </div>
+                        {/* Section Header */}
+                        <div
+                          onClick={(e) => toggleSectionCollapse(sec.id, e)}
+                          className={`p-2.5 flex items-center justify-between gap-2 cursor-pointer select-none transition-colors ${
+                            isMinimal
+                              ? 'hover:bg-neutral-100 bg-neutral-100/60 border-b border-neutral-200'
+                              : isLcars
+                              ? 'hover:bg-[#ff9900]/10 bg-black border-b border-[#333333]'
+                              : 'hover:bg-slate-800/60 bg-slate-950/60 border-b border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <button
+                              type="button"
+                              className="text-slate-400 hover:text-white transition-colors shrink-0"
+                              title={isCollapsed ? 'Rozbalit sekci' : 'Sbalit sekci'}
+                            >
+                              {isCollapsed ? (
+                                <ChevronRight className="w-4 h-4 text-rose-400" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4 text-rose-400" />
+                              )}
+                            </button>
 
-                      {/* Font & Position meta */}
-                      <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                        <span className="truncate max-w-[180px]">{b.fontInfo || 'Výchozí písmo'}</span>
-                        <span>{b.positionInfo}</span>
+                            <input
+                              type="checkbox"
+                              checked={isSecAllChecked}
+                              ref={(input) => {
+                                if (input) input.indeterminate = isSecPartiallyChecked;
+                              }}
+                              onChange={(e) => toggleSectionSelection(sec, e)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded border-slate-600 text-rose-600 focus:ring-rose-500"
+                              title="Vybrat celou sekci"
+                            />
+
+                            <span
+                              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${
+                                sec.role === 'h1'
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                                  : sec.role === 'h2'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                                  : 'bg-slate-800 text-slate-300 border border-slate-700'
+                              }`}
+                            >
+                              {sec.role === 'h1' ? 'H1 Sekce' : sec.role === 'h2' ? 'H2 Sekce' : 'Záhlaví / Text'}
+                            </span>
+
+                            <span className="text-xs font-bold text-slate-200 truncate" title={sec.title}>
+                              {sec.title}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[10px] text-slate-400 font-medium px-1.5 py-0.5 rounded bg-slate-800/80">
+                              {totalItems} {totalItems === 1 ? 'položka' : totalItems < 5 ? 'položky' : 'položek'}
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteSection(sec, e)}
+                              className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors"
+                              title="Smazat celou sekci včetně podřízených prvků a obrázků"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Section Body (Heading card + indented children) */}
+                        {!isCollapsed && (
+                          <div className="p-2 flex flex-col gap-2">
+                            {sec.headingBlock && renderBlockCard(sec.headingBlock, false)}
+                            {sec.items.length > 0 && (
+                              <div className="border-l-2 border-indigo-500/30 pl-2.5 ml-2.5 flex flex-col gap-2">
+                                {sec.items.map((child) =>
+                                  child.kind === 'text'
+                                    ? renderBlockCard(child.block, true)
+                                    : renderImageCard(child.image, true)
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Flat Linear Stream Mode */
+                <div className="flex flex-col gap-2">
+                  {allPageElements.map((el) =>
+                    el.kind === 'text'
+                      ? renderBlockCard(el.block, false)
+                      : renderImageCard(el.image, false)
+                  )}
+                </div>
               )}
             </div>
 
-            {/* List of images */}
-            {images.length > 0 && (
-              <div className="flex flex-col gap-2 mt-2">
+            {/* Any unplaced image objects in resources */}
+            {unplacedImages.length > 0 && (
+              <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-slate-800">
                 <div className="text-[11px] font-semibold text-slate-400 px-1">
-                  OBRÁZKY NA STRÁNCE ({filteredImages.length})
+                  NEZAŘAZENÉ OBRÁZKY ({unplacedImages.length})
                 </div>
-
-                {filteredImages.map((im) => {
-                  const isChecked = selectedImageNames.has(im.name);
-                  return (
-                    <div
-                      key={im.name}
-                      id={`panel_item_img_${im.cleanName}`}
-                      onClick={() => toggleImageSelection(im.name)}
-                      className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
-                        isChecked
-                          ? isMinimal
-                            ? 'bg-rose-50 border-rose-400'
-                            : 'bg-rose-950/30 border-rose-500/60'
-                          : isMinimal
-                          ? 'bg-neutral-50 hover:bg-neutral-100 border-neutral-200'
-                          : 'bg-slate-800/30 hover:bg-slate-800/70 border-slate-750'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {}}
-                          className="rounded border-slate-600 text-rose-600 focus:ring-rose-500"
-                        />
-                        <ImageIcon className="w-4 h-4 text-indigo-400" />
-                        <div>
-                          <div className="text-xs font-mono font-bold text-slate-200">
-                            {im.cleanName}
-                          </div>
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            {im.width}×{im.height} px • {im.colorSpace || 'RGB'}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0 ml-1">
-                        <button
-                          type="button"
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            setIsSaving(true);
-                            try {
-                              const res = await removeMultiplePageElements([], [im.name], activePageIndex);
-                              if (res.success) {
-                                setStatusMessage({
-                                  type: 'success',
-                                  text: `Obrázek ${im.cleanName} byl úspěšně odstraněn.`,
-                                });
-                                setSelectedImageNames((prev) => {
-                                  const next = new Set(prev);
-                                  next.delete(im.name);
-                                  return next;
-                                });
-                                const imagesRes = await getPageImagesList(activePageIndex);
-                                if (imagesRes.images) setImages(imagesRes.images);
-                              } else {
-                                setStatusMessage({
-                                  type: 'error',
-                                  text: res.error || 'Odstranění obrázku selhalo.',
-                                });
-                              }
-                            } catch (err: any) {
-                              setStatusMessage({ type: 'error', text: err?.message || String(err) });
-                            } finally {
-                              setIsSaving(false);
-                            }
-                          }}
-                          className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors"
-                          title="Smazat pouze tento obrázek"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                {unplacedImages.map((im) => renderImageCard(im, false))}
               </div>
             )}
           </div>
@@ -1516,6 +2204,15 @@ export const EditSidePanel: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Hidden File Input for Image Replacement */}
+      <input
+        type="file"
+        ref={imageReplaceInputRef}
+        style={{ display: 'none' }}
+        accept="image/png,image/jpeg,image/webp"
+        onChange={handleImageFilePicked}
+      />
     </aside>
   );
 };

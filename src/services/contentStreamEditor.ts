@@ -81,6 +81,79 @@ export async function checkDocumentEncryption(
 }
 
 /**
+ * ISO 32000-1 Section 7.7.3.4: Safely resolves /Resources dictionary for a page node.
+ * Avoids throwing "Expected instance of PDFDict, but got instance of undefined" when /Resources
+ * is inherited from parent /Pages nodes or not directly declared on the leaf node.
+ */
+export function safeGetPageResources(page: any): PDFDict | undefined {
+  if (!page) return undefined;
+  const node = page.node || page;
+  const ctx = node.context;
+
+  // 1. Direct get on node without strict type assertion
+  try {
+    const rawRes = node.get ? node.get(PDFName.of('Resources')) : undefined;
+    if (rawRes instanceof PDFRef && ctx) {
+      const lookedUp = ctx.lookup(rawRes);
+      if (lookedUp instanceof PDFDict) return lookedUp;
+    } else if (rawRes instanceof PDFDict) {
+      return rawRes;
+    }
+  } catch (_) {}
+
+  // 2. Safe call to node.Resources()
+  try {
+    const res = node.Resources?.();
+    if (res instanceof PDFDict) return res;
+  } catch (_) {}
+
+  // 3. Inheritance traversal: check parent /Pages nodes
+  try {
+    let parent: any = node.Parent?.() || node.parent?.();
+    while (parent) {
+      const pRaw = parent.get ? parent.get(PDFName.of('Resources')) : undefined;
+      if (pRaw instanceof PDFRef && ctx) {
+        const lookedUp = ctx.lookup(pRaw);
+        if (lookedUp instanceof PDFDict) return lookedUp;
+      } else if (pRaw instanceof PDFDict) {
+        return pRaw;
+      }
+      try {
+        const pRes = parent.Resources?.();
+        if (pRes instanceof PDFDict) return pRes;
+      } catch (_) {}
+
+      parent =
+        typeof parent.Parent === 'function'
+          ? parent.Parent()
+          : typeof parent.parent === 'function'
+          ? parent.parent()
+          : undefined;
+    }
+  } catch (_) {}
+
+  return undefined;
+}
+
+/**
+ * ISO 32000-1: Safely retrieves /Contents from a page node without throwing.
+ */
+export function safeGetPageContents(page: any): any {
+  if (!page) return undefined;
+  const node = page.node || page;
+  try {
+    const raw = node.get ? node.get(PDFName.of('Contents')) : undefined;
+    if (raw) return raw;
+  } catch (_) {}
+
+  try {
+    return node.Contents?.();
+  } catch (_) {}
+
+  return undefined;
+}
+
+/**
  * Heuristically tests if a decoded stream is actually encrypted ciphertext.
  */
 export function isLikelyCiphertext(str: string): boolean {
@@ -581,7 +654,7 @@ export async function replaceTextInPageContentStream(
     }
 
     const page = pdfDoc.getPage(pageIndex);
-    const contentsRef = page.node.Contents();
+    const contentsRef = safeGetPageContents(page.node);
     let occurrencesReplaced = 0;
 
     if (contentsRef instanceof PDFRef) {
@@ -702,7 +775,7 @@ export async function replaceTextInAllPagesContentStream(
 
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
       const page = pdfDoc.getPage(pageIndex);
-      const contentsRef = page.node.Contents();
+      const contentsRef = safeGetPageContents(page.node);
       let pageModified = false;
 
       if (contentsRef instanceof PDFRef) {
@@ -831,9 +904,17 @@ export async function getPageContentStream(
   pageIndex: number
 ): Promise<{ streamText: string; streamCount: number; isEncrypted?: boolean; error?: string }> {
   try {
-    const pdfDoc = await getCachedPdfLibDocument(pdfDocBytes);
     const encInfo = await checkDocumentEncryption(pdfDocBytes);
+    if (encInfo.isEncrypted) {
+      return {
+        streamText: '',
+        streamCount: 0,
+        isEncrypted: true,
+        error: 'Dokument používá standardní šifrování oprávnění (Standard Security). Přímá editace content streamu je uzamčena.',
+      };
+    }
 
+    const pdfDoc = await getCachedPdfLibDocument(pdfDocBytes);
     const pageCount = pdfDoc.getPageCount();
     if (pageIndex < 0 || pageIndex >= pageCount) {
       return {
@@ -845,7 +926,7 @@ export async function getPageContentStream(
     }
 
     const page = pdfDoc.getPage(pageIndex);
-    const contentsRef = page.node.Contents();
+    const contentsRef = safeGetPageContents(page.node);
     let streamText = '';
     let streamCount = 0;
 
@@ -879,7 +960,7 @@ export async function getPageContentStream(
     }
 
     // Inspect Form XObjects in page resources (/XObject dictionary)
-    const resources = page.node.Resources();
+    const resources = safeGetPageResources(page.node);
     if (resources instanceof PDFDict) {
       const xObject = resources.lookup(PDFName.of('XObject'));
       if (xObject instanceof PDFDict) {
@@ -1599,6 +1680,10 @@ export interface PageImageInfo {
   pixelHeight?: number;
   colorSpace?: string;
   filter?: string;
+  format?: 'jpeg' | 'png' | 'jbig2' | 'ccitt' | 'flate' | 'unknown';
+  dpi?: number;
+  isFullPageScan?: boolean;
+  thumbnailDataUrl?: string;
   rawInvocation?: string;
 }
 
@@ -1610,6 +1695,11 @@ export async function getPageImages(
   pageIndex: number
 ): Promise<{ images: PageImageInfo[]; error?: string }> {
   try {
+    const encInfo = await checkDocumentEncryption(pdfDocBytes);
+    if (encInfo.isEncrypted) {
+      return { images: [], error: 'Dokument používá standardní šifrování oprávnění (Standard Security).' };
+    }
+
     const pdfDoc = await getCachedPdfLibDocument(pdfDocBytes);
 
     const pageCount = pdfDoc.getPageCount();
@@ -1624,33 +1714,7 @@ export async function getPageImages(
     const discoveredNames = new Set<string>();
 
     // 1. Inspect /Resources /XObject dictionary (supporting indirect references and inherited resources)
-    let resources = page.node.Resources();
-    if (!resources) {
-      const rawRes = page.node.get(PDFName.of('Resources'));
-      if (rawRes instanceof PDFRef) {
-        resources = page.node.context.lookup(rawRes) as any;
-      } else if (rawRes instanceof PDFDict) {
-        resources = rawRes;
-      }
-    }
-    if (!resources) {
-      let parent: any = (page.node as any).Parent?.() || (page.node as any).parent?.();
-      while (parent && !resources) {
-        const pRes = parent.Resources?.() || parent.get?.(PDFName.of('Resources'));
-        if (pRes instanceof PDFRef) {
-          const lookedUp = page.node.context.lookup(pRes);
-          if (lookedUp instanceof PDFDict) resources = lookedUp;
-        } else if (pRes instanceof PDFDict) {
-          resources = pRes;
-        }
-        parent =
-          typeof parent.Parent === 'function'
-            ? parent.Parent()
-            : typeof parent.parent === 'function'
-            ? parent.parent()
-            : undefined;
-      }
-    }
+    const resources = safeGetPageResources(page.node);
 
     if (resources) {
       let xObjectDict = resources.get(PDFName.of('XObject'));
@@ -1711,35 +1775,50 @@ export async function getPageImages(
         const cleanName = doMatch[1];
         const matchIndex = doMatch.index;
         
-        // Inspect preceding chunk for matrix transformation "a b c d e f cm", allowing intervening gs, q, or whitespace
-        const precedingChunk = streamText.substring(Math.max(0, matchIndex - 300), matchIndex);
-        const cmMatch = precedingChunk.match(/([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm(?:\s+(?:[A-Za-z0-9_/]+(?:\s+[A-Za-z0-9_/]+)*\s+gs|q))*[\s\r\n]*$/);
+        // Inspect preceding chunk back to last graphics state push 'q' (or up to 600 chars)
+        const precedingChunk = streamText.substring(Math.max(0, matchIndex - 600), matchIndex);
+        const lastQIndex = precedingChunk.lastIndexOf('q');
+        const searchRegion = lastQIndex !== -1 ? precedingChunk.substring(lastQIndex) : precedingChunk;
 
-        const invMatrix = {
-          a: cmMatch ? parseFloat(cmMatch[1]) : undefined,
-          b: cmMatch ? parseFloat(cmMatch[2]) : undefined,
-          c: cmMatch ? parseFloat(cmMatch[3]) : undefined,
-          d: cmMatch ? parseFloat(cmMatch[4]) : undefined,
-          e: cmMatch ? parseFloat(cmMatch[5]) : undefined,
-          f: cmMatch ? parseFloat(cmMatch[6]) : undefined,
-        };
+        // Multiply all 2D affine transformation matrices in order: M = [a, b, c, d, e, f]
+        // Standard PDF affine matrix: [a b 0; c d 0; e f 1]
+        let curM = [1, 0, 0, 1, 0, 0]; // identity
+        let hasCm = false;
 
-        const calcWidth =
-          invMatrix.a !== undefined && invMatrix.b !== undefined
-            ? Math.round(Math.hypot(invMatrix.a, invMatrix.b) * 10) / 10
-            : undefined;
-        const calcHeight =
-          invMatrix.c !== undefined && invMatrix.d !== undefined
-            ? Math.round(Math.hypot(invMatrix.c, invMatrix.d) * 10) / 10
-            : undefined;
+        const cmRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm/g;
+        let cmMatch: RegExpExecArray | null;
+        while ((cmMatch = cmRegex.exec(searchRegion)) !== null) {
+          hasCm = true;
+          const a = parseFloat(cmMatch[1]);
+          const b = parseFloat(cmMatch[2]);
+          const c = parseFloat(cmMatch[3]);
+          const d = parseFloat(cmMatch[4]);
+          const e = parseFloat(cmMatch[5]);
+          const f = parseFloat(cmMatch[6]);
+
+          // Matrix multiplication: newM = curM * [a, b, c, d, e, f]
+          const aPrime = curM[0] * a + curM[2] * b;
+          const bPrime = curM[1] * a + curM[3] * b;
+          const cPrime = curM[0] * c + curM[2] * d;
+          const dPrime = curM[1] * c + curM[3] * d;
+          const ePrime = curM[0] * e + curM[2] * f + curM[4];
+          const fPrime = curM[1] * e + curM[3] * f + curM[5];
+
+          curM = [aPrime, bPrime, cPrime, dPrime, ePrime, fPrime];
+        }
+
+        const calcWidth = hasCm ? Math.round(Math.hypot(curM[0], curM[1]) * 10) / 10 : undefined;
+        const calcHeight = hasCm ? Math.round(Math.hypot(curM[2], curM[3]) * 10) / 10 : undefined;
+        const calcX = hasCm ? Math.round(curM[4] * 10) / 10 : undefined;
+        const calcY = hasCm ? Math.round(curM[5] * 10) / 10 : undefined;
 
         const existing = images.find((im) => im.cleanName === cleanName);
         if (existing) {
           existing.width = calcWidth || existing.width;
           existing.height = calcHeight || existing.height;
-          existing.x = invMatrix.e !== undefined ? Math.round(invMatrix.e * 10) / 10 : existing.x;
-          existing.y = invMatrix.f !== undefined ? Math.round(invMatrix.f * 10) / 10 : existing.y;
-          existing.rawInvocation = cmMatch ? `${cmMatch[0]}${doMatch[0]}` : doMatch[0];
+          existing.x = calcX !== undefined ? calcX : existing.x;
+          existing.y = calcY !== undefined ? calcY : existing.y;
+          existing.rawInvocation = searchRegion.trim();
         } else if (!discoveredNames.has(cleanName)) {
           discoveredNames.add(cleanName);
           images.push({
@@ -1748,11 +1827,37 @@ export async function getPageImages(
             cleanName,
             width: calcWidth,
             height: calcHeight,
-            x: invMatrix.e !== undefined ? Math.round(invMatrix.e * 10) / 10 : undefined,
-            y: invMatrix.f !== undefined ? Math.round(invMatrix.f * 10) / 10 : undefined,
-            rawInvocation: cmMatch ? `${cmMatch[0]}${doMatch[0]}` : doMatch[0],
+            x: calcX,
+            y: calcY,
+            rawInvocation: searchRegion.trim(),
           });
         }
+      }
+    }
+
+    const pageWidth = page.getWidth();
+    const pageHeight = page.getHeight();
+
+    for (const img of images) {
+      if (!img.format && img.filter) {
+        if (img.filter.includes('DCTDecode') || img.filter.includes('JPXDecode')) {
+          img.format = 'jpeg';
+        } else if (img.filter.includes('JBIG2Decode')) {
+          img.format = 'jbig2';
+        } else if (img.filter.includes('CCITTFaxDecode')) {
+          img.format = 'ccitt';
+        } else if (img.filter.includes('FlateDecode')) {
+          img.format = 'png';
+        } else {
+          img.format = 'unknown';
+        }
+      }
+      if (img.pixelWidth && img.width && img.width > 0) {
+        img.dpi = Math.round((img.pixelWidth / img.width) * 72);
+      }
+      if (img.width && img.height && pageWidth > 0 && pageHeight > 0) {
+        const areaRatio = (img.width * img.height) / (pageWidth * pageHeight);
+        img.isFullPageScan = areaRatio >= 0.82;
       }
     }
 
@@ -1760,6 +1865,146 @@ export async function getPageImages(
   } catch (err: any) {
     logger.error('edit', `Chyba při čtení obrázků ze strany ${pageIndex + 1}: ${err?.message || err}`);
     return { images: [], error: err?.message || String(err) };
+  }
+}
+
+/**
+ * In-place replaces an image on a page with a new image (PNG or JPEG) conforming to ISO 32000-1.
+ * Maintains the existing content stream placement, matrix transform, and aspect ratio.
+ */
+export async function replaceImageOnPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  imageName: string,
+  newImageBytes: ArrayBuffer | Uint8Array,
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' = 'image/png'
+): Promise<{ updatedPdfBytes: ArrayBuffer; error?: string }> {
+  const startTime = Date.now();
+  const cleanName = imageName.replace(/^\//, '');
+  logger.info('edit', `Zahájena výměna obrázku /${cleanName} na straně ${pageIndex + 1}`, {
+    pageIndex: pageIndex + 1,
+    imageName: cleanName,
+    mimeType,
+  });
+
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+
+    const pageCount = pdfDoc.getPageCount();
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      const err = `Neplatný index stránky ${pageIndex + 1}`;
+      return { updatedPdfBytes: pdfDocBytes, error: err };
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+
+    // Embed the new image into the PDFDocument context
+    const isJpg = mimeType === 'image/jpeg';
+    const embeddedImage = isJpg
+      ? await pdfDoc.embedJpg(newImageBytes)
+      : await pdfDoc.embedPng(newImageBytes);
+
+    // Locate or create the page's /Resources /XObject dictionary
+    let resources = safeGetPageResources(page.node);
+    if (!page.node.get(PDFName.of('Resources'))) {
+      // Create page-local Resources dictionary to avoid mutating parent trees
+      const localResources = page.node.context.obj({});
+      if (resources instanceof PDFDict) {
+        for (const [key, val] of resources.entries()) {
+          localResources.set(key, val);
+        }
+      }
+      page.node.set(PDFName.of('Resources'), localResources);
+      resources = localResources;
+    } else if (resources instanceof PDFRef) {
+      resources = page.node.context.lookup(resources) as any;
+    }
+
+    if (!resources) {
+      resources = page.node.context.obj({});
+      page.node.set(PDFName.of('Resources'), resources);
+    }
+
+    let xObjectDict = resources.get(PDFName.of('XObject'));
+    if (xObjectDict instanceof PDFRef) {
+      xObjectDict = page.node.context.lookup(xObjectDict);
+    }
+    if (!xObjectDict || !(xObjectDict instanceof PDFDict)) {
+      xObjectDict = page.node.context.obj({});
+      resources.set(PDFName.of('XObject'), xObjectDict);
+    }
+
+    // Set the new image reference for the specified key
+    (xObjectDict as PDFDict).set(PDFName.of(cleanName), embeddedImage.ref);
+
+    const savedBytes = await pdfDoc.save({ useObjectStreams: false });
+    const durationMs = Date.now() - startTime;
+    logger.info('edit', `Obrázek /${cleanName} byl úspěšně nahrazen (${durationMs} ms)`, {
+      pageIndex: pageIndex + 1,
+      imageName: cleanName,
+      durationMs,
+    });
+
+    return { updatedPdfBytes: savedBytes.buffer as ArrayBuffer };
+  } catch (err: any) {
+    logger.error('edit', `Chyba při výměně obrázku /${cleanName}: ${err?.message || err}`);
+    return { updatedPdfBytes: pdfDocBytes, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Extracts raw or decoded bytes of an image XObject from a PDF page for export/download.
+ */
+export async function extractImageBytesFromPdf(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  imageName: string
+): Promise<{ imageBytes?: Uint8Array; mimeType?: string; extension?: string; error?: string }> {
+  try {
+    const pdfDoc = await getCachedPdfLibDocument(pdfDocBytes);
+    const pageCount = pdfDoc.getPageCount();
+    if (pageIndex < 0 || pageIndex >= pageCount) {
+      return { error: `Neplatný index stránky ${pageIndex + 1}` };
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+    const cleanName = imageName.replace(/^\//, '');
+
+    let resources = safeGetPageResources(page.node);
+    if (!resources) return { error: 'Stránka neobsahuje žádné /Resources' };
+    let xObjectDict = resources.get(PDFName.of('XObject'));
+    if (xObjectDict instanceof PDFRef) xObjectDict = page.node.context.lookup(xObjectDict);
+    if (!(xObjectDict instanceof PDFDict)) return { error: 'Slovník /XObject nebyl nalezen' };
+
+    const imgRef = xObjectDict.get(PDFName.of(cleanName));
+    if (!imgRef) return { error: `Obrázek /${cleanName} nebyl v /XObject nalezen` };
+
+    const xObj = page.node.context.lookup(imgRef);
+    if (!xObj) return { error: `Objekt pro /${cleanName} nelze dereferencovat` };
+
+    const dict =
+      xObj instanceof PDFDict ? xObj : (xObj as any).dict instanceof PDFDict ? (xObj as any).dict : undefined;
+    const filter = dict ? String(dict.get(PDFName.of('Filter')) || '') : '';
+
+    if (xObj instanceof PDFRawStream) {
+      const rawContents = xObj.getContents();
+      if (filter.includes('DCTDecode') || filter.includes('JPXDecode')) {
+        return { imageBytes: rawContents, mimeType: 'image/jpeg', extension: 'jpg' };
+      }
+      try {
+        const decoded = decodePDFRawStream(xObj);
+        return { imageBytes: decoded.decode(), mimeType: 'application/octet-stream', extension: 'bin' };
+      } catch {
+        return { imageBytes: rawContents, mimeType: 'application/octet-stream', extension: 'bin' };
+      }
+    }
+
+    return { error: 'Objekt obrázku není stream' };
+  } catch (err: any) {
+    return { error: err?.message || String(err) };
   }
 }
 
@@ -1859,15 +2104,7 @@ export async function removeMultipleElementsFromPage(
 
     // 2. Remove images
     if (imageNames.length > 0) {
-      let resources = page.node.Resources();
-      if (!resources) {
-        const rawRes = page.node.get(PDFName.of('Resources'));
-        if (rawRes instanceof PDFRef) {
-          resources = page.node.context.lookup(rawRes) as any;
-        } else if (rawRes instanceof PDFDict) {
-          resources = rawRes;
-        }
-      }
+      const resources = safeGetPageResources(page.node);
       let xObjectDict = resources?.get(PDFName.of('XObject'));
       if (xObjectDict instanceof PDFRef) {
         xObjectDict = page.node.context.lookup(xObjectDict);

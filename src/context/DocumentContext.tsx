@@ -13,6 +13,8 @@ import {
   updatePageContentStream,
   updateStreamSegmentInPage,
   getPageImages,
+  replaceImageOnPage,
+  extractImageBytesFromPdf,
   removeMultipleElementsFromPage,
   PageImageInfo,
   StreamSegment,
@@ -98,6 +100,18 @@ interface DocumentContextType {
     }
   ) => Promise<{ success: boolean; totalReplaced: number; error?: string }>;
   getPageImagesList: (pageIndex?: number) => Promise<{ images: PageImageInfo[]; error?: string }>;
+  replacePageImage: (
+    imageName: string,
+    fileOrBytes: File | Blob | ArrayBuffer | Uint8Array,
+    mimeType?: 'image/png' | 'image/jpeg' | 'image/webp',
+    pageIndex?: number
+  ) => Promise<{ success: boolean; error?: string }>;
+  exportPageImage: (
+    imageName: string,
+    pageIndex?: number,
+    canvasEl?: HTMLCanvasElement | null,
+    pdfBox?: { x: number; y: number; width: number; height: number }
+  ) => Promise<{ success: boolean; error?: string }>;
   removePageImage: (imageName: string, pageIndex?: number) => Promise<{ success: boolean; error?: string }>;
   removePageBlock: (segment: StreamSegment, pageIndex?: number) => Promise<{ success: boolean; updatedStream?: string; error?: string }>;
   removeMultiplePageElements: (
@@ -898,6 +912,153 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return { success: true, removedCount: result.removedCount, updatedStream: result.updatedStream };
   };
 
+  const replacePageImage = async (
+    imageName: string,
+    fileOrBytes: File | Blob | ArrayBuffer | Uint8Array,
+    mimeType?: 'image/png' | 'image/jpeg' | 'image/webp',
+    pageIndex: number = activePageIndex
+  ): Promise<{ success: boolean; error?: string }> => {
+    const targetPage = pages[pageIndex];
+    if (!targetPage) return { success: false, error: 'Stránka nenalezena' };
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    const sourcePageIndex = targetPage.originalPageIndex !== undefined ? targetPage.originalPageIndex : pageIndex;
+
+    try {
+      let buffer: ArrayBuffer | Uint8Array;
+      let effectiveMime = mimeType || 'image/png';
+
+      if (fileOrBytes instanceof File || fileOrBytes instanceof Blob) {
+        effectiveMime = (fileOrBytes.type as any) || effectiveMime;
+        if (effectiveMime === 'image/webp') {
+          const blobUrl = URL.createObjectURL(fileOrBytes);
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = reject;
+            img.src = blobUrl;
+          });
+          URL.revokeObjectURL(blobUrl);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(img, 0, 0);
+          const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+          if (!pngBlob) throw new Error('Konverze WebP na PNG selhala.');
+          buffer = await pngBlob.arrayBuffer();
+          effectiveMime = 'image/png';
+        } else {
+          buffer = await fileOrBytes.arrayBuffer();
+        }
+      } else {
+        buffer = fileOrBytes;
+      }
+
+      const res = await replaceImageOnPage(
+        sourceDoc.arrayBuffer,
+        sourcePageIndex,
+        imageName,
+        buffer,
+        effectiveMime as any
+      );
+
+      if (res.error) {
+        return { success: false, error: res.error };
+      }
+
+      const updatedSources = sources.map((s) => {
+        if (s.id === sourceDoc.id) {
+          return {
+            ...s,
+            arrayBuffer: res.updatedPdfBytes,
+            updatedAt: Date.now(),
+          };
+        }
+        return s;
+      });
+
+      clearPdfCache();
+      setSources(updatedSources);
+      pushHistory(pages, annotations, activePageIndex, updatedSources);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  };
+
+  const exportPageImage = async (
+    imageName: string,
+    pageIndex: number = activePageIndex,
+    canvasEl?: HTMLCanvasElement | null,
+    pdfBox?: { x: number; y: number; width: number; height: number }
+  ): Promise<{ success: boolean; error?: string }> => {
+    const targetPage = pages[pageIndex];
+    if (!targetPage) return { success: false, error: 'Stránka nenalezena' };
+    const sourceDoc = sources.find((s) => s.id === targetPage.sourceDocId);
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    const sourcePageIndex = targetPage.originalPageIndex !== undefined ? targetPage.originalPageIndex : pageIndex;
+    const cleanName = imageName.replace(/^\//, '');
+
+    try {
+      // 1. If canvasEl and pdfBox are provided, crop directly from hardware-rendered page canvas
+      if (canvasEl && pdfBox && pdfBox.width > 2 && pdfBox.height > 2) {
+        const scaleX = canvasEl.width / targetPage.width;
+        const scaleY = canvasEl.height / targetPage.height;
+        const sx = Math.max(0, Math.round(pdfBox.x * scaleX));
+        const sy = Math.max(0, Math.round(pdfBox.y * scaleY));
+        const sw = Math.min(canvasEl.width - sx, Math.round(pdfBox.width * scaleX));
+        const sh = Math.min(canvasEl.height - sy, Math.round(pdfBox.height * scaleY));
+
+        if (sw > 0 && sh > 0) {
+          const offscreen = document.createElement('canvas');
+          offscreen.width = sw;
+          offscreen.height = sh;
+          const ctx = offscreen.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(canvasEl, sx, sy, sw, sh, 0, 0, sw, sh);
+            const blob = await new Promise<Blob | null>((resolve) => offscreen.toBlob(resolve, 'image/png'));
+            if (blob) {
+              const blobUrl = URL.createObjectURL(blob);
+              const link = document.createElement('a');
+              link.href = blobUrl;
+              link.download = `${cleanName || 'image'}.png`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(blobUrl);
+              return { success: true };
+            }
+          }
+        }
+      }
+
+      // 2. Stream-based extraction fallback
+      const extRes = await extractImageBytesFromPdf(sourceDoc.arrayBuffer, sourcePageIndex, cleanName);
+      if (extRes.imageBytes) {
+        const mime = extRes.mimeType || 'application/octet-stream';
+        const ext = extRes.extension || 'bin';
+        const blob = new Blob([extRes.imageBytes as unknown as BlobPart], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `${cleanName || 'image'}.${ext}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+        return { success: true };
+      }
+
+      return { success: false, error: extRes.error || 'Obrázek se nepodařilo extrahovat' };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  };
+
   const saveAndDownload = async (
     customName?: string,
     rasterSettings?: RasterizationSettings,
@@ -1116,6 +1277,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     applyStreamSegmentEdit,
     applyContentStreamReplacement,
     getPageImagesList,
+    replacePageImage,
+    exportPageImage,
     removePageImage,
     removePageBlock,
     removeMultiplePageElements,

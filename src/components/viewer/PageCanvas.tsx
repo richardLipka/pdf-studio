@@ -136,7 +136,12 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
       }}
       className="relative shadow-2xl rounded-sm bg-white overflow-hidden"
     >
-      <canvas ref={canvasRef} className="block select-none" />
+      <canvas
+        ref={canvasRef}
+        id={`page_canvas_${page.id}`}
+        data-page-canvas={page.id}
+        className="block select-none"
+      />
 
       {initialLoading && !hasDrawnRef.current && !renderError && (
         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center">

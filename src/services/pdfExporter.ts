@@ -28,6 +28,7 @@ import {
   WhiteoutAnnotation,
 } from '../types/annotations';
 import { renderPdfPageToDataUrl } from './pdfLoader';
+import { safeGetPageResources } from './contentStreamEditor';
 import { logger } from './logger';
 import { FormExportMode } from '../types/form';
 import { applyFormValuesToPdfDocument } from './formService';
@@ -646,7 +647,7 @@ export const exportEditedPdf = async (
           // (Resources, MediaBox, CropBox may reside in parent /Pages nodes)
           try {
             if (!rawSrcPage.node.has(PDFName.of('Resources'))) {
-              const inheritedRes = rawSrcPage.node.Resources();
+              const inheritedRes = safeGetPageResources(rawSrcPage.node);
               if (inheritedRes) rawSrcPage.node.set(PDFName.of('Resources'), inheritedRes);
             }
             if (!rawSrcPage.node.has(PDFName.of('MediaBox'))) {
@@ -752,7 +753,7 @@ export const exportEditedPdf = async (
             const rawSrcPage = srcDoc.getPage(pageIdx);
             try {
               if (!rawSrcPage.node.has(PDFName.of('Resources'))) {
-                const inheritedRes = rawSrcPage.node.Resources();
+                const inheritedRes = safeGetPageResources(rawSrcPage.node);
                 if (inheritedRes) rawSrcPage.node.set(PDFName.of('Resources'), inheritedRes);
               }
               if (!rawSrcPage.node.has(PDFName.of('MediaBox'))) {

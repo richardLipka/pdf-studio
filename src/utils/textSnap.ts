@@ -151,6 +151,12 @@ export interface VisualTextBlock {
   imageName?: string;
   pixelWidth?: number;
   pixelHeight?: number;
+  dpi?: number;
+  format?: 'jpeg' | 'png' | 'jbig2' | 'ccitt' | 'flate' | 'unknown';
+  isFullPageScan?: boolean;
+  thumbnailDataUrl?: string;
+  colorSpace?: string;
+  filter?: string;
 }
 
 /**

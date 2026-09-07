@@ -7,6 +7,8 @@ import {
   getPageContentStream,
   parseStreamSegments,
   normalizeTextForSearch,
+  getPageImages,
+  PageImageInfo,
 } from './contentStreamEditor';
 
 // Configure pdfjs worker in Vite for browser
@@ -754,7 +756,8 @@ export const renderPdfTextLayer = async (
  */
 export const extractPageVisualImages = async (
   pdfPage: pdfjsLib.PDFPageProxy,
-  viewport: pdfjsLib.PageViewport
+  viewport: pdfjsLib.PageViewport,
+  pageImagesInfo: PageImageInfo[] = []
 ): Promise<import('../utils/textSnap').VisualTextBlock[]> => {
   try {
     const opList = await pdfPage.getOperatorList();
@@ -814,17 +817,51 @@ export const extractPageVisualImages = async (
         const vh = Math.abs(vpRect[3] - vpRect[1]);
 
         if (vw > 4 && vh > 4) {
+          // Correlate with pageImagesInfo from PDF dictionary
+          const matchByName = pageImagesInfo.find(
+            (im) => im.cleanName.toLowerCase() === cleanName.toLowerCase()
+          );
+          const matchByGeom = pageImagesInfo.find(
+            (im) =>
+              im.width !== undefined &&
+              im.height !== undefined &&
+              Math.abs(maxX - minX - im.width) < 6 &&
+              Math.abs(maxY - minY - im.height) < 6
+          );
+          const matched =
+            matchByName ||
+            matchByGeom ||
+            (pageImagesInfo.length === 1 ? pageImagesInfo[0] : pageImagesInfo[imgCounter - 1]);
+
+          const targetName = matched?.cleanName || cleanName;
+          const pixelW = matched?.pixelWidth || (args ? args[1] : undefined);
+          const pixelH = matched?.pixelHeight || (args ? args[2] : undefined);
+          const dpi =
+            matched?.dpi ||
+            (pixelW && vw > 0 ? Math.round((pixelW / vw) * 72) : undefined);
+          const format =
+            matched?.format ||
+            (matched?.filter?.includes('DCT') ? 'jpeg' : undefined);
+          const isFullPageScan =
+            matched?.isFullPageScan ||
+            (vw * vh) / (viewport.width * viewport.height) >= 0.82;
+
           detected.push({
-            id: `img_${cleanName || imgCounter}`,
+            id: `img_${targetName || imgCounter}`,
             type: 'image',
-            imageName: cleanName,
+            imageName: targetName,
             x: Math.max(0, vx),
             y: Math.max(0, vy),
             width: Math.max(8, vw),
             height: Math.max(8, vh),
-            text: `/${cleanName}`,
-            pixelWidth: args ? args[1] : undefined,
-            pixelHeight: args ? args[2] : undefined,
+            text: `/${targetName}`,
+            pixelWidth: pixelW,
+            pixelHeight: pixelH,
+            dpi,
+            format,
+            colorSpace: matched?.colorSpace,
+            filter: matched?.filter,
+            isFullPageScan,
           });
         }
       }
@@ -854,9 +891,19 @@ export const getPageTextBlocks = async (
       rotation: pageModel.rotation,
     });
 
+    let pageImagesInfo: PageImageInfo[] = [];
+    if (sourceDoc.arrayBuffer) {
+      try {
+        const imgRes = await getPageImages(sourceDoc.arrayBuffer, pageModel.originalPageIndex);
+        if (imgRes.images) pageImagesInfo = imgRes.images;
+      } catch {
+        // ignore
+      }
+    }
+
     const textContent = await pdfPage.getTextContent();
     if (!textContent.items || textContent.items.length === 0) {
-      return await extractPageVisualImages(pdfPage, viewport);
+      return await extractPageVisualImages(pdfPage, viewport, pageImagesInfo);
     }
 
     interface ItemEntry {
@@ -915,28 +962,46 @@ export const getPageTextBlocks = async (
         );
         if (streamText) {
           const rawSegments = parseStreamSegments(streamText);
-          const rawTextSegments = rawSegments.filter((s) => s.type === 'text');
+          const rawTextSegments = rawSegments
+            .filter((s) => s.type === 'text')
+            .filter((s) => !s.previewText.startsWith('[Textový blok #') && s.previewText.trim().length > 0);
 
           // Merge contiguous same-line fragments (e.g. bullet number + text body)
-          const textSegments: Array<(typeof rawTextSegments)[0] & { segmentIds: string[] }> = [];
+          const textSegments: Array<(typeof rawTextSegments)[0] & {
+            segmentIds: string[];
+            lastFragX: number;
+            lastFragEstWidth: number;
+          }> = [];
+
           for (const seg of rawTextSegments) {
             const last = textSegments[textSegments.length - 1];
+            const fs = seg.fontSize || 12;
+            const segEstWidth = Math.max(8, seg.previewText.length * fs * 0.55);
+
             const isSameLine =
               last &&
               last.x !== undefined &&
               last.y !== undefined &&
               seg.x !== undefined &&
               seg.y !== undefined &&
-              Math.abs(last.y - seg.y) < 2.5 &&
-              seg.x >= last.x - 5;
+              Math.abs(last.y - seg.y) < 2.5;
 
-            if (isSameLine) {
+            // Gap between the END of the immediately preceding fragment and the START of current seg
+            const gap = (isSameLine && seg.x !== undefined) ? (seg.x - (last.lastFragX + last.lastFragEstWidth)) : 999;
+            // Only merge if fragments are immediately adjacent (not distant table columns)
+            const canMergeContiguous = isSameLine && gap >= -8 && gap < 25;
+
+            if (canMergeContiguous) {
               last.segmentIds.push(seg.id);
               last.previewText = `${last.previewText} ${seg.previewText}`.trim();
+              last.lastFragX = seg.x ?? last.lastFragX;
+              last.lastFragEstWidth = segEstWidth;
             } else {
               textSegments.push({
                 ...seg,
                 segmentIds: [seg.id],
+                lastFragX: seg.x ?? 0,
+                lastFragEstWidth: segEstWidth,
               });
             }
           }
@@ -960,7 +1025,9 @@ export const getPageTextBlocks = async (
                 const lc = seg.lineCount || 1;
                 const lines = seg.previewText.split(/\r?\n/);
                 const maxLineLen = lines.reduce((max, l) => Math.max(max, l.length), 0) || seg.previewText.length;
-                const estWidth = Math.max(30, maxLineLen * fs * 0.75);
+                // Bound estimated width to the remaining page width from seg.x
+                const remainingPageWidth = Math.max(40, (viewport.width - Math.max(0, seg.x)) - 10);
+                const estWidth = Math.min(remainingPageWidth, Math.max(20, maxLineLen * fs * 0.65));
                 const pdfRect = [
                   seg.x - 4,
                   seg.y - fs * 0.3,
@@ -983,7 +1050,9 @@ export const getPageTextBlocks = async (
                 const normItem = normalizeTextForSearch(item.text);
                 if (!normItem) return;
 
-                const isSubstrMatch = normSeg.includes(normItem) || normItem.includes(normSeg);
+                const isSubstrMatch =
+                    (normSeg.length >= 3 && normItem.length >= 3 && (normSeg.includes(normItem) || normItem.includes(normSeg))) ||
+                    (normSeg === normItem);
                 const longWords = segWords.filter((w) => w.length >= 4);
                 const isDistinctWordMatch = longWords.length > 0 && longWords.some((w) => normItem.includes(w));
                 const isWordMatch = isSubstrMatch || isDistinctWordMatch;
@@ -1010,7 +1079,7 @@ export const getPageTextBlocks = async (
                   if (usedItemIndices.has(itemIdx)) return;
 
                   const yOverlap = Math.abs(item.centerY - (vpMinY + vpMaxY) / 2) <= Math.max(6, boxHeight / 2 + 1);
-                  const xOverlap = (item.x + item.w) >= (vpMinX - 4) && item.x <= (vpMaxX + 8);
+                  const xOverlap = (item.x + item.w) >= (vpMinX - 4) && item.x <= Math.min(viewport.width, vpMaxX + 8);
 
                   if (yOverlap && xOverlap) {
                     matchedItems.push(item);
@@ -1026,36 +1095,44 @@ export const getPageTextBlocks = async (
                 const maxY = Math.max(...matchedItems.map((s) => s.y + s.h));
                 const decodedText = matchedItems.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
 
+                const blockX = Math.max(0, minX - 2);
+                const blockWidth = Math.min(viewport.width - blockX - 2, Math.max(12, maxX - minX + 4));
+
                 visualBlocks.push({
                   id: seg.id,
                   segmentIds: seg.segmentIds,
                   type: 'text',
-                  x: Math.max(0, minX - 2),
+                  x: blockX,
                   y: Math.max(0, minY - 1),
-                  width: Math.max(12, maxX - minX + 4),
+                  width: Math.max(12, blockWidth),
                   height: Math.max(10, maxY - minY + 2),
                   text: decodedText || seg.previewText,
                 });
               } else if (hasSpatialBox) {
                 // High-precision stream coordinate fallback
+                const blockX = Math.max(0, vpMinX - 2);
+                const blockWidth = Math.min(viewport.width - blockX - 2, Math.max(14, vpMaxX - vpMinX + 4));
+
                 visualBlocks.push({
                   id: seg.id,
                   segmentIds: seg.segmentIds,
                   type: 'text',
-                  x: Math.max(0, vpMinX - 2),
+                  x: blockX,
                   y: Math.max(0, vpMinY - 1),
-                  width: Math.max(14, vpMaxX - vpMinX + 4),
+                  width: Math.max(14, blockWidth),
                   height: Math.max(10, vpMaxY - vpMinY + 2),
                   text: seg.previewText,
                 });
               } else {
+                const blockX = 30;
+                const blockWidth = Math.min(viewport.width - blockX - 10, 200);
                 visualBlocks.push({
                   id: seg.id,
                   segmentIds: seg.segmentIds,
                   type: 'text',
-                  x: 30,
-                  y: 50,
-                  width: 200,
+                  x: blockX,
+                  y: 50 + (visualBlocks.length % 20) * 24,
+                  width: blockWidth,
                   height: 20,
                   text: seg.previewText,
                 });
@@ -1063,7 +1140,7 @@ export const getPageTextBlocks = async (
             }
 
             // Also discover images on page and append as interactive visualBlocks
-            const visualImages = await extractPageVisualImages(pdfPage, viewport);
+            const visualImages = await extractPageVisualImages(pdfPage, viewport, pageImagesInfo);
             visualBlocks.push(...visualImages);
 
             if (visualBlocks.length > 0) {
@@ -1100,18 +1177,21 @@ export const getPageTextBlocks = async (
       const maxY = Math.max(...group.map((s) => s.y + s.h));
       const text = group.map((s) => s.text).join(' ').replace(/\s+/g, ' ').trim();
 
+      const blockX = Math.max(0, minX - 2);
+      const blockWidth = Math.min(viewport.width - blockX - 2, Math.max(12, maxX - minX + 4));
+
       return {
         id: `block_${idx + 1}`,
         type: 'text',
-        x: Math.max(0, minX - 2),
+        x: blockX,
         y: Math.max(0, minY - 1),
-        width: Math.max(12, maxX - minX + 4),
+        width: Math.max(12, blockWidth),
         height: Math.max(10, maxY - minY + 2),
         text,
       };
     });
 
-    const fallbackImages = await extractPageVisualImages(pdfPage, viewport);
+    const fallbackImages = await extractPageVisualImages(pdfPage, viewport, pageImagesInfo);
     return [...fallbackBlocks, ...fallbackImages];
   } catch (err) {
     console.warn(`Failed to extract text blocks for page ${pageModel.id}:`, err);

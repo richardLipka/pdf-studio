@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-133%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-172%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -117,6 +117,19 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 - **Full Czech Unicode & Diacritics Support**: Seamless handling of Czech characters (`ěščřžýáíéůúťďň ĚŠČŘŽÝÁÍÉŮÚŤĎŇ`) encoded as UTF-16BE hex strings with `/NeedAppearances true` ISO 32000-1 conformance.
 - **Dual Export Prompt & Modality**: Prompts user to choose between **Interactive AcroForm** (editable fields) and **Flattened PDF** (permanently burned for official archival).
 
+### 15. 🖼️ Bitmap Graphics Suite & Image Manipulation (ISO 32000-1 XObjects & Scans)
+- **Deep Image Inspection**: Discovers, isolates, and renders raster images (XObjects, inline images, full-page scans) directly in `EditSidePanel` and on canvas.
+- **Compound 2D Affine Matrix Computation**: Compounds chained `cm` transformation matrices across `q ... Q` blocks to calculate exact physical positions $(X, Y)$ and dimensions in points.
+- **DPI & Format Detection**: Calculates exact DPI ($\text{DPI} = \frac{\text{pixelWidth}}{\text{ptWidth}} \times 72$), identifies `/Filter` encodings (JPEG, PNG/Flate, JBIG2, CCITT Fax TIFF), and flags full-page scans ($\ge 82\ \%$ page coverage).
+- **Core Operations**: In-place image replacement (preserves matrix geometry in `/Contents`), 1-click lossless PNG export via hardware-rendered canvas crop, and atomic deletion with 100-step Undo/Redo binary snapshots.
+- **Floating Canvas Quick Actions**: Floating toolbar anchored to selected images with resolution, DPI badges, and instant Download / Replace / Delete buttons.
+
+### 16. 🌳 Semantic Document Tree, Hierarchical Nesting & Segmented Filtering
+- **Vertical $Y$ Interleaving**: Images and text blocks are naturally ordered according to vertical position $Y$ into collapsible H1 and H2 document sections.
+- **Segmented Filter Pills**: Interactive filters in `EditSidePanel` (**Vše** / **Text** / **Obrázky**) with live element count badges.
+- **Clean Block Extraction**: Eliminates phantom whitespace blocks (`[( )] TJ`) and table column runaway merging.
+- **Smallest-Area-First Stacking**: Guarantees 100% clickability and hit-testing for nested and overlapping blocks on the canvas.
+
 ---
 
 ## 🔒 Privacy & Security
@@ -170,7 +183,7 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (26 test files, 133 tests) |
+| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (30 test files, 172 tests) |
 
 ---
 

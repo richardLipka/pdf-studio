@@ -24,6 +24,8 @@ import {
   Trash2,
   Code,
   Image as ImageIcon,
+  Download,
+  RefreshCw,
 } from 'lucide-react';
 import {
   parseStreamSegments,
@@ -46,7 +48,6 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     strokeColor,
     strokeWidth,
     setStreamReplaceTargetText,
-    streamReplaceTargetText,
     streamReplaceTargetPosition,
     setStreamReplaceTargetPosition,
     isRemoveElementsModalOpen,
@@ -58,7 +59,6 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     setSelectedStreamBlockId,
     hoveredBlockId,
     setHoveredBlockId,
-    hoveredBlockText,
     setHoveredBlockText,
   } = useEditor();
   const {
@@ -67,6 +67,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     pages,
     getPageStream,
     removePageBlock,
+    replacePageImage,
+    exportPageImage,
   } = useDocument();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -486,151 +488,297 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
       <div className="absolute inset-0 pointer-events-none z-30">
         {/* Visual Block Highlight Overlay for Remove Elements & Stream Mode */}
         {isRemoveActive &&
-          visualBlocks.map((block) => {
-            const isImage = block.type === 'image';
-            const isStreamMode =
-              !isImage &&
-              (activeTool === 'streamReplace' ||
-                (isEditSidePanelOpen && editSidePanelTab === 'stream'));
+          [...visualBlocks]
+            .sort((a, b) => {
+              // 1. Images behind text
+              if (a.type === 'image' && b.type !== 'image') return -1;
+              if (a.type !== 'image' && b.type === 'image') return 1;
+              // 2. Larger blocks first, smaller blocks last (DOM order puts smaller blocks on top)
+              const areaA = a.width * a.height;
+              const areaB = b.width * b.height;
+              return areaB - areaA;
+            })
+            .map((block) => {
+              const isImage = block.type === 'image';
+              const isStreamMode =
+                !isImage &&
+                (activeTool === 'streamReplace' ||
+                  (isEditSidePanelOpen && editSidePanelTab === 'stream'));
 
-            const isSelected =
-              selectedStreamBlockId === block.id ||
-              (isImage && Boolean(block.imageName) && (selectedStreamBlockId === `img_${block.imageName}` || selectedStreamBlockId === `/${block.imageName}`)) ||
-              (!isImage && Boolean(streamReplaceTargetText) &&
-                (block.text.toLowerCase().includes(streamReplaceTargetText.toLowerCase()) ||
-                  streamReplaceTargetText.toLowerCase().includes(block.text.toLowerCase()))) ||
-              (Boolean(streamReplaceTargetPosition) &&
-                Math.abs(block.x - (streamReplaceTargetPosition?.x ?? -999)) < 12 &&
-                Math.abs(block.y - (streamReplaceTargetPosition?.y ?? -999)) < 12);
+              const isSelected =
+                selectedStreamBlockId === block.id ||
+                Boolean(
+                  block.segmentIds &&
+                    selectedStreamBlockId &&
+                    block.segmentIds.includes(selectedStreamBlockId)
+                ) ||
+                (isImage &&
+                  Boolean(block.imageName) &&
+                  (selectedStreamBlockId === `img_${block.imageName}` ||
+                    selectedStreamBlockId === `/${block.imageName}`));
 
-            const isHovered =
-              hoveredBlockId === block.id ||
-              (!isImage && Boolean(hoveredBlockText) &&
-                (block.text.toLowerCase().includes(hoveredBlockText!.toLowerCase()) ||
-                  hoveredBlockText!.toLowerCase().includes(block.text.toLowerCase())));
+              const isHovered =
+                hoveredBlockId === block.id ||
+                Boolean(
+                  block.segmentIds &&
+                    hoveredBlockId &&
+                    block.segmentIds.includes(hoveredBlockId)
+                );
 
-            return (
-              <div
-                key={block.id}
-                onMouseEnter={() => {
-                  setHoveredBlockId(block.id);
-                  setHoveredBlockText(block.text);
-                }}
-                onMouseLeave={() => {
-                  setHoveredBlockId(null);
-                  setHoveredBlockText(null);
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedStreamBlockId(block.id);
-                  setStreamReplaceTargetPosition({ x: block.x, y: block.y });
-                  setStreamReplaceTargetText(block.text);
+              // Calculate z-index: smaller blocks get higher z-index so inner items are clickable over enclosing boxes
+              const area = block.width * block.height;
+              const baseZ = isImage ? 10 : Math.max(12, Math.min(28, 28 - Math.round(area / 12000)));
+              const zIndex = isSelected ? 40 : isHovered ? 35 : baseZ;
 
-                  setTimeout(() => {
-                    const el = document.getElementById(
-                      isImage ? `panel_item_img_${block.imageName || block.id}` : `panel_item_${block.id}`
-                    );
-                    if (el) {
-                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                  }, 80);
-
-                  if (isImage) {
-                    setEditSidePanelTab('remove');
-                  } else if (activeTool === 'streamReplace') {
-                    setEditSidePanelTab('stream');
-                  } else {
-                    setEditSidePanelTab('remove');
-                  }
-                  setIsEditSidePanelOpen(true);
-                }}
-                style={{
-                  position: 'absolute',
-                  left: `${block.x * scale}px`,
-                  top: `${block.y * scale}px`,
-                  width: `${block.width * scale}px`,
-                  height: `${block.height * scale}px`,
-                }}
-                className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
-                  isImage
-                    ? isSelected
-                      ? isMinimal
-                        ? 'border-2 border-dashed border-amber-600 bg-amber-600/25 ring-2 ring-amber-500 shadow-md z-40'
-                        : isLcars
-                        ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/35 ring-2 ring-[#ffcc00] z-40'
-                        : 'border-2 border-dashed border-amber-400 bg-amber-500/30 ring-2 ring-amber-400/80 shadow-[0_0_14px_rgba(251,191,36,0.7)] z-40'
-                      : isHovered
-                      ? isMinimal
-                        ? 'border-2 border-dashed border-amber-600/90 bg-amber-600/20 ring-1 ring-amber-400 z-30'
-                        : isLcars
-                        ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/25 z-30'
-                        : 'border-2 border-dashed border-amber-400 bg-amber-500/20 ring-1 ring-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)] z-30'
-                      : isMinimal
-                      ? 'border border-dashed border-amber-600/70 bg-amber-600/10 hover:bg-amber-600/25 hover:border-amber-700'
-                      : isLcars
-                      ? 'border border-dashed border-[#ffcc00]/70 bg-[#ffcc00]/15 hover:bg-[#ffcc00]/30'
-                      : 'border border-dashed border-amber-500/60 bg-amber-500/10 hover:border-amber-400 hover:bg-amber-500/25 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)]'
-                    : isStreamMode
-                    ? isSelected
-                      ? isMinimal
-                        ? 'border-2 border-indigo-600 bg-indigo-600/20 ring-2 ring-indigo-500 shadow-md z-40'
-                        : isLcars
-                        ? 'border-2 border-[#99ccff] bg-[#99ccff]/30 ring-2 ring-[#99ccff] z-40'
-                        : 'border-2 border-indigo-400 bg-indigo-500/25 ring-2 ring-indigo-400/80 shadow-[0_0_12px_rgba(99,102,241,0.65)] z-40'
-                      : isHovered
-                      ? isMinimal
-                        ? 'border border-indigo-600/90 bg-indigo-600/15 ring-1 ring-indigo-400 z-30'
-                        : isLcars
-                        ? 'border border-[#99ccff] bg-[#99ccff]/20 z-30'
-                        : 'border border-indigo-400 bg-indigo-500/20 ring-1 ring-indigo-400/50 shadow-[0_0_8px_rgba(99,102,241,0.4)] z-30'
-                      : isMinimal
-                      ? 'border border-indigo-600/70 bg-indigo-600/5 hover:bg-indigo-600/20 hover:border-indigo-700'
-                      : isLcars
-                      ? 'border border-[#99ccff]/70 bg-[#99ccff]/10 hover:bg-[#99ccff]/25'
-                      : 'border border-indigo-500/60 bg-indigo-500/5 hover:border-indigo-400 hover:bg-indigo-500/20 hover:shadow-[0_0_8px_rgba(99,102,241,0.35)]'
-                    : isSelected
-                    ? isMinimal
-                      ? 'border-2 border-rose-600 bg-rose-600/20 ring-2 ring-rose-500 shadow-md z-40'
-                      : isLcars
-                      ? 'border-2 border-[#ff9900] bg-[#ff9900]/30 ring-2 ring-[#ff9900] z-40'
-                      : 'border-2 border-rose-400 bg-rose-500/25 ring-2 ring-rose-400/80 shadow-[0_0_12px_rgba(244,63,94,0.65)] z-40'
-                    : isHovered
-                    ? isMinimal
-                      ? 'border border-rose-600/90 bg-rose-600/15 ring-1 ring-rose-400 z-30'
-                      : isLcars
-                      ? 'border border-[#ff9900] bg-[#ff9900]/20 z-30'
-                      : 'border border-rose-400 bg-rose-500/20 ring-1 ring-rose-400/50 shadow-[0_0_8px_rgba(244,63,94,0.4)] z-30'
-                    : isMinimal
-                    ? 'border border-rose-600/70 bg-rose-600/5 hover:bg-rose-600/20 hover:border-rose-700'
-                    : isLcars
-                    ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
-                    : 'border border-rose-500/60 bg-rose-500/5 hover:border-rose-400 hover:bg-rose-500/20 hover:shadow-[0_0_8px_rgba(244,63,94,0.35)]'
-                }`}
-                title={
-                  isImage
-                    ? `Obrázek: ${block.imageName || block.text}${
-                        block.pixelWidth && block.pixelHeight ? ` (${block.pixelWidth}×${block.pixelHeight} px)` : ''
-                      }`
-                    : `${block.text}`
-                }
-              >
-                {/* Small Icon Badge on Hover or Active */}
+              return (
                 <div
-                  className={`opacity-0 group-hover:opacity-100 transition-opacity text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none ${
-                    isImage ? 'bg-amber-600' : isStreamMode ? 'bg-indigo-600' : 'bg-rose-600'
+                  key={block.id}
+                  onMouseEnter={() => {
+                    setHoveredBlockId(block.id);
+                    setHoveredBlockText(block.text);
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredBlockId(null);
+                    setHoveredBlockText(null);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedStreamBlockId(block.id);
+                    setStreamReplaceTargetPosition({ x: block.x, y: block.y });
+                    setStreamReplaceTargetText(block.text);
+
+                    setTimeout(() => {
+                      const el = document.getElementById(
+                        isImage
+                          ? `panel_item_img_${block.imageName || block.id}`
+                          : `panel_item_${block.id}`
+                      );
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    }, 80);
+
+                    if (isImage) {
+                      setEditSidePanelTab('remove');
+                    } else if (activeTool === 'streamReplace') {
+                      setEditSidePanelTab('stream');
+                    } else {
+                      setEditSidePanelTab('remove');
+                    }
+                    setIsEditSidePanelOpen(true);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    left: `${block.x * scale}px`,
+                    top: `${block.y * scale}px`,
+                    width: `${block.width * scale}px`,
+                    height: `${block.height * scale}px`,
+                    zIndex,
+                  }}
+                  className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
+                    isImage
+                      ? isSelected
+                        ? isMinimal
+                          ? 'border-2 border-dashed border-amber-600 bg-amber-600/25 ring-2 ring-amber-500 shadow-md'
+                          : isLcars
+                          ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/35 ring-2 ring-[#ffcc00]'
+                          : 'border-2 border-dashed border-amber-400 bg-amber-500/30 ring-2 ring-amber-400/80 shadow-[0_0_14px_rgba(251,191,36,0.7)]'
+                        : isHovered
+                        ? isMinimal
+                          ? 'border-2 border-dashed border-amber-600/90 bg-amber-600/20 ring-1 ring-amber-400'
+                          : isLcars
+                          ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/25'
+                          : 'border-2 border-dashed border-amber-400 bg-amber-500/20 ring-1 ring-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)]'
+                        : isMinimal
+                        ? 'border border-dashed border-amber-600/70 bg-amber-600/10 hover:bg-amber-600/25 hover:border-amber-700'
+                        : isLcars
+                        ? 'border border-dashed border-[#ffcc00]/70 bg-[#ffcc00]/15 hover:bg-[#ffcc00]/30'
+                        : 'border border-dashed border-amber-500/60 bg-amber-500/10 hover:border-amber-400 hover:bg-amber-500/25 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)]'
+                      : isStreamMode
+                      ? isSelected
+                        ? isMinimal
+                          ? 'border-2 border-indigo-600 bg-indigo-600/20 ring-2 ring-indigo-500 shadow-md'
+                          : isLcars
+                          ? 'border-2 border-[#99ccff] bg-[#99ccff]/30 ring-2 ring-[#99ccff]'
+                          : 'border-2 border-indigo-400 bg-indigo-500/25 ring-2 ring-indigo-400/80 shadow-[0_0_12px_rgba(99,102,241,0.65)]'
+                        : isHovered
+                        ? isMinimal
+                          ? 'border border-indigo-600/90 bg-indigo-600/15 ring-1 ring-indigo-400'
+                          : isLcars
+                          ? 'border border-[#99ccff] bg-[#99ccff]/20'
+                          : 'border border-indigo-400 bg-indigo-500/20 ring-1 ring-indigo-400/50 shadow-[0_0_8px_rgba(99,102,241,0.4)]'
+                        : isMinimal
+                        ? 'border border-indigo-600/70 bg-indigo-600/5 hover:bg-indigo-600/20 hover:border-indigo-700'
+                        : isLcars
+                        ? 'border border-[#99ccff]/70 bg-[#99ccff]/10 hover:bg-[#99ccff]/25'
+                        : 'border border-indigo-500/60 bg-indigo-500/5 hover:border-indigo-400 hover:bg-indigo-500/20 hover:shadow-[0_0_8px_rgba(99,102,241,0.35)]'
+                      : isSelected
+                      ? isMinimal
+                        ? 'border-2 border-rose-600 bg-rose-600/20 ring-2 ring-rose-500 shadow-md'
+                        : isLcars
+                        ? 'border-2 border-[#ff9900] bg-[#ff9900]/30 ring-2 ring-[#ff9900]'
+                        : 'border-2 border-rose-400 bg-rose-500/25 ring-2 ring-rose-400/80 shadow-[0_0_12px_rgba(244,63,94,0.65)]'
+                      : isHovered
+                      ? isMinimal
+                        ? 'border border-rose-600/90 bg-rose-600/15 ring-1 ring-rose-400'
+                        : isLcars
+                        ? 'border border-[#ff9900] bg-[#ff9900]/20'
+                        : 'border border-rose-400 bg-rose-500/20 ring-1 ring-rose-400/50 shadow-[0_0_8px_rgba(244,63,94,0.4)]'
+                      : isMinimal
+                      ? 'border border-rose-600/70 bg-rose-600/5 hover:bg-rose-600/20 hover:border-rose-700'
+                      : isLcars
+                      ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
+                      : 'border border-rose-500/60 bg-rose-500/5 hover:border-rose-400 hover:bg-rose-500/20 hover:shadow-[0_0_8px_rgba(244,63,94,0.35)]'
                   }`}
+                  title={
+                    isImage
+                      ? `Obrázek: ${block.imageName || block.text}${
+                          block.pixelWidth && block.pixelHeight ? ` (${block.pixelWidth}×${block.pixelHeight} px)` : ''
+                        }`
+                      : `${block.text}`
+                  }
                 >
-                  {isImage ? (
-                    <ImageIcon className="w-2.5 h-2.5" />
-                  ) : isStreamMode ? (
-                    <Code className="w-2.5 h-2.5" />
-                  ) : (
-                    <Trash2 className="w-2.5 h-2.5" />
+                  {/* Small Icon Badge on Hover or Active */}
+                  <div
+                    className={`opacity-0 group-hover:opacity-100 transition-opacity text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none ${
+                      isImage ? 'bg-amber-600' : isStreamMode ? 'bg-indigo-600' : 'bg-rose-600'
+                    }`}
+                  >
+                    {isImage ? (
+                      <ImageIcon className="w-2.5 h-2.5" />
+                    ) : isStreamMode ? (
+                      <Code className="w-2.5 h-2.5" />
+                    ) : (
+                      <Trash2 className="w-2.5 h-2.5" />
+                    )}
+                  </div>
+
+                  {/* Image Quick Action Floating Bar on Selection */}
+                  {isImage && isSelected && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className={`absolute z-50 flex items-center gap-1.5 px-2.5 py-1 shadow-2xl rounded-xl border text-xs whitespace-nowrap backdrop-blur-xl pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150 ${
+                        block.y * scale < 45 ? 'top-2 left-2' : '-top-10 left-0'
+                      } ${
+                        isMinimal
+                          ? 'bg-white/95 border-neutral-300 text-neutral-800 shadow-lg'
+                          : isLcars
+                          ? 'bg-black border-2 border-[#ff9900] text-[#ffcc00] shadow-[0_0_15px_rgba(255,153,0,0.4)]'
+                          : 'bg-slate-900/95 border-amber-500/70 text-amber-100 shadow-slate-950/80 ring-1 ring-amber-500/30'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1 font-mono text-[11px] font-semibold text-amber-400 mr-1">
+                        <ImageIcon className="w-3.5 h-3.5" />
+                        <span>{block.imageName || 'Obrázek'}</span>
+                        {block.pixelWidth && block.pixelHeight && (
+                          <span className="opacity-75 font-normal">({block.pixelWidth}×{block.pixelHeight})</span>
+                        )}
+                        {block.dpi && (
+                          <span className="opacity-75 font-normal">{block.dpi} DPI</span>
+                        )}
+                      </div>
+
+                      <div className={`h-4 w-px mx-0.5 ${isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#ff9900]/40' : 'bg-slate-700'}`} />
+
+                      {/* Download Button */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (block.imageName) {
+                            const canvasEl = document.getElementById(`page_canvas_${page.id}`) as HTMLCanvasElement | null;
+                            await exportPageImage(
+                              block.imageName,
+                              pages.findIndex((p) => p.id === page.id),
+                              canvasEl,
+                              { x: block.x, y: block.y, width: block.width, height: block.height }
+                            );
+                          }
+                        }}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                          isMinimal
+                            ? 'hover:bg-neutral-100 text-neutral-700'
+                            : isLcars
+                            ? 'hover:bg-[#ff9900]/20 text-[#ffff66]'
+                            : 'hover:bg-slate-800 text-sky-300 hover:text-sky-200'
+                        }`}
+                        title="Stáhnout obrázek"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Stáhnout</span>
+                      </button>
+
+                      {/* Replace Button with File Input */}
+                      <label
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                          isMinimal
+                            ? 'hover:bg-emerald-50 text-emerald-700'
+                            : isLcars
+                            ? 'hover:bg-[#ff9900]/20 text-[#ffcc00]'
+                            : 'hover:bg-emerald-950/60 text-emerald-300 hover:text-emerald-200'
+                        }`}
+                        title="Nahradit obrázek"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Nahradit</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file && block.imageName) {
+                              await replacePageImage(
+                                block.imageName,
+                                file,
+                                undefined,
+                                pages.findIndex((p) => p.id === page.id)
+                              );
+                              refreshVisualBlocks();
+                            }
+                          }}
+                        />
+                      </label>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Opravdu chcete z dokumentu odstranit obrázek ${block.imageName || ''}?`)) {
+                            const pageIndex = pages.findIndex((p) => p.id === page.id);
+                            const targetIdx = pageIndex >= 0 ? pageIndex : 0;
+                            const { streamText } = await getPageStream(targetIdx);
+                            if (streamText) {
+                              const segments = parseStreamSegments(streamText);
+                              const best = findBestMatchingBlock(
+                                segments,
+                                block.imageName ? `/${block.imageName}` : block.text,
+                                { x: block.x, y: block.y }
+                              );
+                              if (best) {
+                                await removePageBlock(best, targetIdx);
+                                refreshVisualBlocks();
+                                setSelectedStreamBlockId(null);
+                              }
+                            }
+                          }
+                        }}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                          isMinimal
+                            ? 'hover:bg-rose-50 text-rose-700'
+                            : isLcars
+                            ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
+                            : 'hover:bg-rose-950/60 text-rose-300 hover:text-rose-200'
+                        }`}
+                        title="Smazat obrázek"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Smazat</span>
+                      </button>
+                    </div>
                   )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
 
         {/* Floating Quick Action Selection Toolbar */}
         {floatingMenuPos && (
