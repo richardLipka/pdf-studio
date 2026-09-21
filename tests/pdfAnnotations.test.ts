@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { inflateSync } from 'zlib';
 import { PDFDocument, PDFName, PDFArray, PDFDict, PDFString, PDFHexString } from 'pdf-lib';
 import { exportEditedPdf } from '../src/services/pdfExporter';
 import { PdfPageModel, SourceDocument } from '../src/types/document';
@@ -394,4 +395,101 @@ describe('PDF Export & ISO 32000-1 Annotations Compatibility', () => {
       expect(apDict.get(PDFName.of('N'))).toBeDefined();
     }
   });
+
+  it('should export multiline text annotations with rich formatting (bold, italic), bullet/numbered lists, tight wrapping, transparent background, and ISO 32000-1 Appearance Stream', async () => {
+    const pageModel: PdfPageModel = {
+      id: 'page-1',
+      documentId: 'doc-1',
+      pageNumber: 1,
+      originalPageIndex: 0,
+      width: 595,
+      height: 842,
+      rotation: 0,
+    };
+
+    const richTextAnn: TextAnnotation = {
+      id: 'txt-rich-1',
+      pageId: 'page-1',
+      type: 'text',
+      x: 80,
+      y: 150,
+      width: 250,
+      height: 130,
+      color: '#0f172a',
+      fontSize: 14,
+      fontFamily: 'Inter',
+      text: 'Report title with bold words and italic notes\n▪ First item\n▪ Second item with bold\n1. Step one\n2. Step two',
+      richText: '<p>Report title with <b>bold words</b> and <i>italic notes</i></p><ul><li>First item</li><li>Second <b>item with bold</b></li></ul><ol><li>Step one</li><li>Step two</li></ol>',
+      bulletStyle: 'square',
+      backgroundColor: 'transparent',
+      borderWidth: 0,
+      borderColor: 'transparent',
+      createdAt: 1000,
+      updatedAt: 1000,
+    };
+
+    const bytes = await exportEditedPdf([], [pageModel], [richTextAnn], 'rich-text-test.pdf');
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(bytes.length).toBeGreaterThan(0);
+
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBe(1);
+
+    const firstPage = doc.getPage(0);
+    const annotsArray = firstPage.node.get(PDFName.of('Annots')) as PDFArray;
+    expect(annotsArray.size()).toBe(1);
+
+    const annotDict = annotsArray.lookup(0) as PDFDict;
+    expect(annotDict.get(PDFName.of('Type'))?.toString()).toBe('/Annot');
+    expect(annotDict.get(PDFName.of('Subtype'))?.toString()).toBe('/FreeText');
+
+    // Verify /DA Default Appearance
+    const da = annotDict.get(PDFName.of('DA'));
+    expect(da).toBeDefined();
+
+    // Verify /Contents contains full multiline text including bullets and numbered steps
+    const contentsObj = annotDict.get(PDFName.of('Contents'));
+    expect(contentsObj).toBeDefined();
+    const contentsStr = contentsObj?.toString() || '';
+    expect(contentsStr.length).toBeGreaterThan(0);
+
+    // Verify /RC Rich Text XML string
+    const rcObj = annotDict.get(PDFName.of('RC'));
+    expect(rcObj).toBeDefined();
+
+    // Verify Appearance Stream (/AP << /N >>) exists
+    const apDict = annotDict.get(PDFName.of('AP')) as PDFDict;
+    expect(apDict).toBeDefined();
+    const nRef = apDict.get(PDFName.of('N'));
+    expect(nRef).toBeDefined();
+
+    // Verify Appearance Stream XObject Form dictionary & Resources
+    const apStream = doc.context.lookup(nRef) as any;
+    expect(apStream).toBeDefined();
+    const apResources = apStream.dict.get(PDFName.of('Resources')) as PDFDict;
+    expect(apResources).toBeDefined();
+    const fontResources = apResources.get(PDFName.of('Font')) as PDFDict;
+    expect(fontResources).toBeDefined();
+    // Font resources must map F1 (regular), F2 (bold), F3 (italic), F4 (bold-italic)
+    expect(fontResources.get(PDFName.of('F1'))).toBeDefined();
+    expect(fontResources.get(PDFName.of('F2'))).toBeDefined();
+    expect(fontResources.get(PDFName.of('F3'))).toBeDefined();
+    expect(fontResources.get(PDFName.of('F4'))).toBeDefined();
+
+    // Verify decompressed stream operators:
+    const decompressed = inflateSync(Buffer.from(apStream.contents));
+    const decodedOperators = new TextDecoder('latin1').decode(decompressed);
+    // Must contain text operators with font selection
+    expect(decodedOperators).toContain('/F1');
+    expect(decodedOperators).toContain('/F2');
+    expect(decodedOperators).toContain('/F3');
+    expect(decodedOperators).toContain('BT');
+    expect(decodedOperators).toContain('ET');
+
+    // Default background is transparent: must NOT have background rectangle fill
+    expect(decodedOperators).not.toContain('re f');
+    // Default border is empty: must NOT have border stroke
+    expect(decodedOperators).not.toContain('re S');
+  });
 });
+

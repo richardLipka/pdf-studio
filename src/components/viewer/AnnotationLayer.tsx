@@ -21,6 +21,7 @@ import { screenToPdfPoint } from '../../utils/coordinate';
 import { cropPageRegionToClipboard, CropResult } from '../../services/imageCropper';
 import { findIntersectedTextLines } from '../../utils/textSnap';
 import { NoteDialog } from '../common/NoteDialog';
+import { TextAnnotationItem } from './TextAnnotationItem';
 import {
   MessageSquare,
   Trash2,
@@ -300,13 +301,18 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         type: 'text',
         x: pt.x,
         y: pt.y,
-        width: 150,
-        height: fontSize * 1.5,
+        width: 160,
+        height: Math.max(30, fontSize * 1.8),
         color: textColor || '#0f172a',
         opacity: 1.0,
         text: '',
+        richText: '',
         fontSize,
         fontFamily: fontFamily || 'Inter',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        borderColor: 'transparent',
+        bulletStyle: 'disc',
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -1338,64 +1344,22 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         }
 
         if (ann.type === 'text') {
-          const txt = ann as TextAnnotation;
           return (
-            <div
-              key={txt.id}
-              className={`annotation-item absolute group cursor-move ${
-                isSelected ? 'ring-2 ring-sky-500 rounded p-0.5' : ''
-              }`}
-              style={{
-                left: `${left}px`,
-                top: `${top}px`,
-                minWidth: `${Math.max(60, width)}px`,
-              }}
-              onMouseDown={(e) => handleStartDragAnn(txt, e)}
-            >
-              <input
-                type="text"
-                value={txt.text || ''}
-                onChange={(e) =>
-                  updateAnnotation({
-                    ...txt,
-                    text: e.target.value,
-                    width: Math.max(80, e.target.value.length * (txt.fontSize || 14) * 0.65),
-                  })
-                }
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  setSelectedAnnotationId(txt.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === 'Escape') {
-                    e.preventDefault();
-                    (e.target as HTMLInputElement).blur();
-                    setSelectedAnnotationId(null);
-                  }
-                }}
-                style={{
-                  fontSize: `${(txt.fontSize || 14) * scale}px`,
-                  fontFamily: txt.fontFamily || 'Inter',
-                  color: txt.color || '#0f172a',
-                  backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.95)' : 'transparent',
-                }}
-                className="border-none outline-none font-medium px-1.5 py-0.5 rounded shadow-none w-full"
-                placeholder={t.annotations.textPlaceholder}
-                autoFocus={isSelected && !txt.text}
-              />
-
-              {isSelected && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteAnnotation(txt.id);
-                  }}
-                  className="absolute -top-3 -right-3 p-1 rounded-full bg-rose-600 text-white shadow"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              )}
-            </div>
+            <TextAnnotationItem
+              key={ann.id}
+              annotation={ann as TextAnnotation}
+              isSelected={isSelected}
+              scale={scale}
+              pageWidth={page.width}
+              isMinimal={isMinimal}
+              isLcars={isLcars}
+              t={t}
+              onUpdate={updateAnnotation}
+              onDelete={deleteAnnotation}
+              onSelect={setSelectedAnnotationId}
+              onStartDrag={(targetAnn, e) => handleStartDragAnn(targetAnn, e)}
+              onStartResize={(id) => setResizingAnnId(id)}
+            />
           );
         }
 

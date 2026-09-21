@@ -347,3 +347,42 @@
   color: transparent !important;
 }
 
+/* ==========================================================================
+   Text Annotation List Styles & Empty Placeholder
+   ========================================================================== */
+.empty-text-placeholder:empty::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.bullet-disc ul {
+  list-style-type: disc !important;
+  padding-left: 1.25rem !important;
+}
+.bullet-square ul {
+  list-style-type: square !important;
+  padding-left: 1.25rem !important;
+}
+.bullet-dash ul {
+  list-style-type: '- ' !important;
+  padding-left: 1.25rem !important;
+}
+.bullet-arrow ul {
+  list-style-type: '▸ ' !important;
+  padding-left: 1.25rem !important;
+}
+
+.annotation-item ol {
+  list-style-type: decimal !important;
+  padding-left: 1.25rem !important;
+}
+.annotation-item ul {
+  padding-left: 1.25rem !important;
+}
+.annotation-item li {
+  margin: 0.1rem 0 !important;
+}
+
+

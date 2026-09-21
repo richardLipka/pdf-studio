@@ -53,14 +53,20 @@ export interface NoteAnnotation extends BaseAnnotation {
   isOpen?: boolean;
 }
 
+export type BulletStyle = 'disc' | 'square' | 'dash' | 'arrow';
+
 export interface TextAnnotation extends BaseAnnotation {
   type: 'text';
   text: string;
+  richText?: string;
   fontSize: number;
   fontFamily: string;
   bold?: boolean;
   italic?: boolean;
   backgroundColor?: string;
+  borderColor?: string;
+  borderWidth?: number;
+  bulletStyle?: BulletStyle;
 }
 
 export interface WhiteoutAnnotation extends BaseAnnotation {

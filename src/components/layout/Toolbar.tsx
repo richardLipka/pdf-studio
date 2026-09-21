@@ -27,6 +27,10 @@ import {
   Square,
   Circle,
   Minus,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -1092,6 +1096,87 @@ export const Toolbar: React.FC = () => {
                 );
               })}
             </div>
+
+            {/* Rich Formatting Controls for Text Annotations */}
+            {selectedAnn && selectedAnn.type === 'text' && (
+              <>
+                <div
+                  className={`h-4 w-px ${
+                    isMinimal ? 'bg-neutral-300' : isLcars ? 'bg-[#333333]' : 'bg-slate-700'
+                  }`}
+                />
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      document.execCommand('bold');
+                    }}
+                    className={`p-1 rounded transition-colors ${
+                      isMinimal
+                        ? 'hover:bg-neutral-200 text-neutral-700'
+                        : isLcars
+                        ? 'hover:bg-[#333333] text-[#ff9900]'
+                        : 'hover:bg-slate-700 text-slate-300 hover:text-white'
+                    }`}
+                    title={t.annotations.bold}
+                  >
+                    <Bold className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      document.execCommand('italic');
+                    }}
+                    className={`p-1 rounded transition-colors ${
+                      isMinimal
+                        ? 'hover:bg-neutral-200 text-neutral-700'
+                        : isLcars
+                        ? 'hover:bg-[#333333] text-[#ff9900]'
+                        : 'hover:bg-slate-700 text-slate-300 hover:text-white'
+                    }`}
+                    title={t.annotations.italic}
+                  >
+                    <Italic className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      document.execCommand('insertUnorderedList');
+                    }}
+                    className={`p-1 rounded transition-colors ${
+                      isMinimal
+                        ? 'hover:bg-neutral-200 text-neutral-700'
+                        : isLcars
+                        ? 'hover:bg-[#333333] text-[#ff9900]'
+                        : 'hover:bg-slate-700 text-slate-300 hover:text-white'
+                    }`}
+                    title={t.annotations.bulletList}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      document.execCommand('insertOrderedList');
+                    }}
+                    className={`p-1 rounded transition-colors ${
+                      isMinimal
+                        ? 'hover:bg-neutral-200 text-neutral-700'
+                        : isLcars
+                        ? 'hover:bg-[#333333] text-[#ff9900]'
+                        : 'hover:bg-slate-700 text-slate-300 hover:text-white'
+                    }`}
+                    title={t.annotations.numberedList}
+                  >
+                    <ListOrdered className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Background Fill Color (for Whiteout) */}
             {showWhiteoutStyles && (

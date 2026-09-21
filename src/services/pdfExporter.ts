@@ -28,7 +28,8 @@ import {
   WhiteoutAnnotation,
 } from '../types/annotations';
 import { renderPdfPageToDataUrl } from './pdfLoader';
-import { safeGetPageResources } from './contentStreamEditor';
+import { safeGetPageResources, escapePdfLiteralString } from './contentStreamEditor';
+import { parseRichTextToLines, linesToPlainText } from '../utils/richText';
 import { logger } from './logger';
 import { FormExportMode } from '../types/form';
 import { applyFormValuesToPdfDocument } from './formService';
@@ -308,6 +309,10 @@ interface NativePdfAnnotOptions {
   opacity?: number;
   strokeWidth?: number;
   fontSize?: number;
+  richTextXml?: string;
+  customStreamOperators?: string;
+  customResources?: Record<string, any>;
+  borderWidth?: number;
 }
 
 /**
@@ -387,6 +392,19 @@ const addNativePdfAnnotation = (
     } else if (subtype === 'FreeText') {
       const fs = options.fontSize || 14;
       annotDictProps.DA = PDFString.of(`/Helv ${fs} Tf ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
+      if (options.richTextXml) {
+        annotDictProps.RC = PDFHexString.fromText(options.richTextXml);
+      }
+      if (interiorColorRgb) {
+        annotDictProps.IC = [interiorColorRgb.red, interiorColorRgb.green, interiorColorRgb.blue];
+      }
+      if (options.borderWidth && options.borderWidth > 0) {
+        annotDictProps.BS = context.obj({ Type: 'Border', W: options.borderWidth });
+        annotDictProps.Border = [0, 0, options.borderWidth];
+      }
+      if (options.customStreamOperators) {
+        streamOperators = options.customStreamOperators;
+      }
     } else if (subtype === 'Ink' && inkList) {
       annotDictProps.InkList = inkList;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
@@ -457,7 +475,7 @@ const addNativePdfAnnotation = (
         Subtype: 'Form',
         FormType: 1,
         BBox: rect,
-        Resources: {
+        Resources: options.customResources || {
           ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'],
         },
       };
@@ -970,14 +988,125 @@ export const exportEditedPdf = async (
             const x2 = t.x + t.width;
             const y2 = pageHeight - t.y;
 
+            // 1. Embed fonts for standard & rich formatting
+            const baseFontFamily = (t.fontFamily || 'Inter').toLowerCase();
+            let regFontName = StandardFonts.Helvetica;
+            let boldFontName = StandardFonts.HelveticaBold;
+            let italicFontName = StandardFonts.HelveticaOblique;
+            let boldItalicFontName = StandardFonts.HelveticaBoldOblique;
+
+            if (baseFontFamily.includes('courier')) {
+              regFontName = StandardFonts.Courier;
+              boldFontName = StandardFonts.CourierBold;
+              italicFontName = StandardFonts.CourierOblique;
+              boldItalicFontName = StandardFonts.CourierBoldOblique;
+            } else if (baseFontFamily.includes('times') || baseFontFamily.includes('georgia')) {
+              regFontName = StandardFonts.TimesRoman;
+              boldFontName = StandardFonts.TimesRomanBold;
+              italicFontName = StandardFonts.TimesRomanItalic;
+              boldItalicFontName = StandardFonts.TimesRomanBoldItalic;
+            }
+
+            const regFont = await outputDoc.embedFont(regFontName);
+            const boldFont = await outputDoc.embedFont(boldFontName);
+            const italicFont = await outputDoc.embedFont(italicFontName);
+            const boldItalicFont = await outputDoc.embedFont(boldItalicFontName);
+
+            // 2. Parse lines and spans
+            const parsedLines = parseRichTextToLines(t.text, t.richText, t.bulletStyle || 'disc');
+            const fullPlainText = linesToPlainText(parsedLines);
+
+            // 3. Build ISO 32000-1 Appearance Stream
+            let streamOps = '';
+            const w = Math.max(0.1, x2 - x1);
+            const h = Math.max(0.1, y2 - y1);
+
+            // Background rectangle (only if not transparent)
+            let interiorRgb: { red: number; green: number; blue: number } | undefined;
+            if (t.backgroundColor && t.backgroundColor !== 'transparent') {
+              interiorRgb = hexToPdfRgb(t.backgroundColor);
+              streamOps += `q ${interiorRgb.red.toFixed(3)} ${interiorRgb.green.toFixed(3)} ${interiorRgb.blue.toFixed(3)} rg ${x1.toFixed(2)} ${y1.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f Q `;
+            }
+
+            // Border stroke (only if width > 0 and not transparent)
+            if (t.borderWidth && t.borderWidth > 0 && t.borderColor && t.borderColor !== 'transparent') {
+              const borderRgb = hexToPdfRgb(t.borderColor);
+              streamOps += `q ${t.borderWidth} w 1 J 1 j ${borderRgb.red.toFixed(3)} ${borderRgb.green.toFixed(3)} ${borderRgb.blue.toFixed(3)} RG ${x1.toFixed(2)} ${y1.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re S Q `;
+            }
+
+            // Typography stream
+            const lineHeight = fontSize * 1.25;
+            const padX = 4;
+            const padY = 4;
+            let curY = y2 - padY - fontSize;
+            const { red: tr, green: tg, blue: tb } = pdfColor;
+
+            streamOps += `q ${tr.toFixed(3)} ${tg.toFixed(3)} ${tb.toFixed(3)} rg `;
+
+            for (const line of parsedLines) {
+              if (curY < y1) break;
+              let curX = x1 + padX;
+
+              for (const span of line.spans) {
+                if (!span.text) continue;
+                let fontRefName = '/F1';
+                let fontObj = regFont;
+                if (span.bold && span.italic) {
+                  fontRefName = '/F4';
+                  fontObj = boldItalicFont;
+                } else if (span.bold) {
+                  fontRefName = '/F2';
+                  fontObj = boldFont;
+                } else if (span.italic) {
+                  fontRefName = '/F3';
+                  fontObj = italicFont;
+                }
+
+                const escaped = escapePdfLiteralString(span.text, true);
+                streamOps += `BT ${fontRefName} ${fontSize} Tf 1 0 0 1 ${curX.toFixed(2)} ${curY.toFixed(2)} Tm (${escaped}) Tj ET `;
+
+                let spanW = 0;
+                try {
+                  spanW = fontObj.widthOfTextAtSize(span.text, fontSize);
+                } catch {
+                  spanW = span.text.length * fontSize * 0.55;
+                }
+                curX += spanW;
+              }
+              curY -= lineHeight;
+            }
+            streamOps += `Q`;
+
+            // Prepare custom resources with fonts
+            const fontsDict = outputDoc.context.obj({
+              F1: regFont.ref,
+              F2: boldFont.ref,
+              F3: italicFont.ref,
+              F4: boldItalicFont.ref,
+            });
+
+            const customResources = {
+              ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'],
+              Font: fontsDict,
+            };
+
+            const rcXml = t.richText
+              ? `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:8.0.0" xfa:spec="2.0.2">${t.richText}</body>`
+              : undefined;
+
             addNativePdfAnnotation(outputDoc, targetPage, {
               id: t.id,
               subtype: 'FreeText',
               rect: [x1, y1, x2, y2],
-              contents: t.text,
+              contents: fullPlainText || t.text,
               author: t.author,
               colorRgb: pdfColor,
+              interiorColorRgb: interiorRgb,
               fontSize,
+              richTextXml: rcXml,
+              customStreamOperators: streamOps,
+              customResources,
+              borderWidth: t.borderWidth,
             });
             break;
           }

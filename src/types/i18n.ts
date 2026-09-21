@@ -158,6 +158,16 @@ export interface TranslationSchema {
     done: string;
     dragToMove: string;
     resize: string;
+    bold: string;
+    italic: string;
+    bulletList: string;
+    numberedList: string;
+    bulletShape: string;
+    fitToText: string;
+    bulletDisc: string;
+    bulletSquare: string;
+    bulletDash: string;
+    bulletArrow: string;
   };
   signatureModal: {
     title: string;
