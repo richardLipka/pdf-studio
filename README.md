@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-172%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-153%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -49,10 +49,12 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 
 ### 4. ⚡ Direct Content Stream Segment & Page Editor (`streamReplace`)
 - **Direct Segment Isolation**: Analyzes, decompresses (`FlateDecode` / `pako`), and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.
-- **Interactive Page Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly pre-selects that exact stream segment (`BT ... ET`) in the Stream Editor for direct modification.
+- **Exact Page Text Model**: Every text-showing operator (`Tj`, `TJ`, `'`, `"`) of the page and its Form XObjects is tokenized and matched one-to-one with the glyphs decoded by pdf.js, so each `BT ... ET` object knows its real Unicode text, font, character codes and exact box — also for subset / CID (`Identity-H`) fonts whose text is not readable in the stream code.
+- **Interactive Page Click-to-Edit**: In Edit mode, clicking on any text element on the canvas pre-selects the text object drawn under the cursor; the trash badge on a highlighted block deletes it with a single click.
 - **Segment Selector & Live Previews**: Lists all text blocks on the active page with decoded text previews, font specifications (`/F1 12pt`), coordinates, and character counts.
-- **Direct Code Editor & Quick Replacer**: Live monospaced code editor allowing direct byte/operator edits or quick text replacement inside the selected block.
-- **Cascading Double-Replacement Prevention**: Isolates and masks `[...] TJ` kerning arrays first so nested word substitutions (e.g. `test` → `testing`) never produce corrupted duplicates (`testinging`).
+- **Block Text Rewrite**: Type the new text of the selected block and it is written at the same position, size and colour. It is encoded with the original font's own codes when the font has all needed glyphs, otherwise a substitute font (standard or embedded Liberation) is added for that block only. Multi-line text keeps the line spacing.
+- **Stale-Selection Protection**: Deletions and rewrites verify that the block still has the content that was selected (positional ids shift after every removal), so a click never removes a different element.
+- **Direct Code Editor**: Live monospaced code editor allowing direct byte/operator edits inside the selected block.
 - **Full Page Stream Tab**: Switchable view to inspect or rewrite the entire decompressed page stream at once.
 - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time.
 - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
@@ -183,13 +185,13 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (30 test files, 172 tests) |
+| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (33 test files, 155 tests) |
 
 ---
 
 ## 🧪 Automated Testing
 
-PDF Studio includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, geometric shapes, and PDF export:
+PDF Studio includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, the page text model and block text rewriting, geometric shapes, and PDF export:
 
 ```bash
 # Run all unit tests
@@ -201,7 +203,7 @@ npm run test
 ## 📦 Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (version 18+ recommended)
+- [Node.js](https://nodejs.org/) 22.13+ or 24 (required by `pdfjs-dist` 6)
 - `npm` or `yarn` / `pnpm`
 
 ### Installation & Development

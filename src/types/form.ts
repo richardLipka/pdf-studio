@@ -38,6 +38,7 @@ export interface FormFieldModel {
   backgroundColor?: string;
   borderColor?: string;
   alignment?: 'left' | 'center' | 'right';
+  pageRotation?: number; // page rotation the x/y/width/height above were computed for
 }
 
 export type FormExportMode = 'interactive' | 'flatten';

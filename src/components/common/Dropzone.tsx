@@ -21,6 +21,7 @@ export const Dropzone: React.FC = () => {
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -36,40 +37,46 @@ export const Dropzone: React.FC = () => {
     setIsDragOver(false);
   };
 
+  // Failures are logged by the document context; here they only need to be shown to the user
+  const runLoad = async (load: () => Promise<void>) => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      await load();
+    } catch {
+      setLoadError(t.notifications.errorLoadingPdf);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type === 'application/pdf') {
-      setIsLoading(true);
-      try {
-        await loadPdfFile(file);
-      } finally {
-        setIsLoading(false);
-      }
+    if (!file) return;
+    // Some systems report an empty MIME type for dragged files, so accept the extension too
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      await runLoad(() => loadPdfFile(file));
+    } else {
+      setLoadError(t.notifications.invalidFile);
     }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset so that picking the same file again (e.g. after an error) fires onChange
+    e.target.value = '';
     if (file) {
-      setIsLoading(true);
-      try {
-        await loadPdfFile(file);
-      } finally {
-        setIsLoading(false);
-      }
+      await runLoad(() => loadPdfFile(file));
     }
   };
 
   const handleLoadSample = async () => {
-    setIsLoading(true);
-    try {
+    await runLoad(async () => {
       const sampleBuffer = await createSamplePdfDoc(language);
       await loadSamplePdf(sampleBuffer, language);
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
   return (
@@ -178,6 +185,11 @@ export const Dropzone: React.FC = () => {
             >
               {t.dropzone.supports}
             </p>
+            {loadError && (
+              <p role="alert" className={`text-xs font-semibold pt-1 ${isLcars ? 'text-[#cc3333]' : 'text-rose-500'}`}>
+                {loadError}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">

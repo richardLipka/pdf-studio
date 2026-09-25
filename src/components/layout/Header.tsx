@@ -68,21 +68,37 @@ export const Header: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [showSuccessToast, setShowSuccessToast] = React.useState<boolean>(false);
+  const [showErrorToast, setShowErrorToast] = React.useState<boolean>(false);
+  const [errorToastText, setErrorToastText] = React.useState<string | null>(null);
+
+  const showError = (text: string | null) => {
+    setErrorToastText(text);
+    setShowErrorToast(true);
+    setShowSuccessToast(false);
+    setTimeout(() => setShowErrorToast(false), 4000);
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
     if (file) {
-      await loadPdfFile(file);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      try {
+        await loadPdfFile(file);
+      } catch {
+        showError(t.notifications.errorLoadingPdf);
+      }
     }
   };
 
   const handleLoadSample = async () => {
-    const sampleBuffer = await createSamplePdfDoc(language);
-    await loadSamplePdf(sampleBuffer, language);
+    try {
+      const sampleBuffer = await createSamplePdfDoc(language);
+      await loadSamplePdf(sampleBuffer, language);
+    } catch {
+      showError(t.notifications.errorLoadingPdf);
+    }
   };
-
-  const [showSuccessToast, setShowSuccessToast] = React.useState<boolean>(false);
-  const [showErrorToast, setShowErrorToast] = React.useState<boolean>(false);
 
   const handleSaveAndDownload = async () => {
     if (pages.length === 0) return;
@@ -96,9 +112,7 @@ export const Header: React.FC = () => {
       setShowErrorToast(false);
       setTimeout(() => setShowSuccessToast(false), 3500);
     } else {
-      setShowErrorToast(true);
-      setShowSuccessToast(false);
-      setTimeout(() => setShowErrorToast(false), 4000);
+      showError(null);
     }
   };
 
@@ -575,7 +589,7 @@ export const Header: React.FC = () => {
                   : 'bg-rose-950 border border-rose-500/50 text-rose-300 shadow-xl'
               }`}
             >
-              ✕ {language === 'cs' ? 'Chyba při stahování souboru' : 'Failed to download PDF'}
+              ✕ {errorToastText || (language === 'cs' ? 'Chyba při stahování souboru' : 'Failed to download PDF')}
             </div>
           )}
         </div>

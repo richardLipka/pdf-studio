@@ -38,6 +38,7 @@ const MainWorkspace: React.FC = () => {
       if (
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
         target.isContentEditable
       ) {
         return;

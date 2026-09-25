@@ -127,10 +127,34 @@ export const Toolbar: React.FC = () => {
 
   const handleShapeTypeChange = (st: ShapeType) => {
     setSelectedShape(st);
-    if (selectedAnn && selectedAnn.type === 'shape') {
+    if (selectedAnn && selectedAnn.type === 'shape' && selectedAnn.shapeType !== st) {
+      // Lines are stored as start point + endPoint (width/height may be negative), boxes as a
+      // normalized rectangle; convert the geometry so the morphed shape keeps its place and exports
+      const wasLine = selectedAnn.shapeType === 'line';
+      let geometry: Partial<typeof selectedAnn>;
+      if (st === 'line' && !wasLine) {
+        geometry = {
+          endPoint: { x: selectedAnn.x + selectedAnn.width, y: selectedAnn.y + selectedAnn.height },
+        };
+      } else if (st !== 'line' && wasLine) {
+        const end = selectedAnn.endPoint ?? {
+          x: selectedAnn.x + selectedAnn.width,
+          y: selectedAnn.y + selectedAnn.height,
+        };
+        geometry = {
+          x: Math.min(selectedAnn.x, end.x),
+          y: Math.min(selectedAnn.y, end.y),
+          width: Math.max(8, Math.abs(end.x - selectedAnn.x)),
+          height: Math.max(8, Math.abs(end.y - selectedAnn.y)),
+          endPoint: undefined,
+        };
+      } else {
+        geometry = {};
+      }
       updateAnnotation(
         {
           ...selectedAnn,
+          ...geometry,
           shapeType: st,
           updatedAt: Date.now(),
         },

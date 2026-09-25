@@ -2,6 +2,7 @@ import React from 'react';
 import { PdfPageModel } from '../../types/document';
 import { useDocument } from '../../context/DocumentContext';
 import { useTheme } from '../../context/ThemeContext';
+import { rotateBoxWithPage } from '../../services/pageManager';
 
 interface FormLayerProps {
   page: PdfPageModel;
@@ -28,10 +29,19 @@ export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
     >
       {pageFields.map((field) => {
         const value = formValues[field.name] !== undefined ? formValues[field.name] : field.value;
-        const left = field.x * scale;
-        const top = field.y * scale;
-        const width = field.width * scale;
-        const height = field.height * scale;
+        // Field boxes were computed for the page rotation at load time; follow later page rotations
+        const delta = page.rotation - (field.pageRotation ?? page.rotation);
+        const quarterTurned = ((delta % 360) + 360) % 180 !== 0;
+        const box = rotateBoxWithPage(
+          field,
+          quarterTurned ? page.height : page.width,
+          quarterTurned ? page.width : page.height,
+          delta
+        );
+        const left = box.x * scale;
+        const top = box.y * scale;
+        const width = box.width * scale;
+        const height = box.height * scale;
         const fontSize = Math.max(9, (field.fontSize || 12) * scale);
 
         const commonClass = `pointer-events-auto transition-all outline-none rounded-xs font-sans ${

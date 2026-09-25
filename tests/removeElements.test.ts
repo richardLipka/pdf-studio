@@ -220,10 +220,11 @@ describe('Remove Elements (Blocks & Images) Service & Undo/Redo', () => {
   it('should robustly extract and normalize search text for Czech diacritics and TJ kerning arrays', async () => {
     const { extractPreviewTextFromBlock, normalizeTextForSearch, unescapePdfLiteralString } = await import('../src/services/contentStreamEditor');
 
-    // Win-1250 octal characters
-    const octalCzech = '\\350\\341\\355\\354\\370\\376';
+    // Win-1250 octal characters (ž is 0x9E = \236; 0xFE = \376 is ţ)
+    const octalCzech = '\\350\\341\\355\\354\\370\\236';
     const unescaped = unescapePdfLiteralString(octalCzech);
     expect(unescaped).toBe('čáíěřž');
+    expect(unescapePdfLiteralString('\\376')).toBe('ţ');
 
     // TJ kerning array with word spacing and intra-word kerning
     const rawTjBlock = `BT /F1 12 Tf 100 200 Td [ (Sml) 20 (ouva) -250 (o) -250 (d) (\\355lo) ] TJ ET`;

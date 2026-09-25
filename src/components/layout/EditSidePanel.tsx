@@ -75,10 +75,9 @@ import {
   PageImageInfo,
   findBestMatchingBlock,
   normalizeTextForSearch,
-  replaceTextInStreamString,
-  replaceTextBlockText,
 } from '../../services/contentStreamEditor';
-import { getPageTextBlocks } from '../../services/pdfLoader';
+import { getPageTextBlocks, getPageTextModel } from '../../services/pdfLoader';
+import { VisualTextBlock } from '../../utils/textSnap';
 
 export const EditSidePanel: React.FC = () => {
   const { t } = useI18n();
@@ -114,6 +113,7 @@ export const EditSidePanel: React.FC = () => {
     removeMultiplePageElements,
     applyStreamSegmentEdit,
     applyPageContentStreamEdit,
+    applyBlockTextEdit,
   } = useDocument();
 
   const activeSourceDoc = sources.find((s) => s.id === pages[activePageIndex]?.sourceDocId);
@@ -130,6 +130,8 @@ export const EditSidePanel: React.FC = () => {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [fullStreamText, setFullStreamText] = useState<string>('');
   const [segments, setSegments] = useState<StreamSegment[]>([]);
+  // Fragments the canvas shows as one block (e.g. a list number and its text), keyed by segment id
+  const [segmentGroups, setSegmentGroups] = useState<Map<string, string[]>>(new Map());
   const [images, setImages] = useState<PageImageInfo[]>([]);
 
   // Search & Filters
@@ -151,25 +153,35 @@ export const EditSidePanel: React.FC = () => {
     text?: string;
   }>({ type: 'idle' });
 
+  // Several loads can overlap (one edit changes the source, history and page); only the newest applies
+  const loadSequenceRef = useRef(0);
+  // Canvas target (clicked text / position) already applied to the selection; the reloads that
+  // follow every edit must not jump the selection back to it
+  const consumedTargetRef = useRef<{ text: unknown; pos: unknown } | null>(null);
+  const modelTextIdsRef = useRef<Set<string>>(new Set());
+  const segmentHasModelText = (id: string) => modelTextIdsRef.current.has(id);
+
   // Load stream and images when panel opens or page changes
   const loadPageData = async (
     preferredTargetText?: string,
     preferredTargetPos?: { x: number; y: number } | null
   ) => {
+    const sequence = ++loadSequenceRef.current;
+    const isStale = () => sequence !== loadSequenceRef.current;
     setIsLoading(true);
-    setStatusMessage({ type: 'idle' });
 
     try {
       const [streamRes, imagesRes] = await Promise.all([
         getPageStream(activePageIndex),
         getPageImagesList(activePageIndex),
       ]);
+      if (isStale()) return;
 
       setIsDocumentEncrypted(Boolean(streamRes.isEncrypted));
 
       let textSegments: StreamSegment[] = [];
+      let visualBlocks: VisualTextBlock[] = [];
       if (streamRes.streamText) {
-        setFullStreamText(streamRes.streamText);
         const parsed = parseStreamSegments(streamRes.streamText);
         textSegments = parsed.filter((s) => s.type === 'text');
 
@@ -180,15 +192,38 @@ export const EditSidePanel: React.FC = () => {
           : null;
         if (activePageModel && activeSource) {
           try {
-            const visualBlocks = await getPageTextBlocks(activeSource, activePageModel);
+            // The text model knows the real text of every block, whatever the font encoding
+            const model = await getPageTextModel(activeSource, activePageModel);
+            modelTextIdsRef.current = new Set();
+            if (model?.aligned) {
+              textSegments.forEach((seg) => {
+                const block = model.blocksById.get(seg.id);
+                if (block?.text) {
+                  seg.previewText = block.text;
+                  modelTextIdsRef.current.add(seg.id);
+                }
+              });
+            }
+            visualBlocks = await getPageTextBlocks(activeSource, activePageModel);
+            if (isStale()) return;
             const blockMap = new Map(visualBlocks.map((vb) => [vb.id, vb.text]));
+            const groups = new Map<string, string[]>();
+            visualBlocks.forEach((vb) => {
+              if (vb.segmentIds && vb.segmentIds.length > 1) {
+                vb.segmentIds.forEach((id) => groups.set(id, vb.segmentIds!));
+              }
+            });
+            setSegmentGroups(groups);
             textSegments.forEach((seg) => {
               const decoded = blockMap.get(seg.id);
               if (
                 decoded &&
+                !segmentHasModelText(seg.id) &&
                 (!seg.previewText ||
                   seg.previewText.startsWith('[Textový') ||
                   seg.previewText.startsWith('<') ||
+                  // Glyph IDs of embedded (Identity-H) fonts decode to control characters
+                  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD]/.test(seg.previewText) ||
                   seg.previewText.includes('Ð') ||
                   seg.previewText.includes('þ') ||
                   seg.previewText.includes('µ') ||
@@ -204,10 +239,13 @@ export const EditSidePanel: React.FC = () => {
           }
         }
 
+        if (isStale()) return;
+        setFullStreamText(streamRes.streamText);
         setSegments(textSegments);
       } else {
         setFullStreamText('');
         setSegments([]);
+        setSegmentGroups(new Map());
       }
 
       if (imagesRes.images) {
@@ -241,9 +279,37 @@ export const EditSidePanel: React.FC = () => {
       const targetPos =
         preferredTargetPos !== undefined ? preferredTargetPos : streamReplaceTargetPosition;
 
-      // If opened with target block from canvas click, find best matching block
-      if (targetText || targetPos) {
-        const best = findBestMatchingBlock(textSegments, targetText, targetPos);
+      const isFreshTarget =
+        preferredTargetText !== undefined ||
+        preferredTargetPos !== undefined ||
+        consumedTargetRef.current?.text !== targetText ||
+        consumedTargetRef.current?.pos !== targetPos;
+      const keepSelection =
+        !isFreshTarget &&
+        Boolean(selectedStreamBlockId) &&
+        textSegments.some((s) => s.id === selectedStreamBlockId);
+
+      // If opened with target block from canvas click: the block under the clicked point (exact
+      // text model boxes), otherwise the best text match
+      if (keepSelection) {
+        // Reload after an edit or undo: stay on the block the user is working with
+      } else if (targetText || targetPos) {
+        consumedTargetRef.current = { text: targetText, pos: targetPos };
+        const hit = targetPos
+          ? visualBlocks
+              .filter(
+                (vb) =>
+                  vb.type !== 'image' &&
+                  targetPos.x >= vb.x - 1 &&
+                  targetPos.x <= vb.x + vb.width + 1 &&
+                  targetPos.y >= vb.y - 1 &&
+                  targetPos.y <= vb.y + vb.height + 1
+              )
+              .sort((a, b) => a.width * a.height - b.width * b.height)[0]
+          : undefined;
+        const best =
+          (hit && textSegments.find((seg) => seg.id === hit.id)) ||
+          findBestMatchingBlock(textSegments, targetText, targetPos);
         if (best) {
           setSelectedStreamBlockId(best.id);
           setSelectedBlockIds(new Set([best.id]));
@@ -421,6 +487,19 @@ export const EditSidePanel: React.FC = () => {
       loadPageData();
     }
   }, [isEditSidePanelOpen, activePageIndex, historyIndex, sourceUpdatedAt, sourceByteLength]);
+
+  // A new canvas target (clicked block or text, selection sent to the editor) while the panel is
+  // already open selects the block under it right away
+  useEffect(() => {
+    if (isEditSidePanelOpen && (streamReplaceTargetText || streamReplaceTargetPosition)) {
+      loadPageData();
+    }
+  }, [streamReplaceTargetText, streamReplaceTargetPosition]);
+
+  // The result of the last operation stays visible after the reload its own commit triggers
+  useEffect(() => {
+    setStatusMessage({ type: 'idle' });
+  }, [isEditSidePanelOpen, activePageIndex]);
 
   // When selectedStreamBlockId changes, update editorContent
   useEffect(() => {
@@ -648,7 +727,7 @@ export const EditSidePanel: React.FC = () => {
 
     setIsSaving(true);
     try {
-      const res = await removeMultiplePageElements(allTextIds, allImageNames, activePageIndex);
+      const res = await removeMultiplePageElements(allTextIds, allImageNames, activePageIndex, expectedContentsFor(allTextIds));
       if (res.success) {
         setStatusMessage({
           type: 'success',
@@ -673,6 +752,16 @@ export const EditSidePanel: React.FC = () => {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Stream text of the segments as listed, so a stale list can never remove a different block
+  const expectedContentsFor = (ids: string[]): Record<string, string> => {
+    const expected: Record<string, string> = {};
+    for (const id of ids) {
+      const seg = segments.find((s) => s.id === id);
+      if (seg) expected[id] = seg.rawContent;
+    }
+    return expected;
   };
 
   // Selection toggles
@@ -725,16 +814,10 @@ export const EditSidePanel: React.FC = () => {
     const totalCount = selectedBlockIds.size + selectedImageNames.size;
     if (totalCount === 0) return;
 
-    // Expand selectedBlockIds with any same-line companions
+    // Expand the selection with fragments that belong to the same visual block
     const allTargetSegmentIds = new Set<string>();
     for (const id of selectedBlockIds) {
-      allTargetSegmentIds.add(id);
-      const orig = segments.find((s) => s.id === id);
-      if (orig && orig.x !== undefined && orig.y !== undefined) {
-        segments
-          .filter((s) => s.x !== undefined && s.y !== undefined && Math.abs(s.y - orig.y!) < 2.5)
-          .forEach((s) => allTargetSegmentIds.add(s.id));
-      }
+      (segmentGroups.get(id) ?? [id]).forEach((sid) => allTargetSegmentIds.add(sid));
     }
 
     setIsSaving(true);
@@ -744,7 +827,8 @@ export const EditSidePanel: React.FC = () => {
       const res = await removeMultiplePageElements(
         Array.from(allTargetSegmentIds),
         Array.from(selectedImageNames),
-        activePageIndex
+        activePageIndex,
+        expectedContentsFor(Array.from(allTargetSegmentIds))
       );
 
       if (res.success) {
@@ -762,6 +846,7 @@ export const EditSidePanel: React.FC = () => {
           const parsed = parseStreamSegments(res.updatedStream);
           const textSegments = parsed.filter((s) => s.type === 'text');
           setSegments(textSegments);
+          setSegmentGroups(new Map());
 
           if (textSegments.length > 0) {
             setSelectedStreamBlockId(textSegments[0].id);
@@ -802,23 +887,13 @@ export const EditSidePanel: React.FC = () => {
     const origBlock = segments.find((s) => s.id === id);
     if (!origBlock) return;
 
-    // Find same-line companions (e.g. number bullet + text chunk)
-    const sameLineCompanions = segments.filter(
-      (s) =>
-        s.x !== undefined &&
-        s.y !== undefined &&
-        origBlock.x !== undefined &&
-        origBlock.y !== undefined &&
-        Math.abs(s.y - origBlock.y) < 2.5
-    );
-    const targetSegmentIds =
-      sameLineCompanions.length > 1
-        ? sameLineCompanions.map((s) => s.id)
-        : [id];
+    // Include directly adjacent fragments of the same visual block (e.g. number bullet + text chunk),
+    // but not other blocks that merely share the baseline, such as neighbouring table columns
+    const targetSegmentIds = segmentGroups.get(id) ?? [id];
 
     setIsSaving(true);
     try {
-      const res = await removeMultiplePageElements(targetSegmentIds, [], activePageIndex);
+      const res = await removeMultiplePageElements(targetSegmentIds, [], activePageIndex, expectedContentsFor(targetSegmentIds));
       if (res.success) {
         setStatusMessage({
           type: 'success',
@@ -841,6 +916,7 @@ export const EditSidePanel: React.FC = () => {
           const parsed = parseStreamSegments(res.updatedStream);
           const textSegments = parsed.filter((s) => s.type === 'text');
           setSegments(textSegments);
+          setSegmentGroups(new Map());
 
           if (targetSegmentIds.includes(selectedStreamBlockId || '')) {
             if (textSegments.length > 0) {
@@ -899,6 +975,7 @@ export const EditSidePanel: React.FC = () => {
           const parsed = parseStreamSegments(res.updatedStream);
           const textSegments = parsed.filter((s) => s.type === 'text');
           setSegments(textSegments);
+          setSegmentGroups(new Map());
 
           const updatedBlock =
             textSegments.find((s) => s.id === selectedStreamBlockId) ||
@@ -930,44 +1007,29 @@ export const EditSidePanel: React.FC = () => {
     }
   };
 
-  // Quick Text Replace in Block
-  const handleApplyQuickReplace = () => {
-    if (!selectedStreamBlockId || !editorContent) return;
-
-    const currentBlock = segments.find((s) => s.id === selectedStreamBlockId);
-    if (!currentBlock) return;
-
-    // First try targeted block text replacement (handles TJ arrays, kerning, hex, multiline, etc.)
-    const updated = replaceTextBlockText(editorContent, quickReplaceNewText);
-    if (updated !== editorContent) {
-      setEditorContent(updated);
+  // Rewrites the text of the selected block (encoded with the block's own font when possible)
+  const handleApplyTextEdit = async () => {
+    if (!selectedStreamBlockId) return;
+    const blockId = selectedStreamBlockId;
+    setIsSaving(true);
+    setStatusMessage({ type: 'idle' });
+    try {
+      const res = await applyBlockTextEdit(blockId, quickReplaceNewText, activePageIndex);
+      if (!res.success) {
+        setStatusMessage({ type: 'error', text: res.error || 'Přepis textu selhal.' });
+        return;
+      }
       setStatusMessage({
-        type: 'idle',
-        text: 'Náhrada byla vložena do kódu bloku. Klikněte na Uložit pro aplikaci.',
+        type: 'success',
+        text: res.fontSubstituted
+          ? 'Text byl přepsán. Vložené písmo dokumentu neobsahuje všechny znaky nového textu, proto bylo pro tento blok použito náhradní písmo.'
+          : 'Text byl přepsán původním písmem na stejném místě.',
       });
-      return;
-    }
-
-    // Fallback to stream string replacement
-    const { modifiedContent, count } = replaceTextInStreamString(
-      editorContent,
-      currentBlock.previewText,
-      quickReplaceNewText,
-      { matchCase: false }
-    );
-
-    if (count > 0) {
-      setEditorContent(modifiedContent);
-      setStatusMessage({
-        type: 'idle',
-        text: `Nahrazeno ${count} výskytů v kódu bloku. Klikněte na Uložit pro aplikaci.`,
-      });
-    } else {
-      setEditorContent(updated);
-      setStatusMessage({
-        type: 'idle',
-        text: 'Náhrada byla vložena do kódu bloku. Klikněte na Uložit pro aplikaci.',
-      });
+      // The committed document reloads the panel (segments with their decoded text) automatically
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err?.message || String(err) });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -991,6 +1053,7 @@ export const EditSidePanel: React.FC = () => {
           const parsed = parseStreamSegments(res.updatedStream);
           const textSegments = parsed.filter((s) => s.type === 'text');
           setSegments(textSegments);
+          setSegmentGroups(new Map());
         } else {
           await loadPageData();
         }
@@ -1528,7 +1591,7 @@ export const EditSidePanel: React.FC = () => {
 
       {/* 2. Main Content Body */}
       <div className="flex-1 overflow-y-auto flex flex-col" ref={listContainerRef}>
-        {isLoading ? (
+        {isLoading && segments.length === 0 && images.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
             <Loader2 className="w-7 h-7 animate-spin text-rose-500" />
             <p className="text-xs font-medium">Načítám prvky a stream stránky...</p>
@@ -2092,28 +2155,32 @@ export const EditSidePanel: React.FC = () => {
                     <div className="flex items-center justify-between text-xs font-bold text-slate-300">
                       <span className="flex items-center gap-1.5">
                         <Type className="w-3.5 h-3.5 text-indigo-400" />
-                        Rychlé nahrazení textu
+                        Upravit text bloku
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={quickReplaceNewText}
-                        onChange={(e) => setQuickReplaceNewText(e.target.value)}
-                        placeholder="Zadejte nový text pro tento blok..."
-                        className={`flex-1 px-2.5 py-1.5 rounded-lg text-xs outline-none border transition-colors ${
-                          isMinimal
-                            ? 'bg-white border-neutral-300 text-black focus:border-indigo-500'
-                            : 'bg-slate-900 border-slate-700 text-slate-100 focus:border-indigo-500'
-                        }`}
-                      />
+                    <textarea
+                      value={quickReplaceNewText}
+                      onChange={(e) => setQuickReplaceNewText(e.target.value)}
+                      rows={Math.min(8, Math.max(2, quickReplaceNewText.split('\n').length + 1))}
+                      placeholder="Zadejte nový text pro tento blok..."
+                      className={`w-full px-2.5 py-1.5 rounded-lg text-xs outline-none border transition-colors resize-y ${
+                        isMinimal
+                          ? 'bg-white border-neutral-300 text-black focus:border-indigo-500'
+                          : 'bg-slate-900 border-slate-700 text-slate-100 focus:border-indigo-500'
+                      }`}
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-slate-400 leading-snug">
+                        Zapíše se na stejné místo, stejnou velikostí a barvou. Každý řádek = jeden řádek v PDF.
+                      </span>
                       <button
-                        onClick={handleApplyQuickReplace}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors flex items-center gap-1"
+                        onClick={handleApplyTextEdit}
+                        disabled={isSaving || isDocumentEncrypted}
+                        className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white transition-colors flex items-center gap-1"
                       >
-                        <ArrowRight className="w-3.5 h-3.5" />
-                        <span>Použít</span>
+                        {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                        <span>Přepsat text</span>
                       </button>
                     </div>
                   </div>

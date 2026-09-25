@@ -1,5 +1,6 @@
 import {
   PDFDocument,
+  PDFPage,
   PDFName,
   PDFArray,
   PDFRef,
@@ -10,6 +11,7 @@ import {
   arrayAsString,
 } from 'pdf-lib';
 import { logger } from './logger';
+import { tokenizeContentStream } from './pdfContentTokenizer';
 
 /**
  * WeakMap cache for parsed PDFDocument instances to avoid redundant multi-second parsing
@@ -223,7 +225,7 @@ const WIN1250_OCTAL_MAP: { [code: number]: string } = {
   207: 'Ď', 210: 'Ň', 211: 'Ó', 212: 'Ô', 216: 'Ř', 217: 'Ů',
   218: 'Ú', 220: 'Ü', 221: 'Ý', 225: 'á', 228: 'ä', 232: 'č',
   233: 'é', 236: 'ě', 237: 'í', 239: 'ď', 242: 'ň', 243: 'ó',
-  244: 'ô', 248: 'ř', 249: 'ů', 250: 'ú', 252: 'ü', 253: 'ý', 254: 'ž',
+  244: 'ô', 248: 'ř', 249: 'ů', 250: 'ú', 252: 'ü', 253: 'ý', 254: 'ţ',
 };
 
 const REVERSE_WIN1250_MAP: { [char: string]: string } = {};
@@ -270,6 +272,19 @@ export function escapePdfLiteralString(str: string, encodeCzech: boolean = false
   }
 
   return escaped;
+}
+
+/**
+ * Whether hexToString decodes the hex string as UTF-16BE (BOM or every high byte 00)
+ */
+export function isTwoByteHexString(hex: string): boolean {
+  const cleanHex = hex.replace(/\s+/g, '');
+  if (cleanHex.startsWith('feff') || cleanHex.startsWith('FEFF')) return true;
+  if (cleanHex.length < 4 || cleanHex.length % 4 !== 0) return false;
+  for (let i = 0; i < cleanHex.length; i += 4) {
+    if (cleanHex.substring(i, i + 2) !== '00') return false;
+  }
+  return true;
 }
 
 /**
@@ -482,7 +497,9 @@ export function replaceTextInStreamString(
 
     if (matchCount > 0) {
       count += matchCount;
-      literalPassContent += `(${escapePdfLiteralString(replaced)})`;
+      // Re-encode Czech characters that unescapePdfLiteralString decoded from octal escapes;
+      // writing them raw would truncate them to their low byte (e.g. "ř" -> "Y")
+      literalPassContent += `(${escapePdfLiteralString(replaced, true)})`;
     } else {
       literalPassContent += item.raw;
     }
@@ -493,12 +510,7 @@ export function replaceTextInStreamString(
   // Step 3: Replace inside remaining hex PDF strings: < ... >
   const hexRegex = /<([0-9a-fA-F\s]+)>/g;
   let hexPassContent = literalPassContent.replace(hexRegex, (match, hexBody) => {
-    const cleanHex = hexBody.replace(/\s+/g, '');
-    const isTwoByte = cleanHex.length >= 4 && (
-      cleanHex.startsWith('feff') || 
-      cleanHex.startsWith('FEFF') || 
-      cleanHex.length % 4 === 0
-    );
+    const isTwoByte = isTwoByteHexString(hexBody);
     const text = hexToString(hexBody);
 
     let matchCount = 0;
@@ -520,22 +532,8 @@ export function replaceTextInStreamString(
     hexPassContent = hexPassContent.replace(placeholder, replacedTj);
   }
 
-  // Step 5: Fallback direct literal replacement ONLY if zero matches were found in any PDF string/array
-  if (count === 0) {
-    const directRegex = matchCase
-      ? new RegExp(escapeRegex(searchText), 'g')
-      : new RegExp(escapeRegex(searchText), 'gi');
-
-    const directReplaced = hexPassContent.replace(directRegex, () => {
-      count++;
-      return replaceText;
-    });
-
-    if (count > 0) {
-      return { modifiedContent: directReplaced, count };
-    }
-  }
-
+  // Text outside PDF strings is never touched: a raw search over the whole stream would rewrite
+  // operators, resource names and coordinates (e.g. replacing "1" or "re") and corrupt the page.
   return { modifiedContent: hexPassContent, count };
 }
 
@@ -897,12 +895,195 @@ export function decodeStreamObject(stream: any): string {
 }
 
 /**
+ * The editable stream text of a page is its /Contents followed by the content of the Form
+ * XObjects it uses, each introduced by a marker comment line. The markers let edits be written
+ * back to the stream they came from: without them, saving would inline the form content into
+ * /Contents, drawing it a second time (in the wrong coordinate space, with missing resources).
+ * Marker lines are PDF comments, so they are harmless even if they end up inside a stream; they
+ * deliberately contain no "BT"/"ET"/"q" sequences that the heuristic stream parsers look for.
+ */
+const FORM_MARKER_PREFIX = '% pdfstudio:form-xobject:';
+const FORM_MARKER_REGEX = /(^|\n)% pdfstudio:form-xobject:(\d+)[^\r\n]*(\r?\n|$)/g;
+
+interface FormStreamPart {
+  index: number;
+  name: string;
+  ref: PDFRef;
+  text: string;
+}
+
+interface PageStreamParts {
+  pageText: string;
+  pageStreamCount: number;
+  forms: FormStreamPart[];
+}
+
+const formMarkerLine = (form: FormStreamPart): string =>
+  `${FORM_MARKER_PREFIX}${form.index} /${form.name.toLowerCase()} - edits here are saved into this form xobject`;
+
+/** Where the page /Contents and each Form XObject lie inside the composed stream text */
+export interface StreamPartLayout {
+  kind: 'page' | 'form';
+  /** Form XObject resource name (without the slash) */
+  name?: string;
+  start: number;
+  end: number;
+}
+
+export function composePageStreamLayout(parts: PageStreamParts): { text: string; layout: StreamPartLayout[] } {
+  let text = parts.pageText;
+  const layout: StreamPartLayout[] = [{ kind: 'page', start: 0, end: text.length }];
+  for (const form of parts.forms) {
+    text += `${text ? '\n' : ''}${formMarkerLine(form)}\n`;
+    const start = text.length;
+    text += form.text;
+    layout.push({ kind: 'form', name: form.name, start, end: text.length });
+  }
+  return { text, layout };
+}
+
+export function composePageStreamText(parts: PageStreamParts): string {
+  return composePageStreamLayout(parts).text;
+}
+
+/**
+ * Splits text produced by composePageStreamText back into the page /Contents text and the
+ * texts of the individual Form XObjects (keyed by their marker index).
+ */
+export function splitPageStreamText(fullText: string): { pageText: string; forms: Map<number, string> } {
+  const markers: { index: number; start: number; contentStart: number }[] = [];
+  FORM_MARKER_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = FORM_MARKER_REGEX.exec(fullText)) !== null) {
+    markers.push({
+      index: parseInt(match[2], 10),
+      start: match.index,
+      contentStart: match.index + match[0].length,
+    });
+    if (match[0].length === 0) FORM_MARKER_REGEX.lastIndex++;
+  }
+
+  if (markers.length === 0) {
+    return { pageText: fullText, forms: new Map() };
+  }
+
+  const forms = new Map<number, string>();
+  markers.forEach((marker, i) => {
+    const end = i + 1 < markers.length ? markers[i + 1].start : fullText.length;
+    forms.set(marker.index, fullText.substring(marker.contentStart, end));
+  });
+  return { pageText: fullText.substring(0, markers[0].start), forms };
+}
+
+function collectPageStreamParts(pdfDoc: PDFDocument, page: PDFPage): PageStreamParts {
+  const contentsRef = safeGetPageContents(page.node);
+  const pageParts: string[] = [];
+
+  const readPart = (item: any) => {
+    const stream = item instanceof PDFRef ? page.node.context.lookup(item) : item;
+    const decodedPart = decodeStreamObject(stream);
+    if (decodedPart) pageParts.push(decodedPart);
+  };
+
+  if (contentsRef instanceof PDFArray) {
+    for (let i = 0; i < contentsRef.size(); i++) {
+      readPart(contentsRef.get(i));
+    }
+  } else if (contentsRef) {
+    readPart(contentsRef);
+  }
+
+  // Form XObjects in page resources (/XObject dictionary)
+  const forms: FormStreamPart[] = [];
+  const resources = safeGetPageResources(page.node);
+  if (resources instanceof PDFDict) {
+    const xObject = resources.lookup(PDFName.of('XObject'));
+    if (xObject instanceof PDFDict) {
+      for (const [key, ref] of xObject.entries()) {
+        if (!(ref instanceof PDFRef)) continue;
+        const obj = pdfDoc.context.lookup(ref);
+        if (obj instanceof PDFRawStream || (obj && typeof (obj as any).getContents === 'function')) {
+          const dict = (obj as any).dict || obj;
+          const sub = dict instanceof PDFDict ? dict.lookup(PDFName.of('Subtype')) : undefined;
+          if (sub instanceof PDFName && sub.asString() === '/Form') {
+            const formStream = decodeStreamObject(obj);
+            if (formStream) {
+              forms.push({
+                index: forms.length + 1,
+                name: key.asString().replace(/^\//, ''),
+                ref,
+                text: formStream,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { pageText: pageParts.join('\n'), pageStreamCount: pageParts.length, forms };
+}
+
+/**
+ * Gives the page its own /Resources dictionary and its own copy of one resource category (both
+ * shallow copies), so changing an entry affects only this page and not every page sharing the
+ * inherited resources.
+ */
+export function getPageLocalResourceDict(pdfDoc: PDFDocument, page: PDFPage, category: 'XObject' | 'Font'): PDFDict {
+  const context = pdfDoc.context;
+  const resources = safeGetPageResources(page.node);
+  const localResources = resources ? resources.clone(context) : context.obj({});
+  page.node.set(PDFName.of('Resources'), localResources);
+
+  const existing = localResources.lookup(PDFName.of(category));
+  const localCategory = existing instanceof PDFDict ? existing.clone(context) : context.obj({});
+  localResources.set(PDFName.of(category), localCategory);
+  return localCategory;
+}
+
+const getPageLocalXObjectDict = (pdfDoc: PDFDocument, page: PDFPage): PDFDict =>
+  getPageLocalResourceDict(pdfDoc, page, 'XObject');
+
+/**
+ * Writes stream text (as produced by composePageStreamText and possibly edited) back into the page:
+ * the page part replaces /Contents, edited Form XObject parts replace page-local copies of the forms.
+ * Returns the resulting composed stream text.
+ */
+export function writePageStreamText(pdfDoc: PDFDocument, page: PDFPage, fullText: string): string {
+  const original = collectPageStreamParts(pdfDoc, page);
+  const { pageText, forms } = splitPageStreamText(fullText);
+
+  if (pageText !== original.pageText) {
+    const newRef = pdfDoc.context.register(pdfDoc.context.flateStream(pageText));
+    page.node.set(PDFName.of('Contents'), newRef);
+  }
+
+  const changedForms = original.forms.filter((form) => forms.has(form.index) && forms.get(form.index) !== form.text);
+  if (changedForms.length > 0) {
+    const localXObject = getPageLocalXObjectDict(pdfDoc, page);
+    for (const form of changedForms) {
+      const originalStream = pdfDoc.context.lookup(form.ref) as PDFRawStream;
+      const newStream = pdfDoc.context.flateStream(forms.get(form.index)!);
+      for (const [key, value] of originalStream.dict.entries()) {
+        const keyName = key.asString();
+        if (keyName !== '/Length' && keyName !== '/Filter' && keyName !== '/DecodeParms' && keyName !== '/DL') {
+          newStream.dict.set(key, value);
+        }
+      }
+      localXObject.set(PDFName.of(form.name), pdfDoc.context.register(newStream));
+    }
+  }
+
+  return composePageStreamText(collectPageStreamParts(pdfDoc, page));
+}
+
+/**
  * Get decompressed content stream of a specific page in a PDF ArrayBuffer.
  */
 export async function getPageContentStream(
   pdfDocBytes: ArrayBuffer,
   pageIndex: number
-): Promise<{ streamText: string; streamCount: number; isEncrypted?: boolean; error?: string }> {
+): Promise<{ streamText: string; streamCount: number; isEncrypted?: boolean; error?: string; layout?: StreamPartLayout[] }> {
   try {
     const encInfo = await checkDocumentEncryption(pdfDocBytes);
     if (encInfo.isEncrypted) {
@@ -926,64 +1107,9 @@ export async function getPageContentStream(
     }
 
     const page = pdfDoc.getPage(pageIndex);
-    const contentsRef = safeGetPageContents(page.node);
-    let streamText = '';
-    let streamCount = 0;
-
-    if (contentsRef instanceof PDFRef) {
-      const stream = page.node.context.lookup(contentsRef);
-      streamText = decodeStreamObject(stream);
-      if (streamText) streamCount = 1;
-    } else if (contentsRef instanceof PDFArray) {
-      const parts: string[] = [];
-      for (let i = 0; i < contentsRef.size(); i++) {
-        const item = contentsRef.get(i);
-        if (item instanceof PDFRef) {
-          const stream = page.node.context.lookup(item);
-          const decodedPart = decodeStreamObject(stream);
-          if (decodedPart) {
-            parts.push(decodedPart);
-            streamCount++;
-          }
-        } else {
-          const decodedPart = decodeStreamObject(item);
-          if (decodedPart) {
-            parts.push(decodedPart);
-            streamCount++;
-          }
-        }
-      }
-      streamText = parts.join('\n');
-    } else if (contentsRef) {
-      streamText = decodeStreamObject(contentsRef);
-      if (streamText) streamCount = 1;
-    }
-
-    // Inspect Form XObjects in page resources (/XObject dictionary)
-    const resources = safeGetPageResources(page.node);
-    if (resources instanceof PDFDict) {
-      const xObject = resources.lookup(PDFName.of('XObject'));
-      if (xObject instanceof PDFDict) {
-        for (const [, ref] of xObject.entries()) {
-          const obj = pdfDoc.context.lookup(ref);
-          if (obj instanceof PDFRawStream || (obj && typeof (obj as any).getContents === 'function')) {
-            const dict = (obj as any).dict || obj;
-            const sub = dict instanceof PDFDict ? dict.lookup(PDFName.of('Subtype')) : undefined;
-            if (sub instanceof PDFName && sub.asString() === '/Form') {
-              const formStream = decodeStreamObject(obj);
-              if (formStream) {
-                if (streamText) {
-                  streamText += `\n${formStream}`;
-                } else {
-                  streamText = formStream;
-                }
-                streamCount++;
-              }
-            }
-          }
-        }
-      }
-    }
+    const parts = collectPageStreamParts(pdfDoc, page);
+    const { text: streamText, layout } = composePageStreamLayout(parts);
+    const streamCount = parts.pageStreamCount + parts.forms.length;
 
     // Check if the stream content is encrypted ciphertext
     const ciphertext = isLikelyCiphertext(streamText);
@@ -996,7 +1122,7 @@ export async function getPageContentStream(
       };
     }
 
-    return { streamText, streamCount, isEncrypted: false };
+    return { streamText, streamCount, isEncrypted: false, layout };
   } catch (err: any) {
     logger.error('edit', `Chyba při čtení content streamu strany ${pageIndex + 1}: ${err?.message || err}`);
     return { streamText: '', streamCount: 0, error: err?.message || String(err) };
@@ -1039,49 +1165,45 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
   const segments: StreamSegment[] = [];
   if (!streamText) return segments;
 
-  const btEtRegex = /BT[\s\S]*?ET/g;
-  let match: RegExpExecArray | null;
+  // Text objects are found with a real tokenizer: a regular expression would also match "BT"/"ET"
+  // inside strings and names (e.g. "(BUDGET) Tj") and cut a text object in half
+  const operations = tokenizeContentStream(streamText);
   let lastIndex = 0;
   let blockIndex = 1;
 
   let currentMatrix: TransformMatrix = { ...IDENTITY_MATRIX };
   const matrixStack: TransformMatrix[] = [];
 
-  while ((match = btEtRegex.exec(streamText)) !== null) {
-    const startIndex = match.index;
-    const endIndex = startIndex + match[0].length;
+  for (let opIdx = 0; opIdx < operations.length; opIdx++) {
+    const op = operations[opIdx];
+    if (op.operator === 'q') {
+      matrixStack.push({ ...currentMatrix });
+      continue;
+    }
+    if (op.operator === 'Q') {
+      currentMatrix = matrixStack.pop() ?? { ...IDENTITY_MATRIX };
+      continue;
+    }
+    if (op.operator === 'cm') {
+      const values = op.operands.slice(-6).map((o) => parseFloat(o.raw));
+      if (values.length === 6 && values.every((v) => !isNaN(v))) {
+        const [a, b, c, d, e, f] = values;
+        currentMatrix = multiplyMatrix(currentMatrix, { a, b, c, d, e, f });
+      }
+      continue;
+    }
+    if (op.operator !== 'BT') continue;
 
-    // Process preceding non-text chunk for q, Q, and cm transformations
+    let etIdx = opIdx + 1;
+    while (etIdx < operations.length && operations[etIdx].operator !== 'ET') etIdx++;
+    const startIndex = op.operatorStart;
+    const endIndex = etIdx < operations.length ? operations[etIdx].end : streamText.length;
+    opIdx = etIdx;
+
+    // Preceding non-text chunk
     if (startIndex > lastIndex) {
       const nonText = streamText.substring(lastIndex, startIndex);
       const trimmed = nonText.trim();
-
-      // Scan tokens in nonText
-      const tokens = nonText.split(/\s+/).filter(Boolean);
-      for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
-        if (token === 'q') {
-          matrixStack.push({ ...currentMatrix });
-        } else if (token === 'Q') {
-          if (matrixStack.length > 0) {
-            currentMatrix = matrixStack.pop()!;
-          } else {
-            currentMatrix = { ...IDENTITY_MATRIX };
-          }
-        } else if (token === 'cm' && i >= 6) {
-          const a = parseFloat(tokens[i - 6]);
-          const b = parseFloat(tokens[i - 5]);
-          const c = parseFloat(tokens[i - 4]);
-          const d = parseFloat(tokens[i - 3]);
-          const e = parseFloat(tokens[i - 2]);
-          const f = parseFloat(tokens[i - 1]);
-          if (!isNaN(a) && !isNaN(b) && !isNaN(c) && !isNaN(d) && !isNaN(e) && !isNaN(f)) {
-            const cmMat: TransformMatrix = { a, b, c, d, e, f };
-            currentMatrix = multiplyMatrix(currentMatrix, cmMat);
-          }
-        }
-      }
-
       if (trimmed) {
         segments.push({
           id: `seg_graphics_${segments.length + 1}`,
@@ -1094,7 +1216,7 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
       }
     }
 
-    const rawBlock = match[0];
+    const rawBlock = streamText.substring(startIndex, endIndex);
     const extractedText = extractPreviewTextFromBlock(rawBlock);
     const fontDetails = extractFontDetailsFromBlock(rawBlock);
     const rawCoords = extractCoordinatesFromBlock(rawBlock);
@@ -1134,10 +1256,6 @@ export function parseStreamSegments(streamText: string): StreamSegment[] {
 
     blockIndex++;
     lastIndex = endIndex;
-
-    if (match.index === btEtRegex.lastIndex) {
-      btEtRegex.lastIndex++;
-    }
   }
 
   // Trailing non-text chunk after last ET
@@ -1490,10 +1608,11 @@ export function findBestMatchingBlock(
   textBlocks: StreamSegment[],
   targetText?: string,
   targetPosition?: { x: number; y: number } | null,
-  pageHeight?: number
+  pageHeight?: number,
+  requireMatch: boolean = false
 ): StreamSegment | undefined {
   if (!textBlocks || textBlocks.length === 0) return undefined;
-  if (!targetText && !targetPosition) return textBlocks[0];
+  if (!targetText && !targetPosition) return requireMatch ? undefined : textBlocks[0];
 
   const normTarget = normalizeTextForSearch(targetText || '');
   const targetWords = normTarget.split(' ').filter((w) => w.length >= 2);
@@ -1568,7 +1687,8 @@ export function findBestMatchingBlock(
     return bestBlock;
   }
 
-  return textBlocks[0];
+  // Callers that act destructively must not fall back to an arbitrary block
+  return requireMatch ? undefined : textBlocks[0];
 }
 
 /**
@@ -1599,9 +1719,7 @@ export async function updatePageContentStream(
     }
 
     const page = pdfDoc.getPage(pageIndex);
-    const newStream = pdfDoc.context.flateStream(newStreamContent);
-    const newRef = pdfDoc.context.register(newStream);
-    page.node.set(PDFName.of('Contents'), newRef);
+    const updatedStream = writePageStreamText(pdfDoc, page, newStreamContent);
 
     const savedBytes = await pdfDoc.save();
     const durationMs = Date.now() - startTime;
@@ -1614,7 +1732,7 @@ export async function updatePageContentStream(
 
     return {
       updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
-      updatedStream: newStreamContent,
+      updatedStream,
     };
   } catch (err: any) {
     const errorMsg = err?.message || String(err);
@@ -2039,7 +2157,9 @@ export async function removeMultipleElementsFromPage(
   pdfDocBytes: ArrayBuffer,
   pageIndex: number,
   segmentIds: string[],
-  imageNames: string[]
+  imageNames: string[],
+  /** Stream text each segment id had when the caller looked; guards against stale (renumbered) ids */
+  expectedContents?: Record<string, string>
 ): Promise<{ updatedPdfBytes: ArrayBuffer; removedCount: number; updatedStream: string; error?: string }> {
   const startTime = Date.now();
   logger.info('edit', `Zahájeno odstraňování prvků ze strany ${pageIndex + 1}`, {
@@ -2074,25 +2194,36 @@ export async function removeMultipleElementsFromPage(
     let removedCount = 0;
     let modifiedStream = streamText;
 
-    // 1. Remove text/graphics segments in reverse order of index
+    // 1. Remove text/graphics segments by position, last first so earlier offsets stay valid
+    // (removing by content would hit the first identical block instead of the selected one)
     if (segmentIds.length > 0) {
-      const idSet = new Set(segmentIds);
       const parsed = parseStreamSegments(modifiedStream);
-      const toRemove = parsed
-        .filter((s) => idSet.has(s.id))
-        .sort((a, b) => b.startIndex - a.startIndex);
+      const byId = new Map(parsed.map((s) => [s.id, s]));
+      const targets = new Set<StreamSegment>();
+      for (const id of segmentIds) {
+        let seg = byId.get(id);
+        const expected = expectedContents?.[id];
+        if (expected !== undefined && seg?.rawContent !== expected) {
+          // Segment ids are positional and shift after every removal; find the block by its content
+          const matches = parsed.filter((s) => s.type === 'text' && s.rawContent === expected);
+          seg = matches.length === 1 ? matches[0] : undefined;
+          if (!seg) {
+            return {
+              updatedPdfBytes: pdfDocBytes,
+              removedCount: 0,
+              updatedStream: streamText,
+              error: 'Obsah stránky se mezitím změnil. Vyberte prvek znovu.',
+            };
+          }
+        }
+        if (seg) targets.add(seg);
+      }
+      const toRemove = [...targets].sort((a, b) => b.startIndex - a.startIndex);
 
       for (const seg of toRemove) {
-        if (modifiedStream.includes(seg.rawContent)) {
-          modifiedStream = modifiedStream.replace(seg.rawContent, '');
+        if (modifiedStream.substring(seg.startIndex, seg.endIndex) === seg.rawContent) {
+          modifiedStream = modifiedStream.substring(0, seg.startIndex) + modifiedStream.substring(seg.endIndex);
           removedCount++;
-        } else {
-          const normOrig = seg.rawContent.replace(/\r\n/g, '\n');
-          const normStream = modifiedStream.replace(/\r\n/g, '\n');
-          if (normStream.includes(normOrig)) {
-            modifiedStream = normStream.replace(normOrig, '');
-            removedCount++;
-          }
         }
       }
 
@@ -2105,18 +2236,21 @@ export async function removeMultipleElementsFromPage(
     // 2. Remove images
     if (imageNames.length > 0) {
       const resources = safeGetPageResources(page.node);
-      let xObjectDict = resources?.get(PDFName.of('XObject'));
-      if (xObjectDict instanceof PDFRef) {
-        xObjectDict = page.node.context.lookup(xObjectDict);
-      }
+      const sharedXObjectDict = resources?.lookup(PDFName.of('XObject'));
+      const hasImageEntry = (name: string) =>
+        sharedXObjectDict instanceof PDFDict && sharedXObjectDict.has(PDFName.of(name));
+      // Resources are often shared by many pages; only this page's copy may lose the entry,
+      // otherwise other pages would keep invoking an XObject that no longer exists
+      const xObjectDict = imageNames.some((n) => hasImageEntry(n.replace(/^\//, '')))
+        ? getPageLocalXObjectDict(pdfDoc, page)
+        : undefined;
 
       for (const rawName of imageNames) {
         const cleanName = rawName.replace(/^\//, '');
 
         // Delete from /Resources /XObject dictionary
-        if (xObjectDict instanceof PDFDict) {
+        if (xObjectDict) {
           xObjectDict.delete(PDFName.of(cleanName));
-          xObjectDict.delete(PDFName.of('/' + cleanName));
         }
 
         // Delete from content stream (cleanly removes q ... cm ... /Name Do ... Q wrapper or bare /Name Do)
@@ -2137,10 +2271,8 @@ export async function removeMultipleElementsFromPage(
       }
     }
 
-    // 3. Write back modified stream
-    const newStream = pdfDoc.context.flateStream(modifiedStream);
-    const newRef = pdfDoc.context.register(newStream);
-    page.node.set(PDFName.of('Contents'), newRef);
+    // 3. Write back modified stream (page contents and any edited Form XObjects)
+    const updatedStream = writePageStreamText(pdfDoc, page, modifiedStream);
 
     const savedBytes = await pdfDoc.save();
     const updatedBuffer = savedBytes.buffer as ArrayBuffer;
@@ -2161,7 +2293,7 @@ export async function removeMultipleElementsFromPage(
     return {
       updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
       removedCount,
-      updatedStream: modifiedStream,
+      updatedStream,
     };
   } catch (err: any) {
     const errorMsg = err?.message || String(err);

@@ -48,7 +48,6 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     strokeColor,
     strokeWidth,
     setStreamReplaceTargetText,
-    streamReplaceTargetPosition,
     setStreamReplaceTargetPosition,
     isRemoveElementsModalOpen,
     isEditSidePanelOpen,
@@ -67,6 +66,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     pages,
     getPageStream,
     removePageBlock,
+    removeMultiplePageElements,
+    removePageImage,
     replacePageImage,
     exportPageImage,
   } = useDocument();
@@ -86,23 +87,83 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     isRemoveElementsModalOpen ||
     isEditSidePanelOpen;
   const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
+  const visualLoadRef = useRef(0);
+  const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
 
   const refreshVisualBlocks = useCallback(async () => {
+    // Newest load wins: a slower load started for an older version of the document must not
+    // bring back blocks (and segment ids) that no longer exist
+    const token = ++visualLoadRef.current;
     if (!isRemoveActive || page.sourceType !== 'pdf') {
       setVisualBlocks([]);
       return;
     }
     try {
       const blocks = await getPageTextBlocks(sourceDoc, page);
-      setVisualBlocks(blocks);
+      if (token === visualLoadRef.current) setVisualBlocks(blocks);
     } catch {
-      setVisualBlocks([]);
+      if (token === visualLoadRef.current) setVisualBlocks([]);
     }
   }, [isRemoveActive, sourceDoc, page]);
+  // Async callbacks (text layer render) must use the current mode and document, not the ones
+  // captured when they were started
+  const refreshVisualBlocksRef = useRef(refreshVisualBlocks);
+  refreshVisualBlocksRef.current = refreshVisualBlocks;
+
+  /** Deletes a text block straight from the canvas, guarded against stale segment ids */
+  const deleteVisualTextBlock = async (block: VisualTextBlock) => {
+    const pageIndex = pages.findIndex((p) => p.id === page.id);
+    if (pageIndex < 0 || deletingBlockId) return;
+    const ids = block.segmentIds && block.segmentIds.length > 0 ? block.segmentIds : [block.id];
+    const expected: Record<string, string> = {};
+    ids.forEach((id, idx) => {
+      const content = block.segmentContents?.[idx];
+      if (content !== undefined) expected[id] = content;
+    });
+    setDeletingBlockId(block.id);
+    // Hide the box at once; the page re-renders when the edited document is committed
+    setVisualBlocks((prev) => prev.filter((b) => b.id !== block.id));
+    try {
+      const res = await removeMultiplePageElements(ids, [], pageIndex, expected);
+      if (!res.success) {
+        console.warn('Failed to delete block:', res.error);
+        refreshVisualBlocksRef.current();
+      }
+      setSelectedStreamBlockId(null);
+      setHoveredBlockId(null);
+      setHoveredBlockText(null);
+    } finally {
+      setDeletingBlockId(null);
+    }
+  };
+
+  /** Model-based text block under the centre of the current selection */
+  const findTextBlockAtSelection = async (): Promise<VisualTextBlock | null> => {
+    const container = containerRef.current;
+    if (!container || selectedRects.length === 0 || page.sourceType !== 'pdf') return null;
+    const containerRect = container.getBoundingClientRect();
+    const rect = selectedRects[0];
+    const x = (rect.left + rect.width / 2 - containerRect.left) / scale;
+    const y = (rect.top + rect.height / 2 - containerRect.top) / scale;
+    const blocks = await getPageTextBlocks(sourceDoc, page);
+    return (
+      blocks
+        .filter(
+          (b) =>
+            b.type !== 'image' &&
+            b.segmentContents &&
+            x >= b.x - 1 &&
+            x <= b.x + b.width + 1 &&
+            y >= b.y - 1 &&
+            y <= b.y + b.height + 1
+        )
+        .sort((a, b) => a.width * a.height - b.width * b.height)[0] || null
+    );
+  };
 
   useEffect(() => {
     if (isRemoveActive) {
-      refreshVisualBlocks();
+      refreshVisualBlocksRef.current();
     } else {
       setVisualBlocks([]);
     }
@@ -126,11 +187,9 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
         await renderPdfTextLayer(sourceDoc, page, container, scale);
       })
       .then(() => {
+        // pdf.js sizes (and for rotated pages rotates) the layer itself
         if (!isCancelled && container) {
-          // Set layer dimensions
-          container.style.width = `${page.width * scale}px`;
-          container.style.height = `${page.height * scale}px`;
-          refreshVisualBlocks();
+          refreshVisualBlocksRef.current();
         }
       })
       .catch((err) => {
@@ -382,8 +441,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     if (container && selectedRects.length > 0) {
       const containerRect = container.getBoundingClientRect();
       const rect = selectedRects[0];
-      const pdfX = (rect.left - containerRect.left) / scale;
-      const pdfY = (rect.top - containerRect.top) / scale;
+      const pdfX = (rect.left + rect.width / 2 - containerRect.left) / scale;
+      const pdfY = (rect.top + rect.height / 2 - containerRect.top) / scale;
       setStreamReplaceTargetPosition({ x: pdfX, y: pdfY });
     }
     setStreamReplaceTargetText(selectedText);
@@ -398,17 +457,29 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     if (!selectedText) return;
     try {
       const pageIndex = pages.findIndex((p) => p.id === page.id);
-      const targetIdx = pageIndex >= 0 ? pageIndex : 0;
-      const { streamText } = await getPageStream(targetIdx);
+      if (pageIndex < 0) return;
+      // Exact text model: delete the text object(s) drawn under the selection
+      const hit = await findTextBlockAtSelection();
+      if (hit) {
+        await deleteVisualTextBlock(hit);
+        return;
+      }
+      const container = containerRef.current;
+      const containerRect = container?.getBoundingClientRect();
+      const selectionPos =
+        containerRect && selectedRects.length > 0
+          ? {
+              x: (selectedRects[0].left - containerRect.left) / scale,
+              y: (selectedRects[0].top - containerRect.top) / scale,
+            }
+          : null;
+      const { streamText } = await getPageStream(pageIndex);
       if (streamText) {
-        const segments = parseStreamSegments(streamText);
-        const best = findBestMatchingBlock(
-          segments,
-          selectedText,
-          streamReplaceTargetPosition || undefined
-        );
+        // Only text blocks are candidates, and nothing is deleted without a real match
+        const textSegments = parseStreamSegments(streamText).filter((s) => s.type === 'text');
+        const best = findBestMatchingBlock(textSegments, selectedText, selectionPos, page.height, true);
         if (best) {
-          await removePageBlock(best, targetIdx);
+          await removePageBlock(best, pageIndex);
         }
       }
     } catch (err) {
@@ -469,8 +540,6 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
         onMouseUp={handleMouseUp}
         onClick={handleLayerClick}
         style={{
-          width: `${page.width * scale}px`,
-          height: `${page.height * scale}px`,
           ['--scale-factor' as any]: scale,
         }}
         className={`textLayer absolute inset-0 select-text ${
@@ -544,7 +613,10 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedStreamBlockId(block.id);
-                    setStreamReplaceTargetPosition({ x: block.x, y: block.y });
+                    setStreamReplaceTargetPosition({
+                      x: block.x + block.width / 2,
+                      y: block.y + block.height / 2,
+                    });
                     setStreamReplaceTargetText(block.text);
 
                     setTimeout(() => {
@@ -638,20 +710,32 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                       : `${block.text}`
                   }
                 >
-                  {/* Small Icon Badge on Hover or Active */}
-                  <div
-                    className={`opacity-0 group-hover:opacity-100 transition-opacity text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none ${
-                      isImage ? 'bg-amber-600' : isStreamMode ? 'bg-indigo-600' : 'bg-rose-600'
-                    }`}
-                  >
-                    {isImage ? (
-                      <ImageIcon className="w-2.5 h-2.5" />
-                    ) : isStreamMode ? (
-                      <Code className="w-2.5 h-2.5" />
-                    ) : (
-                      <Trash2 className="w-2.5 h-2.5" />
-                    )}
-                  </div>
+                  {/* Small Icon Badge on Hover or Active; in remove mode it deletes the text block */}
+                  {!isImage && !isStreamMode ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteVisualTextBlock(block);
+                      }}
+                      disabled={Boolean(deletingBlockId)}
+                      className={`${
+                        isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      } transition-opacity text-white rounded-xs p-1 shadow-sm -mt-3 -mr-2 pointer-events-auto bg-rose-600 hover:bg-rose-500 hover:scale-110 disabled:opacity-50`}
+                      title={`Smazat blok: ${block.text}`}
+                      aria-label="Smazat blok"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  ) : (
+                    <div
+                      className={`opacity-0 group-hover:opacity-100 transition-opacity text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none ${
+                        isImage ? 'bg-amber-600' : 'bg-indigo-600'
+                      }`}
+                    >
+                      {isImage ? <ImageIcon className="w-2.5 h-2.5" /> : <Code className="w-2.5 h-2.5" />}
+                    </div>
+                  )}
 
                   {/* Image Quick Action Floating Bar on Selection */}
                   {isImage && isSelected && (
@@ -733,7 +817,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                                 undefined,
                                 pages.findIndex((p) => p.id === page.id)
                               );
-                              refreshVisualBlocks();
+                              refreshVisualBlocksRef.current();
                             }
                           }}
                         />
@@ -743,22 +827,17 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                       <button
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (window.confirm(`Opravdu chcete z dokumentu odstranit obrázek ${block.imageName || ''}?`)) {
+                          if (
+                            block.imageName &&
+                            window.confirm(`Opravdu chcete z dokumentu odstranit obrázek ${block.imageName}?`)
+                          ) {
                             const pageIndex = pages.findIndex((p) => p.id === page.id);
-                            const targetIdx = pageIndex >= 0 ? pageIndex : 0;
-                            const { streamText } = await getPageStream(targetIdx);
-                            if (streamText) {
-                              const segments = parseStreamSegments(streamText);
-                              const best = findBestMatchingBlock(
-                                segments,
-                                block.imageName ? `/${block.imageName}` : block.text,
-                                { x: block.x, y: block.y }
-                              );
-                              if (best) {
-                                await removePageBlock(best, targetIdx);
-                                refreshVisualBlocks();
-                                setSelectedStreamBlockId(null);
-                              }
+                            if (pageIndex < 0) return;
+                            // Removes the image's Do invocation and XObject entry, not a whole stream segment
+                            const res = await removePageImage(block.imageName, pageIndex);
+                            if (res.success) {
+                              refreshVisualBlocksRef.current();
+                              setSelectedStreamBlockId(null);
                             }
                           }
                         }}

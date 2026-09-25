@@ -1,13 +1,20 @@
-import * as pdfjsLib from 'pdfjs-dist';
+// The legacy build bundles polyfills: the modern build of pdf.js 6 needs very recent JS features
+// (e.g. Uint8Array.prototype.toHex) and fails to open any document in older browsers
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PdfPageModel, SourceDocument, DocumentMetadata } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { logger } from './logger';
+import { getPdfjsAssetOptions } from './pdfjsAssets';
+import { buildPageTextModel, groupAdjacentBlocks, FontMetrics, PageTextModel } from './pdfTextModel';
+import { markupBoxFromLine, markupLineFromQuad } from '../utils/markupGeometry';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef } from 'pdf-lib';
 import { sanitizePdfBuffer, extractPdfHeader } from './pdfExporter';
 import {
   getPageContentStream,
   parseStreamSegments,
   normalizeTextForSearch,
   getPageImages,
+  getCachedPdfLibDocument,
   PageImageInfo,
 } from './contentStreamEditor';
 
@@ -15,61 +22,78 @@ import {
 if (typeof window !== 'undefined') {
   try {
     pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.js',
+      'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
       import.meta.url
     ).toString();
   } catch (e) {
     console.warn('Falling back to CDN worker for pdf.js', e);
     logger.warn('load', 'Použit záložní CDN worker pro pdf.js', e);
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/legacy/build/pdf.worker.min.mjs`;
   }
 }
 
-// In-memory cache of loaded pdf documents
-const docCache = new Map<string, pdfjsLib.PDFDocumentProxy>();
-const loadingPromises = new Map<string, Promise<pdfjsLib.PDFDocumentProxy>>();
+// In-memory cache of loaded pdf documents, keyed by source id. Each entry remembers the exact
+// ArrayBuffer it was parsed from, so a request carrying a newer buffer for the same source
+// (after a stream edit, undo/redo, or a render task that raced with clearPdfCache) never gets
+// served a stale document.
+interface DocCacheEntry {
+  buffer: ArrayBuffer;
+  loadingTask: pdfjsLib.PDFDocumentLoadingTask;
+  promise: Promise<pdfjsLib.PDFDocumentProxy>;
+}
+const docCache = new Map<string, DocCacheEntry>();
+// Superseded documents may still be in use by in-flight renders; they are destroyed on the next clear.
+const retiredDocs: DocCacheEntry[] = [];
 const activeRenderTasks = new WeakMap<HTMLCanvasElement, any>();
 
 export const getCachedPdfDocument = async (
   sourceId: string,
   arrayBuffer: ArrayBuffer
 ): Promise<pdfjsLib.PDFDocumentProxy> => {
-  if (docCache.has(sourceId)) {
-    return docCache.get(sourceId)!;
+  const cached = docCache.get(sourceId);
+  if (cached && cached.buffer === arrayBuffer) {
+    return cached.promise;
   }
-  if (loadingPromises.has(sourceId)) {
-    return loadingPromises.get(sourceId)!;
+  if (cached) {
+    retiredDocs.push(cached);
   }
 
   // Create a copy of the buffer because pdfjs-dist may transfer ownership
   const copyBuffer = arrayBuffer.slice(0);
-  const loadingTask = pdfjsLib.getDocument({ data: copyBuffer });
-  const promise = loadingTask.promise
-    .then((pdfDoc) => {
-      docCache.set(sourceId, pdfDoc);
-      loadingPromises.delete(sourceId);
-      return pdfDoc;
-    })
-    .catch((err) => {
-      loadingPromises.delete(sourceId);
-      throw err;
-    });
+  const loadingTask = pdfjsLib.getDocument({ data: copyBuffer, ...getPdfjsAssetOptions() });
+  const entry: DocCacheEntry = { buffer: arrayBuffer, loadingTask, promise: loadingTask.promise };
+  entry.promise.catch(() => {
+    if (docCache.get(sourceId) === entry) {
+      docCache.delete(sourceId);
+    }
+  });
 
-  loadingPromises.set(sourceId, promise);
-  return promise;
+  docCache.set(sourceId, entry);
+  return entry.promise;
 };
 
+const destroyDocument = (entry: DocCacheEntry) => {
+  entry.loadingTask.destroy().catch(() => {
+    // ignore destroy errors
+  });
+};
+
+/**
+ * Maps a PDF user-space rectangle [x1, y1, x2, y2] to viewport coordinates (the corners may come
+ * back in any order; callers take min/max). Replaces PageViewport.convertToViewportRectangle,
+ * which pdf.js removed.
+ */
+export const toViewportRect = (viewport: pdfjsLib.PageViewport, rect: ArrayLike<number>): number[] => [
+  ...viewport.convertToViewportPoint(rect[0], rect[1]),
+  ...viewport.convertToViewportPoint(rect[2], rect[3]),
+];
+
 export const clearPdfCache = () => {
-  loadingPromises.clear();
-  for (const doc of docCache.values()) {
-    try {
-      doc.cleanup();
-      doc.destroy();
-    } catch {
-      // ignore
-    }
+  for (const entry of docCache.values()) {
+    destroyDocument(entry);
   }
   docCache.clear();
+  retiredDocs.splice(0).forEach(destroyDocument);
 };
 
 export const parsePdfPages = async (
@@ -299,6 +323,41 @@ const extractStrokeWidth = (ann: any, defaultWidth: number = 2): number => {
   return defaultWidth;
 };
 
+/**
+ * Reads annotation QuadPoints from pdf.js annotation data, which is either a flat numeric array
+ * (x1 y1 ... x4 y4 per quad, newer pdf.js) or an array of four {x, y} points per quad (older pdf.js).
+ */
+const readQuadPoints = (raw: any): { x: number; y: number }[][] => {
+  if (!raw || typeof raw.length !== 'number' || raw.length === 0) return [];
+  const first = raw[0];
+  if (Array.isArray(first)) {
+    return raw
+      .filter((quad: any) => Array.isArray(quad) && quad.length >= 4)
+      .map((quad: any[]) => quad.slice(0, 4).map((p) => ({ x: Number(p.x), y: Number(p.y) })));
+  }
+  const quads: { x: number; y: number }[][] = [];
+  for (let i = 0; i + 8 <= raw.length; i += 8) {
+    quads.push([0, 2, 4, 6].map((j) => ({ x: Number(raw[i + j]), y: Number(raw[i + j + 1]) })));
+  }
+  return quads;
+};
+
+/**
+ * Reads one ink path from pdf.js annotation data: a flat numeric array (x y x y ..., newer pdf.js)
+ * or an array of {x, y} points (older pdf.js).
+ */
+const readPointList = (raw: any): { x: number; y: number }[] => {
+  if (!raw || typeof raw.length !== 'number') return [];
+  if (raw.length > 0 && typeof raw[0] === 'object') {
+    return Array.from(raw as { x: number; y: number }[]).map((p) => ({ x: Number(p.x), y: Number(p.y) }));
+  }
+  const points: { x: number; y: number }[] = [];
+  for (let k = 0; k + 1 < raw.length; k += 2) {
+    points.push({ x: Number(raw[k]), y: Number(raw[k + 1]) });
+  }
+  return points;
+};
+
 // Extract existing annotations & comments from PDF document
 export const extractPdfAnnotations = async (
   arrayBuffer: ArrayBuffer,
@@ -309,13 +368,36 @@ export const extractPdfAnnotations = async (
     const pdfDoc = await getCachedPdfDocument(sourceDocId, arrayBuffer);
     const loadedAnnotations: Annotation[] = [];
 
+    // Raw QuadPoints of an annotation, looked up by the object reference pdf.js reports as its id
+    // ("12R", or "12R3" for generation 3). The pdf-lib parse is shared with the stream editor.
+    let rawDocPromise: Promise<PDFDocument | null> | null = null;
+    const readRawQuadPoints = async (annotationId: unknown): Promise<number[] | null> => {
+      const match = /^(\d+)R(\d*)$/.exec(typeof annotationId === 'string' ? annotationId : '');
+      if (!match) return null;
+      rawDocPromise ??= getCachedPdfLibDocument(arrayBuffer).catch(() => null);
+      const rawDoc = await rawDocPromise;
+      if (!rawDoc) return null;
+      try {
+        const dict = rawDoc.context.lookup(PDFRef.of(Number(match[1]), Number(match[2] || 0)));
+        const quadPoints = dict instanceof PDFDict ? dict.lookup(PDFName.of('QuadPoints')) : undefined;
+        if (!(quadPoints instanceof PDFArray)) return null;
+        const values = quadPoints.asArray().map((n) => (n instanceof PDFNumber ? n.asNumber() : NaN));
+        return values.length > 0 && values.length % 8 === 0 && values.every(Number.isFinite) ? values : null;
+      } catch {
+        return null;
+      }
+    };
+
     for (let i = 0; i < pages.length; i++) {
       const pageModel = pages[i];
       if (pageModel.sourceType !== 'pdf') continue;
 
       let pdfAnnotations: any[] = [];
+      let viewport: pdfjsLib.PageViewport;
       try {
         const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+        // Annotation coordinates are stored in the displayed (rotated, cropped) page space
+        viewport = page.getViewport({ scale: 1.0, rotation: pageModel.rotation });
         try {
           pdfAnnotations = await page.getAnnotations();
         } finally {
@@ -339,13 +421,17 @@ export const extractPdfAnnotations = async (
         continue;
       }
 
+      const toDisplayPoint = (px: number, py: number) => {
+        const [dx, dy] = viewport.convertToViewportPoint(px, py);
+        return { x: dx, y: dy };
+      };
+
       for (const ann of pdfAnnotations) {
         if (!ann.rect || ann.rect.length < 4) continue;
 
-        const [x1, y1, x2, y2] = ann.rect;
-        const pageHeight = pageModel.height;
+        const [x1, y1, x2, y2] = toViewportRect(viewport, ann.rect);
         const x = Math.min(x1, x2);
-        const y = Math.min(pageHeight - y1, pageHeight - y2);
+        const y = Math.min(y1, y2);
         const width = Math.abs(x2 - x1);
         const height = Math.abs(y2 - y1);
         const textContent =
@@ -396,39 +482,33 @@ export const extractPdfAnnotations = async (
             createdAt: now,
             updatedAt: now,
           });
-        } else if (ann.subtype === 'Underline') {
-          loadedAnnotations.push({
-            id,
-            pageId: pageModel.id,
-            type: 'underline',
-            x,
-            y,
-            width: Math.max(10, width),
-            height: 2,
-            strokeWidth,
-            color: extractColor(ann.color, '#0284c7'),
-            opacity: 0.9,
-            comment: textContent,
-            author,
-            createdAt: now,
-            updatedAt: now,
-          });
-        } else if (ann.subtype === 'StrikeOut') {
-          loadedAnnotations.push({
-            id,
-            pageId: pageModel.id,
-            type: 'strikethrough',
-            x,
-            y,
-            width: Math.max(10, width),
-            height: 2,
-            strokeWidth,
-            color: extractColor(ann.color, '#dc2626'),
-            opacity: 0.9,
-            comment: textContent,
-            author,
-            createdAt: now,
-            updatedAt: now,
+        } else if (ann.subtype === 'Underline' || ann.subtype === 'StrikeOut') {
+          const kind = ann.subtype === 'Underline' ? 'underline' : 'strikethrough';
+          // One editable markup per quadrilateral (e.g. per underlined text line), mapped to the
+          // displayed page. pdf.js normalizes QuadPoints to an upright box, which loses the direction
+          // of rotated text, so the raw values are read from the file when possible.
+          const rawQuadPoints = await readRawQuadPoints(ann.id);
+          const quads = readQuadPoints(rawQuadPoints ?? ann.quadPoints);
+          const displayQuads = quads.length > 0
+            ? quads.map((quad) => quad.map((p) => toDisplayPoint(p.x, p.y)))
+            : [[{ x, y }, { x: x + width, y }, { x, y: y + height }, { x: x + width, y: y + height }]];
+          displayQuads.forEach((quad, quadIdx) => {
+            const { start, end, textRotation } = markupLineFromQuad(kind, quad);
+            const box = markupBoxFromLine(kind, start, end, strokeWidth, textRotation);
+            loadedAnnotations.push({
+              id: quadIdx === 0 ? id : `${id}_q${quadIdx}`,
+              pageId: pageModel.id,
+              type: kind,
+              ...box,
+              strokeWidth,
+              textRotation,
+              color: extractColor(ann.color, kind === 'underline' ? '#0284c7' : '#dc2626'),
+              opacity: 0.9,
+              comment: quadIdx === 0 ? textContent : undefined,
+              author,
+              createdAt: now,
+              updatedAt: now,
+            });
           });
         } else if (ann.subtype === 'FreeText') {
           const textVal = textContent || ann.defaultAppearanceData?.text || '';
@@ -451,14 +531,7 @@ export const extractPdfAnnotations = async (
         } else if (ann.subtype === 'Ink' && (ann.inkLists || ann.paths)) {
           const inkLists = ann.inkLists || ann.paths || [];
           for (let pIdx = 0; pIdx < inkLists.length; pIdx++) {
-            const inkPath = inkLists[pIdx];
-            const points: { x: number; y: number }[] = [];
-            for (let k = 0; k < inkPath.length; k += 2) {
-              points.push({
-                x: inkPath[k],
-                y: pageHeight - inkPath[k + 1],
-              });
-            }
+            const points = readPointList(inkLists[pIdx]).map((p) => toDisplayPoint(p.x, p.y));
             if (points.length >= 2) {
               const minX = Math.min(...points.map((p) => p.x));
               const minY = Math.min(...points.map((p) => p.y));
@@ -521,10 +594,8 @@ export const extractPdfAnnotations = async (
           });
         } else if (ann.subtype === 'Line' && ann.lineCoordinates && ann.lineCoordinates.length >= 4) {
           const [lx1, ly1, lx2, ly2] = ann.lineCoordinates;
-          const startX = lx1;
-          const startY = pageHeight - ly1;
-          const endX = lx2;
-          const endY = pageHeight - ly2;
+          const { x: startX, y: startY } = toDisplayPoint(lx1, ly1);
+          const { x: endX, y: endY } = toDisplayPoint(lx2, ly2);
           const strokeColor = extractColor(ann.color, '#0284c7');
           loadedAnnotations.push({
             id,
@@ -641,18 +712,15 @@ export const renderPdfPageToCanvas = async (
     rotation: pageModel.rotation,
   });
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
   canvas.width = viewport.width;
   canvas.height = viewport.height;
   canvas.style.width = `${viewport.width}px`;
   canvas.style.height = `${viewport.height}px`;
 
   const renderContext = {
-    canvasContext: ctx,
+    canvas,
     viewport,
-    annotationMode: 0, // 0 = AnnotationMode.DISABLE
+    annotationMode: pdfjsLib.AnnotationMode.DISABLE,
   };
 
   const renderTask = pdfPage.render(renderContext);
@@ -727,14 +795,15 @@ export const renderPdfTextLayer = async (
     container.innerHTML = '';
     container.style.setProperty('--scale-factor', `${scale}`);
 
-    const task = pdfjsLib.renderTextLayer({
+    // The layer is laid out in unrotated page space; pdf.js sizes it and sets data-main-rotation,
+    // which index.css turns into the matching CSS rotation
+    const textLayer = new pdfjsLib.TextLayer({
       textContentSource: textContent,
       container,
       viewport,
-      textDivs: [],
     });
 
-    await task.promise;
+    await textLayer.render();
   } catch (err: any) {
     if (err?.name === 'RenderingCancelledException') {
       return;
@@ -749,6 +818,69 @@ export const renderPdfTextLayer = async (
       }
     }
   }
+};
+
+// Text models are cached per source buffer (buffers are never mutated, every edit creates a new one)
+const textModelCache = new WeakMap<ArrayBuffer, Map<string, Promise<PageTextModel | null>>>();
+
+/**
+ * Exact text model of a page (see pdfTextModel.ts), or null for non-PDF pages, encrypted
+ * documents and unreadable streams. `aligned` is false when the stream could not be matched
+ * with pdf.js' interpretation; callers then fall back to text heuristics.
+ */
+export const getPageTextModel = (
+  sourceDoc: SourceDocument | undefined,
+  pageModel: PdfPageModel
+): Promise<PageTextModel | null> => {
+  if (pageModel.sourceType !== 'pdf' || !sourceDoc?.arrayBuffer) return Promise.resolve(null);
+  let perBuffer = textModelCache.get(sourceDoc.arrayBuffer);
+  if (!perBuffer) {
+    perBuffer = new Map();
+    textModelCache.set(sourceDoc.arrayBuffer, perBuffer);
+  }
+  const key = `${pageModel.originalPageIndex}|${pageModel.rotation}`;
+  const cached = perBuffer.get(key);
+  if (cached) return cached;
+
+  const pending = (async (): Promise<PageTextModel | null> => {
+    try {
+      const { streamText, layout, error } = await getPageContentStream(
+        sourceDoc.arrayBuffer,
+        pageModel.originalPageIndex
+      );
+      if (error || !layout) return null;
+      const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
+      const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+      const viewport = page.getViewport({ scale: 1.0, rotation: pageModel.rotation });
+      const operatorList = await page.getOperatorList({ annotationMode: pdfjsLib.AnnotationMode.DISABLE });
+      const model = buildPageTextModel({
+        streamText,
+        layout,
+        operatorList,
+        ops: pdfjsLib.OPS as unknown as Record<string, number>,
+        getFont: (fontKey) => {
+          try {
+            return page.commonObjs.has(fontKey) ? (page.commonObjs.get(fontKey) as FontMetrics) : null;
+          } catch {
+            return null;
+          }
+        },
+        toDisplay: (x, y) => viewport.convertToViewportPoint(x, y) as [number, number],
+      });
+      if (!model.aligned) {
+        logger.warn(
+          'edit',
+          `Textový model strany ${pageModel.originalPageIndex + 1} nelze sestavit (${model.reason}); bloky se určují odhadem.`
+        );
+      }
+      return model;
+    } catch (err: any) {
+      logger.warn('edit', `Textový model strany ${pageModel.originalPageIndex + 1} selhal: ${err?.message || err}`);
+      return null;
+    }
+  })();
+  perBuffer.set(key, pending);
+  return pending;
 };
 
 /**
@@ -810,7 +942,7 @@ export const extractPageVisualImages = async (
         const minY = Math.min(p0y, p1y, p2y, p3y);
         const maxY = Math.max(p0y, p1y, p2y, p3y);
 
-        const vpRect = viewport.convertToViewportRectangle([minX, minY, maxX, maxY]);
+        const vpRect = toViewportRect(viewport, [minX, minY, maxX, maxY]);
         const vx = Math.min(vpRect[0], vpRect[2]);
         const vy = Math.min(vpRect[1], vpRect[3]);
         const vw = Math.abs(vpRect[2] - vpRect[0]);
@@ -901,6 +1033,31 @@ export const getPageTextBlocks = async (
       }
     }
 
+    // Exact blocks from the text model: every text object's real extent and text, so what is
+    // highlighted and clicked on the page is exactly what gets edited or removed
+    const model = await getPageTextModel(sourceDoc, pageModel);
+    if (model?.aligned && model.blocks.length > 0) {
+      const textBlocks = groupAdjacentBlocks(model.blocks).map((group) => {
+        const minX = Math.min(...group.map((b) => b.bbox.x));
+        const minY = Math.min(...group.map((b) => b.bbox.y));
+        const maxX = Math.max(...group.map((b) => b.bbox.x + b.bbox.width));
+        const maxY = Math.max(...group.map((b) => b.bbox.y + b.bbox.height));
+        return {
+          id: group[0].segmentId,
+          segmentIds: group.map((b) => b.segmentId),
+          segmentContents: group.map((b) => model.streamText.substring(b.startIndex, b.endIndex)),
+          type: 'text' as const,
+          x: minX,
+          y: minY,
+          width: Math.max(2, maxX - minX),
+          height: Math.max(2, maxY - minY),
+          text: group.map((b) => b.text).join(' '),
+        };
+      });
+      const images = await extractPageVisualImages(pdfPage, viewport, pageImagesInfo);
+      return [...textBlocks, ...images];
+    }
+
     const textContent = await pdfPage.getTextContent();
     if (!textContent.items || textContent.items.length === 0) {
       return await extractPageVisualImages(pdfPage, viewport, pageImagesInfo);
@@ -926,7 +1083,7 @@ export const getPageTextBlocks = async (
       const w = item.width || Math.abs(item.transform[0]) * item.str.length * 0.6;
       const h = item.height || Math.abs(item.transform[3]) || 12;
 
-      const rect = viewport.convertToViewportRectangle([tx, ty, tx + w, ty + h]);
+      const rect = toViewportRect(viewport, [tx, ty, tx + w, ty + h]);
       const minX = Math.min(rect[0], rect[2]);
       const minY = Math.min(rect[1], rect[3]);
       const maxX = Math.max(rect[0], rect[2]);
@@ -1034,7 +1191,7 @@ export const getPageTextBlocks = async (
                   seg.x + estWidth,
                   seg.y + (lc - 1) * fs * 1.25 + fs * 0.9,
                 ];
-                const vpRect = viewport.convertToViewportRectangle(pdfRect);
+                const vpRect = toViewportRect(viewport, pdfRect);
                 vpMinX = Math.min(vpRect[0], vpRect[2]);
                 vpMaxX = Math.max(vpRect[0], vpRect[2]);
                 vpMinY = Math.min(vpRect[1], vpRect[3]);

@@ -1,6 +1,7 @@
 import { PdfPageModel, SourceDocument } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { getCachedPdfDocument } from './pdfLoader';
+import { getMarkupLine } from '../utils/markupGeometry';
 
 export interface CropResult {
   success: boolean;
@@ -57,9 +58,9 @@ export const cropPageRegionToClipboard = async (
       fullCanvas.height = viewport.height;
 
       const renderContext = {
-        canvasContext: fullCtx,
+        canvas: fullCanvas,
         viewport,
-        annotationMode: 0,
+        annotationMode: 0, // AnnotationMode.DISABLE
       };
 
       await pdfPage.render(renderContext).promise;
@@ -118,23 +119,15 @@ export const cropPageRegionToClipboard = async (
             ann.width * highResScale,
             ann.height * highResScale
           );
-        } else if (ann.type === 'underline') {
-          fullCtx.strokeStyle = ann.color || '#0284c7';
+        } else if (ann.type === 'underline' || ann.type === 'strikethrough') {
+          const [start, end] = getMarkupLine(ann.type, ann, ann.textRotation);
+          fullCtx.strokeStyle = ann.color || (ann.type === 'underline' ? '#0284c7' : '#dc2626');
           fullCtx.lineWidth = (ann.strokeWidth || 2) * highResScale;
           fullCtx.globalAlpha = ann.opacity || 0.9;
           fullCtx.lineCap = 'round';
           fullCtx.beginPath();
-          fullCtx.moveTo(ann.x * highResScale, (ann.y + ann.height) * highResScale);
-          fullCtx.lineTo((ann.x + ann.width) * highResScale, (ann.y + ann.height) * highResScale);
-          fullCtx.stroke();
-        } else if (ann.type === 'strikethrough') {
-          fullCtx.strokeStyle = ann.color || '#dc2626';
-          fullCtx.lineWidth = (ann.strokeWidth || 2) * highResScale;
-          fullCtx.globalAlpha = ann.opacity || 0.9;
-          fullCtx.lineCap = 'round';
-          fullCtx.beginPath();
-          fullCtx.moveTo(ann.x * highResScale, (ann.y + ann.height / 2) * highResScale);
-          fullCtx.lineTo((ann.x + ann.width) * highResScale, (ann.y + ann.height / 2) * highResScale);
+          fullCtx.moveTo(start.x * highResScale, start.y * highResScale);
+          fullCtx.lineTo(end.x * highResScale, end.y * highResScale);
           fullCtx.stroke();
         } else if (ann.type === 'drawing') {
           const d = ann as any;

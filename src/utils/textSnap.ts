@@ -148,6 +148,8 @@ export interface VisualTextBlock {
   text: string;
   type?: 'text' | 'image';
   segmentIds?: string[];
+  /** Stream text of each segment in segmentIds when the block was computed (detects stale blocks) */
+  segmentContents?: string[];
   imageName?: string;
   pixelWidth?: number;
   pixelHeight?: number;

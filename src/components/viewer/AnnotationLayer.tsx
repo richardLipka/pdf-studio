@@ -20,6 +20,7 @@ import { useI18n } from '../../i18n/context';
 import { screenToPdfPoint } from '../../utils/coordinate';
 import { cropPageRegionToClipboard, CropResult } from '../../services/imageCropper';
 import { findIntersectedTextLines } from '../../utils/textSnap';
+import { getMarkupLine } from '../../utils/markupGeometry';
 import { NoteDialog } from '../common/NoteDialog';
 import { TextAnnotationItem } from './TextAnnotationItem';
 import {
@@ -98,13 +99,18 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         if (target) {
           const dx = (e.clientX - dragStartMouse.x) / scale;
           const dy = (e.clientY - dragStartMouse.y) / scale;
-          const newX = Math.max(0, Math.min(page.width - target.width, dragStartAnnPos.x + dx));
-          const newY = Math.max(0, Math.min(page.height - target.height, dragStartAnnPos.y + dy));
+          // Keep the element's bounding box on the page (lines may have a negative width/height)
+          const minX = -Math.min(0, target.width);
+          const maxX = page.width - Math.max(0, target.width);
+          const minY = -Math.min(0, target.height);
+          const maxY = page.height - Math.max(0, target.height);
+          const newX = Math.max(minX, Math.min(maxX, dragStartAnnPos.x + dx));
+          const newY = Math.max(minY, Math.min(maxY, dragStartAnnPos.y + dy));
+          const shiftX = newX - target.x;
+          const shiftY = newY - target.y;
 
           if (target.type === 'drawing') {
             const drawAnn = target as DrawingAnnotation;
-            const shiftX = newX - target.x;
-            const shiftY = newY - target.y;
             const updatedPoints = drawAnn.points.map((p) => ({
               x: p.x + shiftX,
               y: p.y + shiftY,
@@ -115,6 +121,18 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 x: newX,
                 y: newY,
                 points: updatedPoints,
+                updatedAt: Date.now(),
+              },
+              false
+            );
+          } else if (target.type === 'shape' && target.endPoint) {
+            // A line is defined by both endpoints, move the end together with the start
+            updateAnnotation(
+              {
+                ...target,
+                x: newX,
+                y: newY,
+                endPoint: { x: target.endPoint.x + shiftX, y: target.endPoint.y + shiftY },
                 updatedAt: Date.now(),
               },
               false
@@ -183,18 +201,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   // Page annotations
   const pageAnnotations = annotations.filter((a) => a.pageId === page.id);
 
+  // Annotations live in the page space as displayed (the canvas is already rendered rotated and the
+  // overlay SVG uses the same unrotated viewBox), so pointer coordinates are only unscaled here.
   const getPdfCoords = (e: React.MouseEvent): Point => {
     if (!containerRef.current) return { x: 0, y: 0 };
     const rect = containerRef.current.getBoundingClientRect();
-    return screenToPdfPoint(
-      e.clientX,
-      e.clientY,
-      rect,
-      scale,
-      page.rotation,
-      page.width,
-      page.height
-    );
+    return screenToPdfPoint(e.clientX, e.clientY, rect, scale);
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -328,6 +340,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   const handleMouseMove = (e: React.MouseEvent) => {
     const pt = getPdfCoords(e);
 
+    // Dragging and resizing existing annotations is handled by the window-level listeners above
+    // (they keep working when the pointer leaves the page and commit exactly one history step)
     if (isDrawing) {
       if (activeTool === 'drawing') {
         setCurrentPoints((prev) => [...prev, pt]);
@@ -342,82 +356,10 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
         // Immediate visual preview updating as mouse moves
         setCurrentPoints([pt]);
       }
-    } else if (draggingAnnId) {
-      // Dragging an existing annotation
-      const target = annotations.find((a) => a.id === draggingAnnId);
-      if (target) {
-        const dx = pt.x - dragStartMouse.x;
-        const dy = pt.y - dragStartMouse.y;
-        const newX = Math.max(0, Math.min(page.width - target.width, dragStartAnnPos.x + dx));
-        const newY = Math.max(0, Math.min(page.height - target.height, dragStartAnnPos.y + dy));
-
-        if (target.type === 'drawing') {
-          const drawAnn = target as DrawingAnnotation;
-          const shiftX = newX - target.x;
-          const shiftY = newY - target.y;
-          const updatedPoints = drawAnn.points.map((p) => ({
-            x: p.x + shiftX,
-            y: p.y + shiftY,
-          }));
-          updateAnnotation(
-            {
-              ...drawAnn,
-              x: newX,
-              y: newY,
-              points: updatedPoints,
-              updatedAt: Date.now(),
-            },
-            false
-          );
-        } else {
-          updateAnnotation(
-            {
-              ...target,
-              x: newX,
-              y: newY,
-              updatedAt: Date.now(),
-            },
-            false
-          );
-        }
-      }
-    } else if (resizingAnnId) {
-      // Resizing an existing annotation
-      const target = annotations.find((a) => a.id === resizingAnnId);
-      if (target) {
-        const newWidth = Math.max(30, pt.x - target.x);
-        const newHeight = Math.max(20, pt.y - target.y);
-        updateAnnotation(
-          {
-            ...target,
-            width: newWidth,
-            height: newHeight,
-            updatedAt: Date.now(),
-          },
-          false
-        );
-      }
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
-    // If we just finished dragging or resizing an annotation, commit one history snapshot
-    if (draggingAnnId) {
-      const target = annotations.find((a) => a.id === draggingAnnId);
-      if (target) {
-        updateAnnotation(target, true);
-      }
-      setDraggingAnnId(null);
-    }
-
-    if (resizingAnnId) {
-      const target = annotations.find((a) => a.id === resizingAnnId);
-      if (target) {
-        updateAnnotation(target, true);
-      }
-      setResizingAnnId(null);
-    }
-
     if (isDrawing) {
       const endPoint = getPdfCoords(e);
 
@@ -798,86 +740,43 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                 </g>
               );
 
-            case 'underline': {
-              const u = ann as UnderlineAnnotation;
-              const uHeight = u.strokeWidth || 2;
-              return (
-                <g key={ann.id} className="annotation-item pointer-events-auto">
-                  {/* Hit-test invisible wide padding */}
-                  <line
-                    x1={u.x}
-                    y1={u.y + u.height}
-                    x2={u.x + u.width}
-                    y2={u.y + u.height}
-                    stroke="transparent"
-                    strokeWidth={Math.max(14, uHeight * 3)}
-                    className="cursor-move"
-                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
-                  />
-                  <line
-                    x1={u.x}
-                    y1={u.y + u.height}
-                    x2={u.x + u.width}
-                    y2={u.y + u.height}
-                    stroke={u.color}
-                    strokeWidth={uHeight}
-                    strokeOpacity={u.opacity || 0.9}
-                    strokeLinecap="round"
-                    className="cursor-move"
-                    onMouseDown={(e) => handleStartDragAnn(ann, e)}
-                  />
-                  {isSelected && (
-                    <rect
-                      x={u.x - 2}
-                      y={u.y + u.height - Math.max(3, uHeight + 2)}
-                      width={u.width + 4}
-                      height={Math.max(8, uHeight * 2 + 4)}
-                      fill="none"
-                      stroke="#0284c7"
-                      strokeWidth={1.5}
-                      strokeDasharray="4 2"
-                      className="pointer-events-none"
-                      filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
-                    />
-                  )}
-                </g>
-              );
-            }
-
+            case 'underline':
             case 'strikethrough': {
-              const s = ann as StrikethroughAnnotation;
-              const sHeight = s.strokeWidth || 2;
+              const m = ann as UnderlineAnnotation | StrikethroughAnnotation;
+              const lineWidth = m.strokeWidth || 2;
+              const [start, end] = getMarkupLine(m.type, m, m.textRotation);
+              const outlinePad = Math.max(4, lineWidth + 2);
               return (
                 <g key={ann.id} className="annotation-item pointer-events-auto">
                   {/* Hit-test invisible wide padding */}
                   <line
-                    x1={s.x}
-                    y1={s.y + s.height / 2}
-                    x2={s.x + s.width}
-                    y2={s.y + s.height / 2}
+                    x1={start.x}
+                    y1={start.y}
+                    x2={end.x}
+                    y2={end.y}
                     stroke="transparent"
-                    strokeWidth={Math.max(14, sHeight * 3)}
+                    strokeWidth={Math.max(14, lineWidth * 3)}
                     className="cursor-move"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
                   <line
-                    x1={s.x}
-                    y1={s.y + s.height / 2}
-                    x2={s.x + s.width}
-                    y2={s.y + s.height / 2}
-                    stroke={s.color}
-                    strokeWidth={sHeight}
-                    strokeOpacity={s.opacity || 0.9}
+                    x1={start.x}
+                    y1={start.y}
+                    x2={end.x}
+                    y2={end.y}
+                    stroke={m.color}
+                    strokeWidth={lineWidth}
+                    strokeOpacity={m.opacity || 0.9}
                     strokeLinecap="round"
                     className="cursor-move"
                     onMouseDown={(e) => handleStartDragAnn(ann, e)}
                   />
                   {isSelected && (
                     <rect
-                      x={s.x - 2}
-                      y={s.y + s.height / 2 - Math.max(3, sHeight + 2)}
-                      width={s.width + 4}
-                      height={Math.max(8, sHeight * 2 + 4)}
+                      x={Math.min(start.x, end.x) - outlinePad}
+                      y={Math.min(start.y, end.y) - outlinePad}
+                      width={Math.abs(end.x - start.x) + outlinePad * 2}
+                      height={Math.abs(end.y - start.y) + outlinePad * 2}
                       fill="none"
                       stroke="#0284c7"
                       strokeWidth={1.5}
@@ -1331,10 +1230,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
                   </button>
 
                   <div
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      setResizingAnnId(sig.id);
-                    }}
+                    onMouseDown={(e) => handleStartResizeAnn(sig, e)}
                     className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-sky-500 border-2 border-white rounded-full cursor-se-resize shadow"
                   />
                 </>
@@ -1358,7 +1254,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
               onDelete={deleteAnnotation}
               onSelect={setSelectedAnnotationId}
               onStartDrag={(targetAnn, e) => handleStartDragAnn(targetAnn, e)}
-              onStartResize={(id) => setResizingAnnId(id)}
+              onStartResize={(_id, e) => handleStartResizeAnn(ann, e)}
             />
           );
         }

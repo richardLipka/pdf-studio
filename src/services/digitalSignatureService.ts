@@ -7,9 +7,10 @@ import {
   PDFString,
   PDFHexString,
   PDFNumber,
-  StandardFonts,
+  PDFFont,
 } from 'pdf-lib';
 import { logger } from './logger';
+import { PdfFontProvider, prepareTextForFont } from './pdfFonts';
 
 export interface ParsedCertificateInfo {
   commonName: string;
@@ -203,7 +204,8 @@ export async function generateSelfSignedCertificate(
 
         const cert = forge.pki.createCertificate();
         cert.publicKey = keypair.publicKey;
-        cert.serialNumber = Math.floor(Math.random() * 1000000000).toString(16);
+        // RFC 5280 requires a positive serial: the leading 0x01 byte keeps the DER INTEGER's sign bit clear
+        cert.serialNumber = '01' + forge.util.bytesToHex(forge.random.getBytesSync(16));
 
         const now = new Date();
         cert.validity.notBefore = new Date(now.getTime() - 1000 * 60 * 60); // 1 hour ago
@@ -353,23 +355,23 @@ export async function signPdfWithCertificate(
   const SIGNATURE_LENGTH = 16384;
   const placeholderHex = '0'.repeat(SIGNATURE_LENGTH);
 
-  // 2. Create signature dictionary
+  // 2. Create signature dictionary (text strings as UTF-16BE so names like "Jiří" survive intact)
   const sigDict = pdfDoc.context.obj({
     Type: 'Sig',
     Filter: 'Adobe.PPKLite',
     SubFilter: 'adbe.pkcs7.detached',
     ByteRange: [0, 1000000000, 1000000000, 1000000000], // Temporary placeholder numbers with exact length
     Contents: PDFHexString.of(placeholderHex),
-    Reason: PDFString.of(options.reason || 'Elektronicky podepsáno'),
+    Reason: PDFHexString.fromText(options.reason || 'Elektronicky podepsáno'),
     M: PDFString.of(dateStr),
-    Name: PDFString.of(signerDisplayName),
+    Name: PDFHexString.fromText(signerDisplayName),
   });
 
   if (options.location) {
-    sigDict.set(PDFName.of('Location'), PDFString.of(options.location));
+    sigDict.set(PDFName.of('Location'), PDFHexString.fromText(options.location));
   }
   if (options.contactInfo) {
-    sigDict.set(PDFName.of('ContactInfo'), PDFString.of(options.contactInfo));
+    sigDict.set(PDFName.of('ContactInfo'), PDFHexString.fromText(options.contactInfo));
   }
 
   const sigDictRef = pdfDoc.context.register(sigDict);
@@ -385,11 +387,15 @@ export async function signPdfWithCertificate(
     F: 4, // Print flag
   });
 
-  // 4. Visual Appearance Stream (if requested)
-  const hasVisual = options.visualAppearance !== false && options.x !== undefined && options.y !== undefined;
+  // 4. Visual Appearance Stream (if requested). Without an explicit position the badge goes to the
+  // bottom-left corner of the page.
+  const hasVisual =
+    options.visualAppearance === true ||
+    (options.visualAppearance !== false && options.x !== undefined && options.y !== undefined);
   if (hasVisual) {
-    const x = options.x || 50;
-    const y = options.y || 50;
+    const pageBox = page.getCropBox();
+    const x = options.x ?? pageBox.x + 36;
+    const y = options.y ?? pageBox.y + 36;
     const width = Math.max(160, options.width || 220);
     const height = Math.max(50, options.height || 65);
 
@@ -398,8 +404,14 @@ export async function signPdfWithCertificate(
       pdfDoc.context.obj([x, y, x + width, y + height])
     );
 
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    // Hex-encoded text through a font that can draw it (standard or embedded Unicode font)
+    const fonts = new PdfFontProvider(pdfDoc);
+    const nameLine = signerDisplayName;
+    const dateLine = `Digitálně podepsáno: ${signDate.toLocaleDateString('cs-CZ')} ${signDate.toLocaleTimeString('cs-CZ')}`;
+    const reasonLine = `Důvod: ${options.reason || 'Schváleno'}`;
+    const boldFont = await fonts.fontFor('Helvetica', true, false, nameLine);
+    const font = await fonts.fontFor('Helvetica', false, false, dateLine + reasonLine);
+    const encode = (f: PDFFont, text: string) => f.encodeText(prepareTextForFont(f, text)).toString();
 
     const apStream = pdfDoc.context.stream(
       `q
@@ -414,14 +426,14 @@ q
 BT
 /F1 9 Tf
 0.1 0.2 0.3 rg
-12 ${height - 15} Td
-(${escapePdfText(signerDisplayName)}) Tj
+12 ${height - 20} Td
+${encode(boldFont, nameLine)} Tj
 0 -11 Td
 /F2 7 Tf
 0.3 0.4 0.5 rg
-(Digit\xE1ln\xEC podeps\xE1no: ${signDate.toLocaleDateString('cs-CZ')} ${signDate.toLocaleTimeString('cs-CZ')}) Tj
+${encode(font, dateLine)} Tj
 0 -9 Td
-(D\xF9vod: ${escapePdfText(options.reason || 'Schv\xE1leno')}) Tj
+${encode(font, reasonLine)} Tj
 ET
 Q
 `,
@@ -449,8 +461,9 @@ Q
 
   const sigFieldRef = pdfDoc.context.register(sigFieldDict);
 
-  // Link widget to Page /Annots
-  let pageAnnots = page.node.get(PDFName.of('Annots')) as PDFArray;
+  // Link widget to Page /Annots (which, like /AcroForm and /Fields, may be an indirect reference)
+  const existingAnnots = page.node.lookup(PDFName.of('Annots'));
+  let pageAnnots = existingAnnots instanceof PDFArray ? existingAnnots : undefined;
   if (!pageAnnots) {
     pageAnnots = pdfDoc.context.obj([]) as PDFArray;
     page.node.set(PDFName.of('Annots'), pageAnnots);
@@ -459,7 +472,8 @@ Q
 
   // Link field to Document Catalog /AcroForm
   const catalog = pdfDoc.catalog;
-  let acroForm = catalog.get(PDFName.of('AcroForm')) as PDFDict;
+  const existingAcroForm = catalog.lookup(PDFName.of('AcroForm'));
+  let acroForm = existingAcroForm instanceof PDFDict ? existingAcroForm : undefined;
   if (!acroForm) {
     acroForm = pdfDoc.context.obj({
       Fields: [],
@@ -470,7 +484,8 @@ Q
     acroForm.set(PDFName.of('SigFlags'), PDFNumber.of(3));
   }
 
-  let formFields = acroForm.get(PDFName.of('Fields')) as PDFArray;
+  const existingFields = acroForm.lookup(PDFName.of('Fields'));
+  let formFields = existingFields instanceof PDFArray ? existingFields : undefined;
   if (!formFields) {
     formFields = pdfDoc.context.obj([]) as PDFArray;
     acroForm.set(PDFName.of('Fields'), formFields);
@@ -599,13 +614,6 @@ export function formatPdfDate(date: Date): string {
   const offsetMinutes = pad(absOffset % 60);
 
   return `D:${y}${m}${d}${h}${min}${s}${sign}${offsetHours}'${offsetMinutes}'`;
-}
-
-function escapePdfText(text: string): string {
-  return text
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)');
 }
 
 function uint8ToString(u8: Uint8Array): string {

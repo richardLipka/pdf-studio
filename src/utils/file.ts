@@ -1,4 +1,5 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-lib';
+import { PdfFontProvider, prepareTextForFont } from '../services/pdfFonts';
 
 export const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
   return new Promise((resolve, reject) => {
@@ -28,6 +29,55 @@ export const readFileAsDataUrl = (file: File): Promise<string> => {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+};
+
+/**
+ * Triggers a browser download of a Blob. The object URL is revoked with a delay, because revoking it
+ * synchronously after click() can cancel the download in Firefox and Safari.
+ */
+export const downloadBlob = (blob: Blob, fileName: string): void => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+};
+
+/**
+ * Re-encodes an image PDF cannot embed natively (WebP, GIF, BMP, SVG...) as a PNG data URL.
+ * Returns null outside the browser or when the image cannot be decoded.
+ */
+export const convertImageDataUrlToPng = async (dataUrl: string): Promise<string | null> => {
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return null;
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Image decode failed'));
+      img.src = dataUrl;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
+    ctx.drawImage(img, 0, 0);
+    return canvas.toDataURL('image/png');
+  } catch {
+    return null;
+  }
+};
+
+export const dataUrlToBytes = (dataUrl: string): Uint8Array => {
+  const binary = atob(dataUrl.substring(dataUrl.indexOf(',') + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 };
 
 export const getImageDimensions = (
@@ -98,8 +148,14 @@ export const cleanSignatureBackground = (
  */
 export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<ArrayBuffer> => {
   const pdfDoc = await PDFDocument.create();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  // Czech text needs glyphs outside WinAnsi (ů, ě, ř, č...), which Helvetica cannot encode
+  const fonts = new PdfFontProvider(pdfDoc);
+  const unicodeFont = lang === 'cs' ? await fonts.getUnicodeFont('regular') : null;
+  const unicodeBold = lang === 'cs' ? await fonts.getUnicodeFont('bold') : null;
+  const font = unicodeFont ?? (await fonts.getStandardFont(StandardFonts.Helvetica));
+  const fontBold = unicodeBold ?? (await fonts.getStandardFont(StandardFonts.HelveticaBold));
+  const drawText = (page: PDFPage, text: string, options: Parameters<PDFPage['drawText']>[1] & { font: PDFFont }) =>
+    page.drawText(prepareTextForFont(options.font, text), options);
 
   // Page 1 - Contract / Document Review
   const page1 = pdfDoc.addPage([595.28, 841.89]); // A4
@@ -117,7 +173,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
   const titleText = lang === 'cs' ? 'DOHODA O SPOLUPRÁCI A DŮVĚRNOSTI' : 'COOPERATION & NON-DISCLOSURE AGREEMENT';
   const subtitleText = lang === 'cs' ? 'Vzorový dokument k revizi, anotaci a podpisu' : 'Sample document for review, annotations and digital signing';
 
-  page1.drawText(titleText, {
+  drawText(page1, titleText, {
     x: 40,
     y: height - 50,
     size: 16,
@@ -125,7 +181,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     color: rgb(1, 1, 1),
   });
 
-  page1.drawText(subtitleText, {
+  drawText(page1, subtitleText, {
     x: 40,
     y: height - 72,
     size: 11,
@@ -139,7 +195,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     ? 'Tato dohoda upravuje vzájemná práva a povinnosti smluvních stran při vývoji webového editoru. Veškeré úpravy dokumentů probíhají plně v prohlížeči uživatele s důrazem na maximální ochranu osobních údajů.'
     : 'This agreement governs the mutual rights and obligations of the contracting parties in web editor development. All document processing takes place entirely in user browser with zero server uploads.';
 
-  page1.drawText(p1Header, {
+  drawText(page1, p1Header, {
     x: 40,
     y: height - 130,
     size: 13,
@@ -147,7 +203,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     color: rgb(0.1, 0.15, 0.2),
   });
 
-  page1.drawText(p1Content, {
+  drawText(page1, p1Content, {
     x: 40,
     y: height - 155,
     size: 10,
@@ -159,7 +215,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
 
   // Section 2
   const p2Header = lang === 'cs' ? '2. Nástroje a funkce k otestování' : '2. Key Features to Test';
-  page1.drawText(p2Header, {
+  drawText(page1, p2Header, {
     x: 40,
     y: height - 230,
     size: 13,
@@ -187,7 +243,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
 
   let currentY = height - 260;
   for (const bp of bulletPoints) {
-    page1.drawText(bp, {
+    drawText(page1, bp, {
       x: 50,
       y: currentY,
       size: 10,
@@ -221,7 +277,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     color: rgb(0.98, 0.98, 0.99),
   });
 
-  page1.drawText(lang === 'cs' ? 'Objednatel / Party A:' : 'Client / Party A:', {
+  drawText(page1, lang === 'cs' ? 'Objednatel / Party A:' : 'Client / Party A:', {
     x: 50,
     y: sigY + 70,
     size: 10,
@@ -229,7 +285,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     color: rgb(0.3, 0.35, 0.4),
   });
 
-  page1.drawText(lang === 'cs' ? 'Zde vložte podpis 1' : 'Place Signature 1 here', {
+  drawText(page1, lang === 'cs' ? 'Zde vložte podpis 1' : 'Place Signature 1 here', {
     x: 50,
     y: sigY + 20,
     size: 9,
@@ -237,7 +293,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     color: rgb(0.6, 0.65, 0.7),
   });
 
-  page1.drawText(lang === 'cs' ? 'Dodavatel / Party B:' : 'Provider / Party B:', {
+  drawText(page1, lang === 'cs' ? 'Dodavatel / Party B:' : 'Provider / Party B:', {
     x: 330,
     y: sigY + 70,
     size: 10,
@@ -245,7 +301,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     color: rgb(0.3, 0.35, 0.4),
   });
 
-  page1.drawText(lang === 'cs' ? 'Zde vložte podpis 2' : 'Place Signature 2 here', {
+  drawText(page1, lang === 'cs' ? 'Zde vložte podpis 2' : 'Place Signature 2 here', {
     x: 330,
     y: sigY + 20,
     size: 9,
@@ -254,7 +310,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
   });
 
   // Footer
-  page1.drawText(lang === 'cs' ? 'Strana 1 z 2 • PDF Studio' : 'Page 1 of 2 • PDF Studio', {
+  drawText(page1, lang === 'cs' ? 'Strana 1 z 2 • PDF Studio' : 'Page 1 of 2 • PDF Studio', {
     x: 40,
     y: 30,
     size: 9,
@@ -272,7 +328,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     color: rgb(0.1, 0.15, 0.2),
   });
 
-  page2.drawText(lang === 'cs' ? 'PŘÍLOHA Č. 1 - TECHNICKÁ SPECIFIKACE' : 'ANNEX NO. 1 - TECHNICAL SPECIFICATION', {
+  drawText(page2, lang === 'cs' ? 'PŘÍLOHA Č. 1 - TECHNICKÁ SPECIFIKACE' : 'ANNEX NO. 1 - TECHNICAL SPECIFICATION', {
     x: 40,
     y: height - 42,
     size: 14,
@@ -284,7 +340,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     ? 'Tato druhá strana demonstruje vícesetové PDF dokumenty a správu stránek. Můžete ji otočit v levém panelu o 90 stupňů nebo smazat.'
     : 'This second page demonstrates multi-page documents and page operations. You can rotate it by 90 degrees or delete it in the left thumbnail panel.';
 
-  page2.drawText(p2Body, {
+  drawText(page2, p2Body, {
     x: 40,
     y: height - 120,
     size: 11,
@@ -294,7 +350,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     lineHeight: 16,
   });
 
-  page2.drawText(lang === 'cs' ? 'Strana 2 z 2 • PDF Studio' : 'Page 2 of 2 • PDF Studio', {
+  drawText(page2, lang === 'cs' ? 'Strana 2 z 2 • PDF Studio' : 'Page 2 of 2 • PDF Studio', {
     x: 40,
     y: 30,
     size: 9,

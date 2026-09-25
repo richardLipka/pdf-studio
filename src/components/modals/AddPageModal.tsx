@@ -7,8 +7,10 @@ import {
   createImagePage,
   InsertPosition,
 } from '../../services/pageManager';
-import { parsePdfPages } from '../../services/pdfLoader';
+import { parsePdfPages, extractPdfAnnotations } from '../../services/pdfLoader';
 import {
+  convertImageDataUrlToPng,
+  dataUrlToBytes,
   getImageDimensions,
   readFileAsArrayBuffer,
   readFileAsDataUrl,
@@ -131,11 +133,21 @@ export const AddPageModal: React.FC = () => {
         const blankPage = createBlankPage(orientation);
         insertPages([blankPage], position);
       } else if (activeTab === 'image' && selectedFile) {
-        const dataUrl = await readFileAsDataUrl(selectedFile);
-        const arrayBuf = await readFileAsArrayBuffer(selectedFile);
+        let dataUrl = await readFileAsDataUrl(selectedFile);
+        let mimeType = selectedFile.type;
+        let imageBytes: Uint8Array;
+        if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+          imageBytes = new Uint8Array(await readFileAsArrayBuffer(selectedFile));
+        } else {
+          // PDF embeds only PNG and JPEG natively; other formats (WebP, GIF...) are converted once here
+          const pngDataUrl = await convertImageDataUrlToPng(dataUrl);
+          if (!pngDataUrl) throw new Error(`Unsupported image format: ${mimeType || selectedFile.name}`);
+          dataUrl = pngDataUrl;
+          mimeType = 'image/png';
+          imageBytes = dataUrlToBytes(pngDataUrl);
+        }
         const { width, height } = await getImageDimensions(dataUrl);
-        const imageBytes = new Uint8Array(arrayBuf);
-        const imagePage = createImagePage(dataUrl, width, height, imageBytes, selectedFile.type);
+        const imagePage = createImagePage(dataUrl, width, height, imageBytes, mimeType);
         insertPages([imagePage], position);
       } else if (activeTab === 'pdf' && selectedFile) {
         const arrayBuffer = await readFileAsArrayBuffer(selectedFile);
@@ -146,7 +158,10 @@ export const AddPageModal: React.FC = () => {
           arrayBuffer,
         };
         const newPages = await parsePdfPages(arrayBuffer, sourceDocId);
-        insertPages(newPages, position, newSource);
+        // Existing comments and markups of the merged PDF become editable annotations; without this
+        // the export (which rebuilds these annotation types from the editor state) would drop them
+        const newAnnotations = await extractPdfAnnotations(arrayBuffer, sourceDocId, newPages);
+        insertPages(newPages, position, newSource, newAnnotations);
       }
 
       setIsAddPageModalOpen(false);

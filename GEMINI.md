@@ -31,7 +31,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 4. **Direct Content Stream Segment & Page Editor**:
    - **Segment Isolation & Inspection**: Decodes and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.
    - **Interactive Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly focuses and selects that specific stream segment in the Stream Editor.
-   - **Direct Code Editor & Quick Replacer**: Live monospaced code editor allowing direct byte/operator edits or quick text replacement inside the selected block, plus a Full Page Stream tab.
+   - **Direct Code Editor & Block Text Rewrite**: Live monospaced code editor for direct byte/operator edits, plus a Full Page Stream tab. The block text rewrite uses the exact page text model (`pdfTextModel.ts`, `pdfTextEditor.ts`): new text is re-encoded with the original font codes or, when glyphs are missing, a substitute font added for that block only.
    - **Cascading Double-Replacement Prevention**: Isolates and masks `[...] TJ` kerning arrays first so nested word substitutions (e.g. `test` → `testing`) never produce corrupted duplicates (`testinging`).
    - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time.
    - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
@@ -133,7 +133,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (30 test files, 172 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (33 test files, 155 tests) |
 
 ---
 
@@ -163,6 +163,8 @@ pdf-editor/
 │   │   ├── logger.ts       # Structured logging, safe serialization, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures/shapes)
 │   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with WebWorker memory cleanup
+│   │   ├── pdfjsAssets.ts  # URLs of pdf.js runtime assets (wasm decoders, fonts, CMaps) served under pdfjs/
+│   │   ├── pdfFonts.ts     # Standard vs. embedded Unicode (Liberation Sans) font selection for exported text
 │   │   ├── renderQueue.ts  # Prioritized lazy rendering queue for viewport & large files
 │   │   ├── contentStreamEditor.ts # Direct stream parser, token replacer, and structural segment tree
 │   │   ├── formService.ts  # AcroForm detection, widget mapping, and value persistence
@@ -175,11 +177,12 @@ pdf-editor/
 │   ├── utils/
 │   │   ├── coordinate.ts   # Screen-to-PDF coordinate mapping
 │   │   ├── file.ts         # File drag/drop, reading and background cleaning helpers
-│   │   └── textSnap.ts     # Smart text line detection & baseline snapping
+│   │   ├── textSnap.ts     # Smart text line detection & baseline snapping
+│   │   └── markupGeometry.ts # Underline / strikethrough line geometry for any text orientation
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (133 tests)
+├── tests/                  # Automated Vitest test suite (155 tests)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts

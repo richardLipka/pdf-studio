@@ -10,7 +10,7 @@ describe('Images and Paragraph Block Selection Diagnostics', () => {
   const files = fs.existsSync(testFilesDir) ? fs.readdirSync(testFilesDir).filter((f) => f.endsWith('.pdf')) : [];
 
   it('tests robust image extraction with inherited resources and operator list', async () => {
-    const pdfjsLib = await import('pdfjs-dist');
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const ops = pdfjsLib.OPS;
 
     console.log('\n--- TESTING ROBUST IMAGE EXTRACTION ON ALL FILES ---');

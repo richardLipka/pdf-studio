@@ -40,11 +40,13 @@ export interface HighlightAnnotation extends BaseAnnotation {
 export interface UnderlineAnnotation extends BaseAnnotation {
   type: 'underline';
   strokeWidth: number;
+  textRotation?: number; // clockwise rotation of the marked text on the displayed page (see markupGeometry)
 }
 
 export interface StrikethroughAnnotation extends BaseAnnotation {
   type: 'strikethrough';
   strokeWidth: number;
+  textRotation?: number;
 }
 
 export interface NoteAnnotation extends BaseAnnotation {

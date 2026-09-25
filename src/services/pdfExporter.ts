@@ -12,7 +12,10 @@ import {
   PDFRef,
   PDFObjectCopier,
   ParseSpeeds,
-  StandardFonts,
+  PDFFont,
+  pushGraphicsState,
+  popGraphicsState,
+  concatTransformationMatrix,
 } from 'pdf-lib';
 import { PdfPageModel, SourceDocument, RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS, DocumentMetadata } from '../types/document';
 import {
@@ -28,11 +31,90 @@ import {
   WhiteoutAnnotation,
 } from '../types/annotations';
 import { renderPdfPageToDataUrl } from './pdfLoader';
-import { safeGetPageResources, escapePdfLiteralString } from './contentStreamEditor';
+import { safeGetPageResources } from './contentStreamEditor';
 import { parseRichTextToLines, linesToPlainText } from '../utils/richText';
 import { logger } from './logger';
 import { FormExportMode } from '../types/form';
 import { applyFormValuesToPdfDocument } from './formService';
+import { PdfFontProvider, prepareTextForFont, standardFontFor } from './pdfFonts';
+import { convertImageDataUrlToPng } from '../utils/file';
+import { getMarkupLine, getTextQuad } from '../utils/markupGeometry';
+
+type Matrix = [number, number, number, number, number, number];
+
+const isIdentityMatrix = (m: Matrix): boolean =>
+  m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && m[4] === 0 && m[5] === 0;
+
+const transformPoint = (m: Matrix, x: number, y: number): [number, number] => [
+  m[0] * x + m[2] * y + m[4],
+  m[1] * x + m[3] * y + m[5],
+];
+
+const transformRect = (m: Matrix, rect: [number, number, number, number]): [number, number, number, number] => {
+  const [ax, ay] = transformPoint(m, rect[0], rect[1]);
+  const [bx, by] = transformPoint(m, rect[2], rect[3]);
+  return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+};
+
+const transformCoordinateList = (m: Matrix, coords: number[]): number[] => {
+  const out: number[] = [];
+  for (let i = 0; i + 1 < coords.length; i += 2) {
+    out.push(...transformPoint(m, coords[i], coords[i + 1]));
+  }
+  return out;
+};
+
+/**
+ * Annotations are stored in the page as it is displayed (after /Rotate and cropping) with a
+ * top-left origin. The exporter computes coordinates in that displayed space with the y axis
+ * flipped upwards ("display space"); `matrix` maps display space into PDF user space.
+ */
+export interface PageDisplaySpace {
+  displayWidth: number;
+  displayHeight: number;
+  matrix: Matrix;
+}
+
+export const getPageDisplaySpace = (page: PDFPage): PageDisplaySpace => {
+  const media = page.getMediaBox();
+  const crop = page.getCropBox();
+  // Like pdf.js, show the intersection of CropBox and MediaBox (falling back to MediaBox)
+  let llx = Math.max(media.x, crop.x);
+  let lly = Math.max(media.y, crop.y);
+  let urx = Math.min(media.x + media.width, crop.x + crop.width);
+  let ury = Math.min(media.y + media.height, crop.y + crop.height);
+  if (urx - llx <= 0 || ury - lly <= 0) {
+    llx = media.x;
+    lly = media.y;
+    urx = media.x + media.width;
+    ury = media.y + media.height;
+  }
+  const width = urx - llx;
+  const height = ury - lly;
+
+  switch (((page.getRotation().angle % 360) + 360) % 360) {
+    case 90:
+      return { displayWidth: height, displayHeight: width, matrix: [0, 1, -1, 0, urx, lly] };
+    case 180:
+      return { displayWidth: width, displayHeight: height, matrix: [-1, 0, 0, -1, urx, ury] };
+    case 270:
+      return { displayWidth: height, displayHeight: width, matrix: [0, -1, 1, 0, llx, ury] };
+    default:
+      return { displayWidth: width, displayHeight: height, matrix: [1, 0, 0, 1, llx, lly] };
+  }
+};
+
+// Runs pdf-lib drawing calls with coordinates given in display space
+const drawInDisplaySpace = (page: PDFPage, matrix: Matrix, draw: () => void) => {
+  if (isIdentityMatrix(matrix)) {
+    draw();
+    return;
+  }
+  page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...matrix));
+  draw();
+  page.pushOperators(popGraphicsState());
+};
+
 
 /**
  * Safely repairs broken or indirect catalog /Pages pointers in third-party PDFs
@@ -313,6 +395,10 @@ interface NativePdfAnnotOptions {
   customStreamOperators?: string;
   customResources?: Record<string, any>;
   borderWidth?: number;
+  // Maps the display-space geometry above (and the appearance stream content) into user space
+  matrix?: Matrix;
+  // Underline / StrikeOut: the line to draw [x1, y1, x2, y2] in display space (y up)
+  markupLine?: [number, number, number, number];
 }
 
 /**
@@ -373,20 +459,15 @@ const addNativePdfAnnotation = (
       const w = Math.max(0.1, x2 - x1);
       const h = Math.max(0.1, y2 - y1);
       streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg ${x1.toFixed(2)} ${y1.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f Q`;
-    } else if (subtype === 'Underline') {
+    } else if (subtype === 'Underline' || subtype === 'StrikeOut') {
       annotDictProps.CA = opacity || 0.9;
       annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
       annotDictProps.Border = [0, 0, strokeWidth || 2];
-      const lineY = (y1 + (strokeWidth || 2) / 2).toFixed(2);
-      streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${x1.toFixed(2)} ${lineY} m ${x2.toFixed(2)} ${lineY} l S Q`;
-    } else if (subtype === 'StrikeOut') {
-      annotDictProps.CA = opacity || 0.9;
-      annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
-      annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
-      annotDictProps.Border = [0, 0, strokeWidth || 2];
-      const lineY = ((y1 + y2) / 2).toFixed(2);
-      streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${x1.toFixed(2)} ${lineY} m ${x2.toFixed(2)} ${lineY} l S Q`;
+      // markupLine carries the exact (possibly vertical) line; otherwise derive a horizontal one from rect
+      const defaultY = subtype === 'Underline' ? y1 + (strokeWidth || 2) / 2 : (y1 + y2) / 2;
+      const [lx1, ly1, lx2, ly2] = options.markupLine ?? [x1, defaultY, x2, defaultY];
+      streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${lx1.toFixed(2)} ${ly1.toFixed(2)} m ${lx2.toFixed(2)} ${ly2.toFixed(2)} l S Q`;
     } else if (subtype === 'Text') {
       annotDictProps.Name = 'Comment';
     } else if (subtype === 'FreeText') {
@@ -468,9 +549,26 @@ const addNativePdfAnnotation = (
       streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${lx1.toFixed(2)} ${ly1.toFixed(2)} m ${lx2.toFixed(2)} ${ly2.toFixed(2)} l S Q`;
     }
 
+    // Geometry above is in display space; map it into user space for rotated / offset pages.
+    // The appearance stream keeps display-space content and gets the same /Matrix, so its
+    // transformed BBox coincides exactly with /Rect and viewers draw it without rescaling.
+    const matrix = options.matrix && !isIdentityMatrix(options.matrix) ? options.matrix : undefined;
+    if (matrix) {
+      annotDictProps.Rect = transformRect(matrix, rect);
+      if (annotDictProps.QuadPoints) {
+        annotDictProps.QuadPoints = transformCoordinateList(matrix, annotDictProps.QuadPoints);
+      }
+      if (annotDictProps.InkList) {
+        annotDictProps.InkList = (annotDictProps.InkList as number[][]).map((path) => transformCoordinateList(matrix, path));
+      }
+      if (annotDictProps.L) {
+        annotDictProps.L = transformCoordinateList(matrix, annotDictProps.L);
+      }
+    }
+
     // Attach Appearance Stream (/AP << /N streamRef >>) for universal ISO 32000-1 viewer rendering
     if (streamOperators) {
-      const apFormDict = {
+      const apFormDict: Record<string, any> = {
         Type: 'XObject',
         Subtype: 'Form',
         FormType: 1,
@@ -479,6 +577,9 @@ const addNativePdfAnnotation = (
           ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'],
         },
       };
+      if (matrix) {
+        apFormDict.Matrix = matrix;
+      }
       const apStream = context.flateStream(streamOperators, apFormDict);
       const apStreamRef = context.register(apStream);
       annotDictProps.AP = context.obj({
@@ -503,6 +604,50 @@ const addNativePdfAnnotation = (
   }
 };
 
+// Annotation subtypes that extractPdfAnnotations imports as editable PDF Studio annotations. The
+// exporter drops these from copied pages and writes the (possibly edited or deleted) versions from
+// the editor state instead; every other subtype (Link, Widget, Stamp, FileAttachment...) is preserved.
+const EDITOR_MANAGED_SUBTYPES = new Set([
+  'Text', 'Highlight', 'Underline', 'StrikeOut', 'FreeText', 'Ink', 'Square', 'Circle', 'Line',
+]);
+
+const nameOf = (value: unknown): string =>
+  value instanceof PDFName ? value.asString().replace(/^\//, '') : '';
+
+/**
+ * Removes pre-existing annotations that the editor manages (see EDITOR_MANAGED_SUBTYPES) together
+ * with the Popup annotations attached to them, keeping all structural annotations intact.
+ */
+const removeEditorManagedAnnotations = (page: PDFPage) => {
+  const context = page.node.context;
+  const existingAnnots = context.lookup(page.node.get(PDFName.of('Annots')));
+  if (!(existingAnnots instanceof PDFArray)) return;
+
+  const entries = existingAnnots.asArray().map((ref) => ({ ref, dict: context.lookup(ref) }));
+  const removedRefs = new Set<string>();
+  for (const { ref, dict } of entries) {
+    if (dict instanceof PDFDict && EDITOR_MANAGED_SUBTYPES.has(nameOf(dict.lookup(PDFName.of('Subtype'))))) {
+      removedRefs.add(ref.toString());
+    }
+  }
+
+  const preservedAnnots = context.obj([]);
+  for (const { ref, dict } of entries) {
+    if (!(dict instanceof PDFDict) || removedRefs.has(ref.toString())) continue;
+    if (nameOf(dict.lookup(PDFName.of('Subtype'))) === 'Popup') {
+      const parent = dict.get(PDFName.of('Parent'));
+      if (parent && removedRefs.has(parent.toString())) continue;
+    }
+    preservedAnnots.push(ref);
+  }
+
+  if (preservedAnnots.size() > 0) {
+    page.node.set(PDFName.of('Annots'), preservedAnnots);
+  } else {
+    page.node.delete(PDFName.of('Annots'));
+  }
+};
+
 /**
  * Exports edited document with all pages, drawn annotations, and native PDF comments
  */
@@ -514,7 +659,8 @@ export const exportEditedPdf = async (
   rasterSettings: RasterizationSettings = DEFAULT_RASTERIZATION_SETTINGS,
   metadata?: DocumentMetadata,
   formValues?: Record<string, string | boolean | string[]>,
-  formExportMode: FormExportMode = 'interactive'
+  formExportMode: FormExportMode = 'interactive',
+  triggerDownload: boolean = true
 ): Promise<Uint8Array> => {
   const startTime = Date.now();
   logger.info('save', `Zahájen export PDF: "${outputFileName}" (${pages.length} stran)`, {
@@ -709,50 +855,70 @@ export const exportEditedPdf = async (
     let cached = imageEmbedCache.get(dataUrl);
     if (cached) return cached;
 
-    if (dataUrl.startsWith('data:image/jpeg') || dataUrl.startsWith('data:image/jpg')) {
-      cached = await doc.embedJpg(dataUrl);
-    } else if (dataUrl.startsWith('data:image/png')) {
-      cached = await doc.embedPng(dataUrl);
-    } else {
-      try {
-        cached = await doc.embedPng(dataUrl);
-      } catch {
+    try {
+      if (dataUrl.startsWith('data:image/jpeg') || dataUrl.startsWith('data:image/jpg')) {
         cached = await doc.embedJpg(dataUrl);
+      } else if (dataUrl.startsWith('data:image/png')) {
+        cached = await doc.embedPng(dataUrl);
+      } else {
+        try {
+          cached = await doc.embedPng(dataUrl);
+        } catch {
+          cached = await doc.embedJpg(dataUrl);
+        }
       }
+    } catch (embedErr) {
+      // Formats PDF cannot store directly (WebP, GIF, ...) are re-encoded as PNG in the browser
+      const pngDataUrl = await convertImageDataUrlToPng(dataUrl);
+      if (!pngDataUrl) throw embedErr;
+      cached = await doc.embedPng(pngDataUrl);
     }
     imageEmbedCache.set(dataUrl, cached);
     return cached;
   };
 
+  const embedImagePage = async (pageModel: PdfPageModel): Promise<PDFImage> => {
+    if (pageModel.imageBytes) {
+      try {
+        if (pageModel.imageMimeType === 'image/png') {
+          return await outputDoc.embedPng(pageModel.imageBytes);
+        }
+        try {
+          return await outputDoc.embedJpg(pageModel.imageBytes);
+        } catch {
+          return await outputDoc.embedPng(pageModel.imageBytes);
+        }
+      } catch (bytesErr) {
+        if (!pageModel.imageDataUrl) throw bytesErr;
+      }
+    }
+    return embedDataUrlImage(outputDoc, pageModel.imageDataUrl!);
+  };
+
+  const fonts = new PdfFontProvider(outputDoc);
+
   // Process pages in order
   for (const pageModel of pages) {
     let targetPage: PDFPage | null = null;
+    // Rasterized pages are rendered already rotated, so they must not get /Rotate again
+    let appliedRotation = pageModel.rotation || 0;
+    // pageModel.width/height describe the page as displayed; the MediaBox of generated pages is unrotated
+    const quarterTurned = ((appliedRotation % 360) + 360) % 180 !== 0;
+    const mediaWidth = quarterTurned ? pageModel.height : pageModel.width;
+    const mediaHeight = quarterTurned ? pageModel.width : pageModel.height;
 
     if (pageModel.sourceType === 'image' && (pageModel.imageBytes || pageModel.imageDataUrl)) {
-      let embeddedImage: PDFImage;
-      if (pageModel.imageBytes) {
-        if (pageModel.imageMimeType === 'image/png') {
-          embeddedImage = await outputDoc.embedPng(pageModel.imageBytes);
-        } else {
-          try {
-            embeddedImage = await outputDoc.embedJpg(pageModel.imageBytes);
-          } catch {
-            embeddedImage = await outputDoc.embedPng(pageModel.imageBytes);
-          }
-        }
-      } else {
-        embeddedImage = await embedDataUrlImage(outputDoc, pageModel.imageDataUrl!);
-      }
+      const embeddedImage = await embedImagePage(pageModel);
 
-      targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+      targetPage = outputDoc.addPage([mediaWidth, mediaHeight]);
       targetPage.drawImage(embeddedImage, {
         x: 0,
         y: 0,
-        width: pageModel.width,
-        height: pageModel.height,
+        width: mediaWidth,
+        height: mediaHeight,
       });
     } else if (pageModel.sourceType === 'blank') {
-      targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+      targetPage = outputDoc.addPage([mediaWidth, mediaHeight]);
     } else {
       const count = srcCounter.get(pageModel.sourceDocId) || 0;
       const list = copiedPagesMap.get(pageModel.sourceDocId);
@@ -812,6 +978,7 @@ export const exportEditedPdf = async (
             );
             const embeddedImg = await embedDataUrlImage(outputDoc, highResDataUrl);
             targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+            appliedRotation = 0;
             targetPage.drawImage(embeddedImg, {
               x: 0,
               y: 0,
@@ -854,52 +1021,31 @@ export const exportEditedPdf = async (
           );
           console.error(`High-res render fallback failed for page ${pageModel.id}:`, renderErr);
           targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+          appliedRotation = 0;
         }
       }
     }
 
     if (!targetPage) {
       targetPage = outputDoc.addPage([pageModel.width, pageModel.height]);
+      appliedRotation = 0;
     }
 
     // Filter pre-existing annotations on copied pages:
     // Retain structural annotations like /Link (hyperlinks/TOC) and /Widget (forms)
     // per ISO 32000-1 Section 12.5, while removing stale review markups managed by PDF Studio
     try {
-      const existingAnnotsObj = targetPage.node.get(PDFName.of('Annots'));
-      const existingAnnots = targetPage.node.context.lookup(existingAnnotsObj);
-      if (existingAnnots instanceof PDFArray) {
-        const editableSubtypes = new Set([
-          'Highlight', 'Underline', 'StrikeOut', 'FreeText', 'Ink', 'Square', 'Circle', 'Line', 'Stamp'
-        ]);
-        const preservedAnnots = outputDoc.context.obj([]);
-        for (let i = 0; i < existingAnnots.size(); i++) {
-          const annotRef = existingAnnots.get(i);
-          const annotDict = targetPage.node.context.lookup(annotRef);
-          if (annotDict instanceof PDFDict) {
-            const subtype = annotDict.lookup(PDFName.of('Subtype'));
-            const subName = subtype instanceof PDFName ? subtype.asString().replace(/^\//, '') : '';
-            if (!editableSubtypes.has(subName)) {
-              preservedAnnots.push(annotRef);
-            }
-          }
-        }
-        if (preservedAnnots.size() > 0) {
-          targetPage.node.set(PDFName.of('Annots'), preservedAnnots);
-        } else {
-          targetPage.node.delete(PDFName.of('Annots'));
-        }
-      }
+      removeEditorManagedAnnotations(targetPage);
     } catch {
       // Ignore if no Annots node
     }
 
-    // Apply rotation
-    if (pageModel.rotation !== undefined) {
-      targetPage.setRotation(degrees(pageModel.rotation));
-    }
+    targetPage.setRotation(degrees(appliedRotation));
 
-    const { height: pageHeight } = targetPage.getSize();
+    // Annotation geometry is computed in display space (y up) and mapped through space.matrix
+    const space = getPageDisplaySpace(targetPage);
+    const pageHeight = space.displayHeight;
+    const matrix = space.matrix;
 
     // Get annotations for this page
     const pageAnnotations = annotations.filter((a) => a.pageId === pageModel.id);
@@ -917,6 +1063,7 @@ export const exportEditedPdf = async (
             const y2 = pdfY + h.height;
 
             addNativePdfAnnotation(outputDoc, targetPage, {
+              matrix,
               id: h.id,
               subtype: 'Highlight',
               rect: [x1, y1, x2, y2],
@@ -929,51 +1076,38 @@ export const exportEditedPdf = async (
             break;
           }
 
-          case 'underline': {
-            const u = ann as UnderlineAnnotation;
-            const strokeWidth = u.strokeWidth || 2;
-            const pdfColor = hexToPdfRgb(u.color || '#0284c7');
-            const pad = Math.max(2, strokeWidth / 2);
-            const pdfY = pageHeight - (u.y + strokeWidth);
-            const x1 = u.x;
-            const y1 = pdfY - pad;
-            const x2 = u.x + u.width;
-            const y2 = pdfY + strokeWidth + pad;
-
-            addNativePdfAnnotation(outputDoc, targetPage, {
-              id: u.id,
-              subtype: 'Underline',
-              rect: [x1, y1, x2, y2],
-              quadPoints: [x1, y2, x2, y2, x1, y1, x2, y1],
-              contents: u.comment,
-              author: u.author,
-              colorRgb: pdfColor,
-              opacity: u.opacity || 0.9,
-              strokeWidth,
-            });
-            break;
-          }
-
+          case 'underline':
           case 'strikethrough': {
-            const s = ann as StrikethroughAnnotation;
-            const strokeWidth = s.strokeWidth || 2;
-            const pdfColor = hexToPdfRgb(s.color || '#dc2626');
-            const pad = Math.max(2, strokeWidth / 2);
-            const pdfY = pageHeight - (s.y + strokeWidth);
-            const x1 = s.x;
-            const y1 = pdfY - pad;
-            const x2 = s.x + s.width;
-            const y2 = pdfY + strokeWidth + pad;
+            const m = ann as UnderlineAnnotation | StrikethroughAnnotation;
+            const strokeWidth = m.strokeWidth || 2;
+            const pdfColor = hexToPdfRgb(m.color || (m.type === 'underline' ? '#0284c7' : '#dc2626'));
+            const pad = Math.max(2, strokeWidth / 2) + strokeWidth / 2;
+            // Same line as drawn on screen, along the text's bottom edge / middle in its reading direction
+            const [start, end] = getMarkupLine(m.type, m, m.textRotation);
+            const lineUp: [number, number, number, number] = [start.x, pageHeight - start.y, end.x, pageHeight - end.y];
+            const x1 = Math.min(lineUp[0], lineUp[2]) - pad;
+            const y1 = Math.min(lineUp[1], lineUp[3]) - pad;
+            const x2 = Math.max(lineUp[0], lineUp[2]) + pad;
+            const y2 = Math.max(lineUp[1], lineUp[3]) + pad;
+            // QuadPoints of the markup box in text reading order (top-left, top-right, bottom-left,
+            // bottom-right): its bottom edge / middle is exactly the drawn line, only /Rect is padded
+            const quad = getTextQuad(m, m.textRotation);
+            const quadPoints = [quad.topLeft, quad.topRight, quad.bottomLeft, quad.bottomRight].flatMap((p) => [
+              p.x,
+              pageHeight - p.y,
+            ]);
 
             addNativePdfAnnotation(outputDoc, targetPage, {
-              id: s.id,
-              subtype: 'StrikeOut',
+              matrix,
+              id: m.id,
+              subtype: m.type === 'underline' ? 'Underline' : 'StrikeOut',
               rect: [x1, y1, x2, y2],
-              quadPoints: [x1, y2, x2, y2, x1, y1, x2, y1],
-              contents: s.comment,
-              author: s.author,
+              quadPoints,
+              markupLine: lineUp,
+              contents: m.comment,
+              author: m.author,
               colorRgb: pdfColor,
-              opacity: s.opacity || 0.9,
+              opacity: m.opacity || 0.9,
               strokeWidth,
             });
             break;
@@ -987,30 +1121,6 @@ export const exportEditedPdf = async (
             const y1 = pageHeight - t.y - t.height;
             const x2 = t.x + t.width;
             const y2 = pageHeight - t.y;
-
-            // 1. Embed fonts for standard & rich formatting
-            const baseFontFamily = (t.fontFamily || 'Inter').toLowerCase();
-            let regFontName = StandardFonts.Helvetica;
-            let boldFontName = StandardFonts.HelveticaBold;
-            let italicFontName = StandardFonts.HelveticaOblique;
-            let boldItalicFontName = StandardFonts.HelveticaBoldOblique;
-
-            if (baseFontFamily.includes('courier')) {
-              regFontName = StandardFonts.Courier;
-              boldFontName = StandardFonts.CourierBold;
-              italicFontName = StandardFonts.CourierOblique;
-              boldItalicFontName = StandardFonts.CourierBoldOblique;
-            } else if (baseFontFamily.includes('times') || baseFontFamily.includes('georgia')) {
-              regFontName = StandardFonts.TimesRoman;
-              boldFontName = StandardFonts.TimesRomanBold;
-              italicFontName = StandardFonts.TimesRomanItalic;
-              boldItalicFontName = StandardFonts.TimesRomanBoldItalic;
-            }
-
-            const regFont = await outputDoc.embedFont(regFontName);
-            const boldFont = await outputDoc.embedFont(boldFontName);
-            const italicFont = await outputDoc.embedFont(italicFontName);
-            const boldItalicFont = await outputDoc.embedFont(boldItalicFontName);
 
             // 2. Parse lines and spans
             const parsedLines = parseRichTextToLines(t.text, t.richText, t.bulletStyle || 'disc');
@@ -1043,33 +1153,40 @@ export const exportEditedPdf = async (
 
             streamOps += `q ${tr.toFixed(3)} ${tg.toFixed(3)} ${tb.toFixed(3)} rg `;
 
+            // Each span uses a standard font when its text fits WinAnsi, otherwise an embedded
+            // Unicode font, so Czech and other non-Latin-1 characters keep their correct glyphs.
+            // F1-F4 are the regular/bold/italic/bold-italic standard fonts, U1.. the Unicode ones.
+            const spanFontNames = new Map<PDFFont, string>();
+            const standardStyles: Array<[boolean, boolean]> = [[false, false], [true, false], [false, true], [true, true]];
+            for (const [idx, [bold, italic]] of standardStyles.entries()) {
+              const standardFont = await fonts.getStandardFont(standardFontFor(t.fontFamily, bold, italic));
+              spanFontNames.set(standardFont, `F${idx + 1}`);
+            }
+            let unicodeFontCount = 0;
+            const fontResourceName = (font: PDFFont) => {
+              let name = spanFontNames.get(font);
+              if (!name) {
+                name = `U${++unicodeFontCount}`;
+                spanFontNames.set(font, name);
+              }
+              return name;
+            };
+
             for (const line of parsedLines) {
               if (curY < y1) break;
               let curX = x1 + padX;
 
               for (const span of line.spans) {
                 if (!span.text) continue;
-                let fontRefName = '/F1';
-                let fontObj = regFont;
-                if (span.bold && span.italic) {
-                  fontRefName = '/F4';
-                  fontObj = boldItalicFont;
-                } else if (span.bold) {
-                  fontRefName = '/F2';
-                  fontObj = boldFont;
-                } else if (span.italic) {
-                  fontRefName = '/F3';
-                  fontObj = italicFont;
-                }
-
-                const escaped = escapePdfLiteralString(span.text, true);
-                streamOps += `BT ${fontRefName} ${fontSize} Tf 1 0 0 1 ${curX.toFixed(2)} ${curY.toFixed(2)} Tm (${escaped}) Tj ET `;
+                const fontObj = await fonts.fontFor(t.fontFamily, span.bold, span.italic, span.text);
+                const drawable = prepareTextForFont(fontObj, span.text);
+                streamOps += `BT /${fontResourceName(fontObj)} ${fontSize} Tf 1 0 0 1 ${curX.toFixed(2)} ${curY.toFixed(2)} Tm ${fontObj.encodeText(drawable).toString()} Tj ET `;
 
                 let spanW = 0;
                 try {
-                  spanW = fontObj.widthOfTextAtSize(span.text, fontSize);
+                  spanW = fontObj.widthOfTextAtSize(drawable, fontSize);
                 } catch {
-                  spanW = span.text.length * fontSize * 0.55;
+                  spanW = drawable.length * fontSize * 0.55;
                 }
                 curX += spanW;
               }
@@ -1078,12 +1195,10 @@ export const exportEditedPdf = async (
             streamOps += `Q`;
 
             // Prepare custom resources with fonts
-            const fontsDict = outputDoc.context.obj({
-              F1: regFont.ref,
-              F2: boldFont.ref,
-              F3: italicFont.ref,
-              F4: boldItalicFont.ref,
-            });
+            const fontsDict = outputDoc.context.obj({});
+            for (const [font, name] of spanFontNames) {
+              fontsDict.set(PDFName.of(name), font.ref);
+            }
 
             const customResources = {
               ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'],
@@ -1095,6 +1210,7 @@ export const exportEditedPdf = async (
               : undefined;
 
             addNativePdfAnnotation(outputDoc, targetPage, {
+              matrix,
               id: t.id,
               subtype: 'FreeText',
               rect: [x1, y1, x2, y2],
@@ -1116,62 +1232,47 @@ export const exportEditedPdf = async (
             const maskColor = hexToPdfRgb(w.fillColor || w.color || '#ffffff');
             const pdfY = pageHeight - w.y - w.height;
 
-            // 1. Draw opaque whiteout rectangle to mask underlying content
-            targetPage.drawRectangle({
-              x: w.x,
-              y: pdfY,
-              width: w.width,
-              height: w.height,
-              color: maskColor,
-              opacity: w.opacity ?? 1.0,
-            });
-
-            // 2. If overlay text is provided, render vector typography on top
-            if (w.text && w.text.trim()) {
-              const textColor = hexToPdfRgb(w.textColor || '#0f172a');
-              const fontSize = w.fontSize || 12;
-
-              let standardFontName = StandardFonts.Helvetica;
-              if (w.fontFamily) {
-                const fm = w.fontFamily.toLowerCase();
-                if (fm.includes('courier')) standardFontName = StandardFonts.Courier;
-                else if (fm.includes('times') || fm.includes('georgia')) standardFontName = StandardFonts.TimesRoman;
-              }
-
+            // Overlay text is burned into the page content (no extra FreeText annotation, which
+            // viewers would render as a second copy of the same text on top of it)
+            const textLines = w.text && w.text.trim() ? w.text.split(/\r?\n/) : [];
+            const textColor = hexToPdfRgb(w.textColor || '#0f172a');
+            const fontSize = w.fontSize || 12;
+            let font: PDFFont | null = null;
+            if (textLines.length > 0) {
               try {
-                const font = await outputDoc.embedFont(standardFontName);
-                const lines = w.text.split('\n');
-                const lineHeight = fontSize * 1.2;
-                let currentTextY = pdfY + w.height - fontSize - 2;
-
-                for (const line of lines) {
-                  if (currentTextY < pdfY) break;
-                  targetPage.drawText(line, {
-                    x: w.x + 3,
-                    y: currentTextY,
-                    size: fontSize,
-                    font,
-                    color: textColor,
-                  });
-                  currentTextY -= lineHeight;
-                }
+                font = await fonts.fontFor(w.fontFamily, w.bold, w.italic, textLines.join(''));
               } catch (fontErr) {
-                logger.warn('save', `Nelze načíst standardní font pro whiteout: ${fontErr}`);
+                logger.warn('save', `Nelze načíst font pro whiteout: ${fontErr}`);
               }
             }
 
-            // 3. Add FreeText annotation for PDF viewer compatibility
-            if (w.text) {
-              addNativePdfAnnotation(outputDoc, targetPage, {
-                id: w.id,
-                subtype: 'FreeText',
-                rect: [w.x, pdfY, w.x + w.width, pdfY + w.height],
-                contents: w.text,
-                author: w.author,
-                colorRgb: hexToPdfRgb(w.textColor || '#0f172a'),
-                fontSize: w.fontSize || 12,
+            drawInDisplaySpace(targetPage, matrix, () => {
+              // 1. Draw opaque whiteout rectangle to mask underlying content
+              targetPage!.drawRectangle({
+                x: w.x,
+                y: pdfY,
+                width: w.width,
+                height: w.height,
+                color: maskColor,
+                opacity: w.opacity ?? 1.0,
               });
-            }
+
+              // 2. If overlay text is provided, render vector typography on top
+              if (!font) return;
+              const lineHeight = fontSize * 1.2;
+              let currentTextY = pdfY + w.height - fontSize - 2;
+              for (const line of textLines) {
+                if (currentTextY < pdfY) break;
+                targetPage!.drawText(prepareTextForFont(font, line), {
+                  x: w.x + 3,
+                  y: currentTextY,
+                  size: fontSize,
+                  font,
+                  color: textColor,
+                });
+                currentTextY -= lineHeight;
+              }
+            });
             break;
           }
 
@@ -1181,6 +1282,7 @@ export const exportEditedPdf = async (
             const pdfY = pageHeight - n.y - 20;
 
             addNativePdfAnnotation(outputDoc, targetPage, {
+              matrix,
               id: n.id,
               subtype: 'Text',
               rect: [n.x, pdfY, n.x + 20, pdfY + 20],
@@ -1205,6 +1307,7 @@ export const exportEditedPdf = async (
             const inkPath = d.points.flatMap((p) => [p.x, pageHeight - p.y]);
 
             addNativePdfAnnotation(outputDoc, targetPage, {
+              matrix,
               id: d.id,
               subtype: 'Ink',
               rect: [minX, minY, maxX, maxY],
@@ -1222,11 +1325,13 @@ export const exportEditedPdf = async (
             const sigImage = await embedDataUrlImage(outputDoc, sig.imageDataUrl);
             const pdfY = pageHeight - sig.y - sig.height;
 
-            targetPage.drawImage(sigImage, {
-              x: sig.x,
-              y: pdfY,
-              width: sig.width,
-              height: sig.height,
+            drawInDisplaySpace(targetPage, matrix, () => {
+              targetPage!.drawImage(sigImage, {
+                x: sig.x,
+                y: pdfY,
+                width: sig.width,
+                height: sig.height,
+              });
             });
             break;
           }
@@ -1245,6 +1350,7 @@ export const exportEditedPdf = async (
 
             if (sh.shapeType === 'rectangle') {
               addNativePdfAnnotation(outputDoc, targetPage, {
+                matrix,
                 id: sh.id,
                 subtype: 'Square',
                 rect: [x1, y1, x2, y2],
@@ -1255,6 +1361,7 @@ export const exportEditedPdf = async (
               });
             } else if (sh.shapeType === 'ellipse') {
               addNativePdfAnnotation(outputDoc, targetPage, {
+                matrix,
                 id: sh.id,
                 subtype: 'Circle',
                 rect: [x1, y1, x2, y2],
@@ -1263,11 +1370,13 @@ export const exportEditedPdf = async (
                 strokeWidth,
                 opacity: sh.opacity || 1.0,
               });
-            } else if (sh.shapeType === 'line' && sh.endPoint) {
+            } else if (sh.shapeType === 'line') {
+              // Shapes morphed into a line from a rectangle/ellipse have no endPoint yet
+              const end = sh.endPoint ?? { x: sh.x + sh.width, y: sh.y + sh.height };
               const startX = sh.x;
               const startY = pageHeight - sh.y;
-              const endX = sh.endPoint.x;
-              const endY = pageHeight - sh.endPoint.y;
+              const endX = end.x;
+              const endY = pageHeight - end.y;
               const pad = Math.max(2, strokeWidth / 2);
               const minLx = Math.min(startX, endX) - pad;
               const maxLx = Math.max(startX, endX) + pad;
@@ -1275,6 +1384,7 @@ export const exportEditedPdf = async (
               const maxLy = Math.max(startY, endY) + pad;
 
               addNativePdfAnnotation(outputDoc, targetPage, {
+                matrix,
                 id: sh.id,
                 subtype: 'Line',
                 rect: [minLx, minLy, maxLx, maxLy],
@@ -1345,7 +1455,7 @@ export const exportEditedPdf = async (
     });
 
     // Create client-side download link if in browser environment
-    if (typeof document !== 'undefined') {
+    if (triggerDownload && typeof document !== 'undefined') {
       const blob = new Blob([pdfBytes as any], { type: 'application/pdf' });
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');

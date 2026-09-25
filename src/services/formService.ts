@@ -31,8 +31,11 @@ export const extractFormFieldsFromPdf = async (
 
       let annotations: any[] = [];
       let pdfPage: any = null;
+      let viewport: any = null;
       try {
         pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+        // Widgets are positioned in the displayed (rotated, cropped) page space
+        viewport = pdfPage.getViewport({ scale: 1.0, rotation: pageModel.rotation });
         annotations = await pdfPage.getAnnotations({ intent: 'display' });
       } catch (err) {
         logger.warn('load', `Nepodařilo se načíst formulářová pole ze strany ${pageIdx + 1}: ${err}`);
@@ -56,11 +59,11 @@ export const extractFormFieldsFromPdf = async (
         if (!widget.rect || widget.rect.length < 4) continue;
 
         const [x1, y1, x2, y2] = widget.rect;
-        const pageHeight = pageModel.height;
-        const x = Math.min(x1, x2);
-        const y = Math.min(pageHeight - y1, pageHeight - y2);
-        const width = Math.max(12, Math.abs(x2 - x1));
-        const height = Math.max(12, Math.abs(y2 - y1));
+        const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle(widget.rect);
+        const x = Math.min(vx1, vx2);
+        const y = Math.min(vy1, vy2);
+        const width = Math.max(12, Math.abs(vx2 - vx1));
+        const height = Math.max(12, Math.abs(vy2 - vy1));
 
         const fieldName = widget.fieldName || widget.id || `field_${formFields.length + 1}`;
         let fieldType: FormFieldType = 'text';
@@ -141,6 +144,7 @@ export const extractFormFieldsFromPdf = async (
               : widget.textAlignment === 2
               ? 'right'
               : 'left',
+          pageRotation: pageModel.rotation,
         };
 
         formFields.push(fieldModel);
