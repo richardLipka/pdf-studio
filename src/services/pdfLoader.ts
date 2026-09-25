@@ -220,6 +220,34 @@ export const extractPdfMetadata = async (
       return undefined;
     };
 
+    // Non-standard Info entries (pdf.js groups them under Custom: a Map in pdf.js 6, an object
+    // before) and the XMP packet
+    const customEntries: [string, unknown][] =
+      info.Custom instanceof Map
+        ? [...(info.Custom as Map<string, unknown>).entries()]
+        : info.Custom && typeof info.Custom === 'object'
+        ? Object.entries(info.Custom as Record<string, unknown>)
+        : [];
+    const custom: Record<string, unknown> = {};
+    for (const [key, raw] of customEntries) {
+      // Name values arrive as { name }
+      custom[key] = raw && typeof raw === 'object' && 'name' in (raw as object) ? (raw as { name: unknown }).name : raw;
+    }
+    const xmp = metaDataObj?.metadata as { get?: (name: string) => unknown } | null | undefined;
+    const xmpText = (name: string): string | undefined => {
+      try {
+        const value = xmp?.get?.(name);
+        if (typeof value === 'string') return value;
+        if (Array.isArray(value)) return value.map(String).join(', ');
+      } catch {
+        // ignore malformed XMP
+      }
+      return undefined;
+    };
+    const customProperties = Object.entries(custom)
+      .filter(([key, value]) => key !== 'Source' && ['string', 'number', 'boolean'].includes(typeof value))
+      .map(([key, value]) => ({ key, value: String(value) }));
+
     const metadata: DocumentMetadata = {
       title: info.Title || '',
       author: info.Author || '',
@@ -230,6 +258,10 @@ export const extractPdfMetadata = async (
       creationDate: parsePdfDate(info.CreationDate),
       modificationDate: parsePdfDate(info.ModDate),
       pdfVersion: (pdfDoc as any)._pdfInfo?.version || info.PDFFormatVersion || undefined,
+      source: (typeof custom.Source === 'string' ? custom.Source : undefined) || xmpText('dc:source') || '',
+      language: typeof info.Language === 'string' ? info.Language : '',
+      autoModificationDate: true,
+      customProperties,
     };
 
     logger.info('load', `Extrahována metadata PDF dokumentu "${sourceDocId}"`, {

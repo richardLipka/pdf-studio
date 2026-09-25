@@ -116,6 +116,7 @@ export const EditSidePanel: React.FC = () => {
     applyStreamSegmentEdit,
     applyPageContentStreamEdit,
     applyBlockTextEdit,
+    selectedAnnotationId,
   } = useDocument();
 
   const activeSourceDoc = sources.find((s) => s.id === pages[activePageIndex]?.sourceDocId);
@@ -295,10 +296,15 @@ export const EditSidePanel: React.FC = () => {
         preferredTargetPos !== undefined ||
         consumedTargetRef.current?.text !== targetText ||
         consumedTargetRef.current?.pos !== targetPos;
-      const keepSelection =
-        !isFreshTarget &&
+      // An image selected on the canvas stays selected; the nearest text block must not replace it
+      const selectedImage =
         Boolean(selectedStreamBlockId) &&
-        textSegments.some((s) => s.id === selectedStreamBlockId);
+        (selectedStreamBlockId!.startsWith('img_') || selectedStreamBlockId!.startsWith('/'));
+      const keepSelection =
+        (selectedImage && preferredTargetText === undefined && preferredTargetPos === undefined) ||
+        (!isFreshTarget &&
+          Boolean(selectedStreamBlockId) &&
+          textSegments.some((s) => s.id === selectedStreamBlockId));
 
       // If opened with target block from canvas click: the block under the clicked point (exact
       // text model boxes), otherwise the best text match
@@ -452,6 +458,43 @@ export const EditSidePanel: React.FC = () => {
       setIsSaving(false);
     }
   };
+
+  // Delete / Backspace removes the page element selected on the canvas or in the list (an image or
+  // a text block), unless the user is typing or an annotation is selected (that has its own handler)
+  const deleteSelectedElementRef = useRef<() => boolean>(() => false);
+  deleteSelectedElementRef.current = () => {
+    if (!selectedStreamBlockId || selectedAnnotationId || isSaving || isLoading) return false;
+    const image = images.find(
+      (im) =>
+        selectedStreamBlockId === im.name ||
+        selectedStreamBlockId === `img_${im.cleanName}` ||
+        selectedStreamBlockId === `/${im.cleanName}`
+    );
+    if (image) {
+      handleDeleteImage(image);
+      return true;
+    }
+    if (segments.some((seg) => seg.id === selectedStreamBlockId)) {
+      handleDeleteSingleBlock(selectedStreamBlockId);
+      return true;
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (!isEditSidePanelOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return;
+      // Marked as handled so the page-deletion shortcut (App) leaves it alone; the capture phase
+      // runs before the other window-level keyboard handlers
+      if (deleteSelectedElementRef.current()) e.preventDefault();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [isEditSidePanelOpen]);
 
   // Generate thumbnails if canvas finishes rendering after loadPageData
   useEffect(() => {
@@ -919,8 +962,8 @@ export const EditSidePanel: React.FC = () => {
   };
 
   // 1-Click Delete single block
-  const handleDeleteSingleBlock = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteSingleBlock = async (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const origBlock = segments.find((s) => s.id === id);
     if (!origBlock) return;
 

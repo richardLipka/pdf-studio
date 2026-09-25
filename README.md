@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-156%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-165%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -91,45 +91,51 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 - **Cryptographic PAdES / PKCS#7 Signing**: Conforms to ISO 32000-1 detached signatures (`/adbe.pkcs7.detached`) with PKCS#12 / PFX certificate import, in-memory RSA key pair generator, SHA-256 byte-range hashing, and visual verification badges.
 
 ### 9. 📋 Document Metadata Inspection & Editing
-- **Inspect & Edit Properties**: Direct view and real-time editing of standard PDF document metadata (Title, Author, Subject, Keywords, Creator, Producer).
-- **Technical File Inspection**: Displays source file size, total page count, creation date, last modification timestamp, and PDF format version.
-- **Persistent Export**: All edited metadata is written directly to the exported PDF document trailer info dictionary upon saving.
+- **Inspect & Edit Properties**: Title, Author, Subject, Keywords, Creator, Producer, Source and document language (`/Lang`).
+- **Editable Dates**: Creation date and modification date (or "set to the time of saving", the default).
+- **Custom Properties**: Any further entries of the information dictionary (Company, Category, Comments...), read from the source and editable.
+- **Technical File Inspection**: Displays source file size, total page count and PDF format version.
+- **Persistent Export**: Metadata is written to the information dictionary and to a matching XMP packet (`dc:source`, `xmp:CreateDate`...), so XMP-first viewers such as Acrobat show the same values.
 
-### 10. ⚙️ Configurable Rasterization & Export Settings
+### 10. 🖨️ Flatten to Images ("As Scanned")
+- **One Image per Page**: The finished document (annotations, signatures and filled forms burned in) is rendered page by page and saved as a new image-only PDF — no selectable text, layers or form fields, like a scanned copy.
+- **Options**: 100–300 DPI, colour / grayscale / black & white, JPEG quality, and an optional scanned look (paper tone, light noise, slight tilt). Metadata is carried over.
+
+### 11. ⚙️ Configurable Rasterization & Export Settings
 - **Customizable Fallback Parameters**: Full control over fallback rasterization settings (Scale: 1.0×, 1.5×, 2.0×, 3.0×; Format: JPEG with DCTDecode or PNG; JPEG Quality: 75% - 100%).
 - **State Persistence**: Saved in browser `localStorage` and indicated dynamically in the StatusBar.
 
-### 11. 🎨 Switchable Themes (URL-Encoded)
+### 12. 🎨 Switchable Themes (URL-Encoded)
 - **Studio (Dark)**: Sleek glassmorphic dark design with ambient shadows (`?theme=default`).
 - **Minimal (Light)**: Pure white background (`#ffffff`), crisp black lines, zero blue tints, high-contrast monochrome UI (`?theme=minimal`).
 - **LCARS (Star Trek: TNG)**: Authentic 24th-century Federation Starfleet interface with iconic LCARS amber, lilac, cyan palette, pill buttons, and condensed typography (`?theme=lcars`).
 
-### 12. ⚡ Prioritized Lazy Page Rendering & Canvas Error Recovery
+### 13. ⚡ Prioritized Lazy Page Rendering & Canvas Error Recovery
 - **Prioritized Lazy Rendering Queue**: For large documents (> 5 pages), renders the first 5 pages and active viewport pages with highest priority without blocking CPU/GPU.
 - **Dynamic Viewport Priority Elevation**: `IntersectionObserver` elevates offscreen pages to the front of the queue (`VIEWPORT` priority) when scrolled into view.
 - **WebWorker Resource Cleanup**: Calls `pdfPage.cleanup()` across all renderers and annotation parsers to release operator lists and decoded bitmaps immediately.
 - **Interactive Canvas Failure Recovery**: If a page fails to render, a non-blocking error overlay provides a clear description and an interactive "Zkusit znovu / Retry" button that cleanly resets state and re-enqueues render.
 
-### 13. 📜 Event Log & Diagnostic Protocol Screen
+### 14. 📜 Event Log & Diagnostic Protocol Screen
 - **Safe Detail Serialization**: `safeSerializeDetails` prevents OOM by replacing large binary buffers (`Uint8Array`, `ArrayBuffer`) with metadata summaries, safely catches circular references (`WeakSet`), serializes `BigInt`, and unwinds nested `Error.cause` chains.
 - **Listener Isolation**: All event subscribers are protected with per-listener `try/catch` blocks.
 - **Log Exports**: One-click download of all logs via `exportAsJson()` and `exportAsText()`.
 - **Status Indicators**: Dynamic badge counters in Header and StatusBar indicating warning/error totals.
 
-### 14. 📝 Interactive PDF Form Filling & Dual Save Mode (AcroForms)
+### 15. 📝 Interactive PDF Form Filling & Dual Save Mode (AcroForms)
 - **Interactive Visual Form Layer**: Automatically parses and detects form widgets (Text fields, Multiline text areas, Checkboxes, Radio buttons, Dropdowns, Option lists) from imported PDF documents via `pdfjs-dist`.
 - **Real-Time Canvas Interaction**: Direct in-place typing, selecting, and toggling of form fields on the canvas with full zoom scaling and theme integration.
 - **Full Czech Unicode & Diacritics Support**: Seamless handling of Czech characters (`ěščřžýáíéůúťďň ĚŠČŘŽÝÁÍÉŮÚŤĎŇ`) encoded as UTF-16BE hex strings with `/NeedAppearances true` ISO 32000-1 conformance.
 - **Dual Export Prompt & Modality**: Prompts user to choose between **Interactive AcroForm** (editable fields) and **Flattened PDF** (permanently burned for official archival).
 
-### 15. 🖼️ Bitmap Graphics Suite & Image Manipulation (ISO 32000-1 XObjects & Scans)
+### 16. 🖼️ Bitmap Graphics Suite & Image Manipulation (ISO 32000-1 XObjects & Scans)
 - **Deep Image Inspection**: Discovers, isolates, and renders raster images (XObjects, inline images, full-page scans) directly in `EditSidePanel` and on canvas.
 - **Compound 2D Affine Matrix Computation**: Compounds chained `cm` transformation matrices across `q ... Q` blocks to calculate exact physical positions $(X, Y)$ and dimensions in points.
 - **DPI & Format Detection**: Calculates exact DPI ($\text{DPI} = \frac{\text{pixelWidth}}{\text{ptWidth}} \times 72$), identifies `/Filter` encodings (JPEG, PNG/Flate, JBIG2, CCITT Fax TIFF), and flags full-page scans ($\ge 82\ \%$ page coverage).
-- **Core Operations**: In-place image replacement (preserves matrix geometry in `/Contents`), 1-click lossless PNG export via hardware-rendered canvas crop, and atomic deletion with 100-step Undo/Redo binary snapshots.
+- **Core Operations**: In-place image replacement (preserves matrix geometry in `/Contents`), 1-click lossless PNG export via hardware-rendered canvas crop, and atomic deletion with 100-step Undo/Redo binary snapshots. Deleting an image removes exactly its invocation (token-based), never text or graphics drawn before it in the same graphics group; a selected image or text block can also be deleted with the Delete key.
 - **Floating Canvas Quick Actions**: Floating toolbar anchored to selected images with resolution, DPI badges, and instant Download / Replace / Delete buttons.
 
-### 16. 🌳 Semantic Document Tree, Hierarchical Nesting & Segmented Filtering
+### 17. 🌳 Semantic Document Tree, Hierarchical Nesting & Segmented Filtering
 - **Vertical $Y$ Interleaving**: Images and text blocks are naturally ordered according to vertical position $Y$ into collapsible H1 and H2 document sections.
 - **Segmented Filter Pills**: Interactive filters in `EditSidePanel` (**Vše** / **Text** / **Obrázky**) with live element count badges.
 - **Clean Block Extraction**: Eliminates phantom whitespace blocks (`[( )] TJ`) and table column runaway merging.
@@ -188,7 +194,7 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (33 test files, 158 tests) |
+| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (34 test files, 167 tests) |
 
 ---
 

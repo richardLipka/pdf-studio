@@ -20,7 +20,9 @@ import {
   ScrollText,
   Sliders,
   Info,
+  ScanLine,
 } from 'lucide-react';
+import { FlattenModal } from '../modals/FlattenModal';
 import { logger } from '../../services/logger';
 
 export const Header: React.FC = () => {
@@ -54,6 +56,7 @@ export const Header: React.FC = () => {
     rasterSettings,
   } = useEditor();
 
+  const [isFlattenOpen, setIsFlattenOpen] = React.useState(false);
   const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
     warns: 0,
     errors: 0,
@@ -535,6 +538,26 @@ export const Header: React.FC = () => {
             EN
           </button>
         </div>
+
+        {/* Flatten to images ("as scanned") */}
+        <button
+          type="button"
+          onClick={() => setIsFlattenOpen(true)}
+          disabled={isSaving || !hasDoc}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
+            isMinimal
+              ? 'rounded-md border border-neutral-300 text-neutral-800 hover:bg-neutral-100'
+              : isLcars
+              ? 'rounded-full border-2 border-[#99ccff] text-[#99ccff] hover:bg-[#99ccff]/20 uppercase font-bold'
+              : 'rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-800'
+          }`}
+          title={t.flattenModal.buttonTooltip}
+          aria-label={t.flattenModal.buttonTooltip}
+        >
+          <ScanLine className="w-4 h-4" />
+          <span className="hidden xl:inline">{t.flattenModal.buttonLabel}</span>
+        </button>
+        <FlattenModal open={isFlattenOpen} onClose={() => setIsFlattenOpen(false)} />
 
         {/* Save & Download button */}
         <div className="relative">

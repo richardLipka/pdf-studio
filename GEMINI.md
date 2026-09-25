@@ -68,9 +68,10 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
      - Optional visual verification badge with signer CN, date, time, and custom reason/location.
 
 8. **Document Metadata Inspection & Editing**:
-   - **Properties**: Read and edit Title, Author, Subject, Keywords, Creator, and Producer directly in the browser.
-   - **Technical File Inspection**: View source file size, total page count, creation date, modification timestamp, and PDF format version.
-   - **Persistence**: Writes metadata directly to the exported PDF document trailer information dictionary.
+   - **Properties**: Read and edit Title, Author, Subject, Keywords, Creator, Producer, Source, language (`/Lang`), creation and modification dates, and custom information-dictionary entries.
+   - **Technical File Inspection**: View source file size, total page count, and PDF format version.
+   - **Persistence**: `applyDocumentMetadata` (pdfExporter.ts) writes the information dictionary plus a matching XMP packet; pdf.js 6 returns custom Info keys as a `Map` (`info.Custom`).
+   - **Flatten to Images**: `pdfFlattener.ts` renders the exported document (print intent, annotations included) page by page and assembles an image-only PDF (DPI, colour / grayscale / B&W, optional scanned look).
 
 9. **Configurable Rasterization & Export Settings**:
    - **Customizable Fallback Parameters**: Full user control over fallback rasterization settings whenever a page cannot be directly vector-copied:
@@ -133,7 +134,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (33 test files, 158 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (34 test files, 167 tests) |
 
 ---
 
@@ -149,7 +150,7 @@ pdf-editor/
 │   ├── components/
 │   │   ├── common/         # Dropzone, Toast, Icons
 │   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel, EditSidePanel
-│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal
+│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal, FlattenModal
 │   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom
@@ -182,7 +183,7 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (158 tests)
+├── tests/                  # Automated Vitest test suite (167 tests)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts

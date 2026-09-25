@@ -2158,6 +2158,70 @@ export async function removeStreamSegmentFromPage(
   return { updatedPdfBytes: res.updatedPdfBytes, error: res.error };
 }
 
+// Operators that put something on the page; a q ... Q group containing any of them besides the
+// image being removed must stay (only the image invocation goes)
+const PAINTING_OPERATORS = new Set([
+  'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'sh', 'BT', 'BI', 'ID', 'EI', 'Do', 'd0', 'd1',
+]);
+
+/**
+ * Removes every invocation of the named XObject (`/Name Do`) from a content stream. When the
+ * invocation sits in a q ... Q group that only sets up the image (cm, gs, clipping...), the whole
+ * group goes; otherwise just the `/Name Do` operation, so nothing else drawn on the page is lost.
+ */
+export function removeXObjectInvocations(stream: string, name: string): { stream: string; removed: number } {
+  const cleanName = name.replace(/^\//, '');
+  const isTarget = (raw: string | undefined) => {
+    if (!raw || !raw.startsWith('/')) return false;
+    // Names may contain #xx escapes
+    const decoded = raw.slice(1).replace(/#([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    return decoded === cleanName;
+  };
+  interface Frame {
+    start: number;
+    hasOther: boolean;
+    targets: { start: number; end: number }[];
+  }
+  const root: Frame = { start: -1, hasOther: true, targets: [] };
+  const stack: Frame[] = [root];
+  const ranges: { start: number; end: number }[] = [];
+  let removed = 0;
+
+  for (const op of tokenizeContentStream(stream)) {
+    const top = stack[stack.length - 1];
+    if (op.operator === 'q') {
+      stack.push({ start: op.operatorStart, hasOther: false, targets: [] });
+    } else if (op.operator === 'Q') {
+      if (stack.length === 1) continue; // unbalanced Q
+      const frame = stack.pop()!;
+      const parent = stack[stack.length - 1];
+      if (frame.targets.length > 0 && !frame.hasOther) {
+        ranges.push({ start: frame.start, end: op.end });
+      } else {
+        ranges.push(...frame.targets);
+        if (frame.hasOther) parent.hasOther = true;
+      }
+      removed += frame.targets.length;
+    } else if (op.operator === 'Do' && isTarget(op.operands[0]?.raw)) {
+      top.targets.push({ start: op.start, end: op.end });
+    } else if (PAINTING_OPERATORS.has(op.operator)) {
+      top.hasOther = true;
+    }
+  }
+  // Groups left open at the end of the stream, and the top level: remove the invocations only
+  for (const frame of stack) {
+    ranges.push(...frame.targets);
+    removed += frame.targets.length;
+  }
+
+  ranges.sort((a, b) => b.start - a.start);
+  let out = stream;
+  for (const range of ranges) {
+    out = out.substring(0, range.start) + out.substring(range.end);
+  }
+  return { stream: out, removed };
+}
+
 /**
  * Atomically removes multiple text blocks and/or images from a page's content stream and resources.
  */
@@ -2261,20 +2325,19 @@ export async function removeMultipleElementsFromPage(
           xObjectDict.delete(PDFName.of(cleanName));
         }
 
-        // Delete from content stream (cleanly removes q ... cm ... /Name Do ... Q wrapper or bare /Name Do)
-        const escapedName = escapeRegex(cleanName);
-        const wrappedRegex = new RegExp(
-          `q\\s*(?:[0-9.-]+\\s+){6}cm\\s*(?:[^Q]*?\\s+)?\\/${escapedName}\\s+Do\\s*Q|` +
-          `q\\s*(?:[^Q]*?\\s+)?\\/${escapedName}\\s+Do\\s*Q|` +
-          `(?:[0-9.-]+\\s+){6}cm\\s*(?:[^\\r\\n]*?\\s+)?\\/${escapedName}\\s+Do|` +
-          `\\/${escapedName}\\s+Do`,
-          'g'
-        );
-
-        const beforeLen = modifiedStream.length;
-        modifiedStream = modifiedStream.replace(wrappedRegex, '');
-        if (modifiedStream.length !== beforeLen) {
+        // Delete its invocations from the content stream (token-based: a regex spanning from an
+        // earlier "q" could swallow text and graphics drawn before the image)
+        const result = removeXObjectInvocations(modifiedStream, cleanName);
+        modifiedStream = result.stream;
+        if (result.removed > 0) {
           removedCount++;
+        } else if (segmentIds.length === 0) {
+          return {
+            updatedPdfBytes: pdfDocBytes,
+            removedCount: 0,
+            updatedStream: streamText,
+            error: `Obrázek ${cleanName} se v obsahu stránky nepodařilo najít (může být vložen ve vnořeném objektu).`,
+          };
         }
       }
     }

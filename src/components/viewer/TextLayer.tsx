@@ -688,11 +688,15 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedStreamBlockId(block.id);
-                    setStreamReplaceTargetPosition({
-                      x: block.x + block.width / 2,
-                      y: block.y + block.height / 2,
-                    });
-                    setStreamReplaceTargetText(block.text);
+                    // The text target makes the panel pick the text block under it; an image is
+                    // selected by its id alone
+                    if (!isImage) {
+                      setStreamReplaceTargetPosition({
+                        x: block.x + block.width / 2,
+                        y: block.y + block.height / 2,
+                      });
+                      setStreamReplaceTargetText(block.text);
+                    }
 
                     setTimeout(() => {
                       const el = document.getElementById(

@@ -33,6 +33,8 @@ const MainWorkspace: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Already handled, e.g. the edit panel deleted the image or text block selected on the page
+      if (e.defaultPrevented) return;
       // Do not trigger deletion shortcuts if user is typing inside an input/textarea
       const target = e.target as HTMLElement;
       if (

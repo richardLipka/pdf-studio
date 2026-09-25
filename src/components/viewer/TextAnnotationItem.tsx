@@ -177,7 +177,7 @@ export const TextAnnotationItem: React.FC<TextAnnotationItemProps> = ({
 
   return (
     <div
-      className={`annotation-item absolute group select-none transition-all ${
+      className={`annotation-item absolute group select-none transition-[box-shadow,border-color] ${
         isSelected
           ? 'z-40 ring-1 ring-sky-500/80 border border-dashed border-sky-400 rounded shadow-xs'
           : 'z-20 hover:ring-1 hover:ring-sky-400/40 rounded-none cursor-pointer'

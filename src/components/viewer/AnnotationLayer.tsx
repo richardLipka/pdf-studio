@@ -89,98 +89,103 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   const annotationsRef = useRef<Annotation[]>(annotations);
   annotationsRef.current = annotations;
 
+  // While dragging or resizing, only a local preview of the element changes: updating the document
+  // context on every mouse move re-rendered every page, the thumbnails and the side panels for each
+  // pixel of movement. The context gets one update (and one undo step) when the mouse is released.
+  const [dragPreview, setDragPreview] = useState<Annotation | null>(null);
+  const dragOriginRef = useRef<Annotation | null>(null);
+  const pendingPreviewRef = useRef<Annotation | null>(null);
+  const previewFrameRef = useRef<number | null>(null);
+  const updateAnnotationRef = useRef(updateAnnotation);
+  updateAnnotationRef.current = updateAnnotation;
+
   // Window-level mouse listeners for seamless dragging and resizing
   React.useEffect(() => {
     if (!draggingAnnId && !resizingAnnId) return;
+    const origin =
+      dragOriginRef.current ?? annotationsRef.current.find((a) => a.id === (draggingAnnId || resizingAnnId)) ?? null;
+    if (!origin) return;
+
+    const schedulePreview = (next: Annotation) => {
+      pendingPreviewRef.current = next;
+      if (previewFrameRef.current !== null) return;
+      previewFrameRef.current = requestAnimationFrame(() => {
+        previewFrameRef.current = null;
+        setDragPreview(pendingPreviewRef.current);
+      });
+    };
 
     const handleWindowMouseMove = (e: MouseEvent) => {
       if (draggingAnnId) {
-        const target = annotationsRef.current.find((a) => a.id === draggingAnnId);
-        if (target) {
-          const dx = (e.clientX - dragStartMouse.x) / scale;
-          const dy = (e.clientY - dragStartMouse.y) / scale;
-          // Keep the element's bounding box on the page (lines may have a negative width/height)
-          const minX = -Math.min(0, target.width);
-          const maxX = page.width - Math.max(0, target.width);
-          const minY = -Math.min(0, target.height);
-          const maxY = page.height - Math.max(0, target.height);
-          const newX = Math.max(minX, Math.min(maxX, dragStartAnnPos.x + dx));
-          const newY = Math.max(minY, Math.min(maxY, dragStartAnnPos.y + dy));
-          const shiftX = newX - target.x;
-          const shiftY = newY - target.y;
+        const dx = (e.clientX - dragStartMouse.x) / scale;
+        const dy = (e.clientY - dragStartMouse.y) / scale;
+        // Keep the element's bounding box on the page (lines may have a negative width/height)
+        const minX = -Math.min(0, origin.width);
+        const maxX = page.width - Math.max(0, origin.width);
+        const minY = -Math.min(0, origin.height);
+        const maxY = page.height - Math.max(0, origin.height);
+        const newX = Math.max(minX, Math.min(maxX, dragStartAnnPos.x + dx));
+        const newY = Math.max(minY, Math.min(maxY, dragStartAnnPos.y + dy));
+        const shiftX = newX - origin.x;
+        const shiftY = newY - origin.y;
 
-          if (target.type === 'drawing') {
-            const drawAnn = target as DrawingAnnotation;
-            const updatedPoints = drawAnn.points.map((p) => ({
-              x: p.x + shiftX,
-              y: p.y + shiftY,
-            }));
-            updateAnnotation(
-              {
-                ...drawAnn,
-                x: newX,
-                y: newY,
-                points: updatedPoints,
-                updatedAt: Date.now(),
-              },
-              false
-            );
-          } else if (target.type === 'shape' && target.endPoint) {
-            // A line is defined by both endpoints, move the end together with the start
-            updateAnnotation(
-              {
-                ...target,
-                x: newX,
-                y: newY,
-                endPoint: { x: target.endPoint.x + shiftX, y: target.endPoint.y + shiftY },
-                updatedAt: Date.now(),
-              },
-              false
-            );
-          } else {
-            updateAnnotation(
-              {
-                ...target,
-                x: newX,
-                y: newY,
-                updatedAt: Date.now(),
-              },
-              false
-            );
-          }
+        if (origin.type === 'drawing') {
+          const drawAnn = origin as DrawingAnnotation;
+          schedulePreview({
+            ...drawAnn,
+            x: newX,
+            y: newY,
+            points: drawAnn.points.map((p) => ({ x: p.x + shiftX, y: p.y + shiftY })),
+            updatedAt: Date.now(),
+          });
+        } else if (origin.type === 'shape' && origin.endPoint) {
+          // A line is defined by both endpoints, move the end together with the start
+          schedulePreview({
+            ...origin,
+            x: newX,
+            y: newY,
+            endPoint: { x: origin.endPoint.x + shiftX, y: origin.endPoint.y + shiftY },
+            updatedAt: Date.now(),
+          });
+        } else {
+          schedulePreview({ ...origin, x: newX, y: newY, updatedAt: Date.now() });
         }
       } else if (resizingAnnId) {
-        const target = annotationsRef.current.find((a) => a.id === resizingAnnId);
-        if (target) {
-          const dw = (e.clientX - dragStartMouse.x) / scale;
-          const dh = (e.clientY - dragStartMouse.y) / scale;
-          const newWidth = Math.max(30, dragStartAnnPos.x + dw);
-          const newHeight = Math.max(16, dragStartAnnPos.y + dh);
-
-          updateAnnotation(
-            {
-              ...target,
-              width: newWidth,
-              height: newHeight,
-              updatedAt: Date.now(),
-            },
-            false
-          );
-        }
+        const dw = (e.clientX - dragStartMouse.x) / scale;
+        const dh = (e.clientY - dragStartMouse.y) / scale;
+        schedulePreview({
+          ...origin,
+          width: Math.max(30, dragStartAnnPos.x + dw),
+          height: Math.max(16, dragStartAnnPos.y + dh),
+          updatedAt: Date.now(),
+        });
       }
     };
 
     const handleWindowMouseUp = () => {
-      if (draggingAnnId) {
-        const target = annotationsRef.current.find((a) => a.id === draggingAnnId);
-        if (target) updateAnnotation(target, true);
-        setDraggingAnnId(null);
+      if (previewFrameRef.current !== null) {
+        cancelAnimationFrame(previewFrameRef.current);
+        previewFrameRef.current = null;
       }
-      if (resizingAnnId) {
-        const target = annotationsRef.current.find((a) => a.id === resizingAnnId);
-        if (target) updateAnnotation(target, true);
-        setResizingAnnId(null);
+      const final = pendingPreviewRef.current;
+      pendingPreviewRef.current = null;
+      dragOriginRef.current = null;
+      // Keep the latest content of the element (e.g. text typed meanwhile), with the new geometry
+      const current = annotationsRef.current.find((a) => a.id === origin.id);
+      if (final && current) {
+        const geometry: Partial<Annotation> & Record<string, unknown> = {
+          x: final.x,
+          y: final.y,
+          width: final.width,
+          height: final.height,
+        };
+        if ('points' in final) geometry.points = (final as DrawingAnnotation).points;
+        if ('endPoint' in final && final.endPoint) geometry.endPoint = final.endPoint;
+        updateAnnotationRef.current({ ...current, ...geometry, updatedAt: Date.now() } as Annotation, true);
       }
+      setDragPreview(null);
+      setDraggingAnnId(null);
+      setResizingAnnId(null);
     };
 
     window.addEventListener('mousemove', handleWindowMouseMove);
@@ -189,8 +194,12 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
     return () => {
       window.removeEventListener('mousemove', handleWindowMouseMove);
       window.removeEventListener('mouseup', handleWindowMouseUp);
+      if (previewFrameRef.current !== null) {
+        cancelAnimationFrame(previewFrameRef.current);
+        previewFrameRef.current = null;
+      }
     };
-  }, [draggingAnnId, resizingAnnId, dragStartMouse, dragStartAnnPos, page.width, page.height, scale, updateAnnotation]);
+  }, [draggingAnnId, resizingAnnId, dragStartMouse, dragStartAnnPos, page.width, page.height, scale]);
 
   // Open note card modal/popover
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
@@ -199,7 +208,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   const [activeCommentAnnId, setActiveCommentAnnId] = useState<string | null>(null);
 
   // Page annotations
-  const pageAnnotations = annotations.filter((a) => a.pageId === page.id);
+  const pageAnnotations = annotations
+    .filter((a) => a.pageId === page.id)
+    .map((a) => (dragPreview && a.id === dragPreview.id ? dragPreview : a));
 
   // Annotations live in the page space as displayed (the canvas is already rendered rotated and the
   // overlay SVG uses the same unrotated viewBox), so pointer coordinates are only unscaled here.
@@ -637,6 +648,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
       return;
     }
 
+    dragOriginRef.current = ann;
+    pendingPreviewRef.current = null;
     setDraggingAnnId(ann.id);
     setDragStartMouse({ x: e.clientX, y: e.clientY });
     setDragStartAnnPos({ x: ann.x, y: ann.y });
@@ -649,6 +662,8 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
   const handleStartResizeAnn = (ann: Annotation, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedAnnotationId(ann.id);
+    dragOriginRef.current = ann;
+    pendingPreviewRef.current = null;
     setResizingAnnId(ann.id);
     setDragStartMouse({ x: e.clientX, y: e.clientY });
     setDragStartAnnPos({ x: ann.width, y: ann.height });
@@ -1269,7 +1284,7 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
           return (
             <div
               key={wo.id}
-              className={`annotation-item absolute group transition-all ${
+              className={`annotation-item absolute group transition-[box-shadow,border-color] ${
                 isSelected
                   ? 'ring-2 ring-indigo-500 rounded-sm shadow-xl z-30'
                   : 'hover:ring-1 hover:ring-indigo-400/60 rounded-none z-20 cursor-pointer'

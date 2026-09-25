@@ -17,7 +17,14 @@ import {
   popGraphicsState,
   concatTransformationMatrix,
 } from 'pdf-lib';
-import { PdfPageModel, SourceDocument, RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS, DocumentMetadata } from '../types/document';
+import {
+  PdfPageModel,
+  SourceDocument,
+  RasterizationSettings,
+  DEFAULT_RASTERIZATION_SETTINGS,
+  DocumentMetadata,
+  RESERVED_METADATA_KEYS,
+} from '../types/document';
 import {
   Annotation,
   DrawingAnnotation,
@@ -648,6 +655,196 @@ const removeEditorManagedAnnotations = (page: PDFPage) => {
   }
 };
 
+export interface WrappedPiece {
+  text: string;
+  font: PDFFont;
+  width: number;
+}
+
+const measureText = (font: PDFFont, text: string, size: number): number => {
+  try {
+    return font.widthOfTextAtSize(text, size);
+  } catch {
+    return text.length * size * 0.55;
+  }
+};
+
+/**
+ * Word-wraps styled runs (one paragraph) into lines no wider than maxWidth, like the editor's
+ * text boxes do. Words longer than a line are split; wrapped lines do not start with spaces.
+ */
+export function wrapStyledRuns(
+  runs: { text: string; font: PDFFont }[],
+  fontSize: number,
+  maxWidth: number
+): WrappedPiece[][] {
+  const lines: WrappedPiece[][] = [];
+  let current: WrappedPiece[] = [];
+  let width = 0;
+  let wrapped = false;
+  const push = (text: string, font: PDFFont, pieceWidth: number) => {
+    const last = current[current.length - 1];
+    if (last && last.font === font) {
+      last.text += text;
+      last.width += pieceWidth;
+    } else {
+      current.push({ text, font, width: pieceWidth });
+    }
+    width += pieceWidth;
+  };
+  const trimTrailingSpace = () => {
+    const last = current[current.length - 1];
+    if (!last) return;
+    const trimmed = last.text.replace(/\s+$/, '');
+    if (trimmed === last.text) return;
+    if (trimmed) {
+      last.text = trimmed;
+      last.width = measureText(last.font, trimmed, fontSize);
+    } else {
+      current.pop();
+    }
+  };
+  const breakLine = () => {
+    trimTrailingSpace();
+    lines.push(current);
+    current = [];
+    width = 0;
+    wrapped = true;
+  };
+
+  for (const run of runs) {
+    for (const token of run.text.split(/(\s+)/)) {
+      if (!token) continue;
+      if (/^\s+$/.test(token)) {
+        if (width === 0 && wrapped) continue;
+        push(token, run.font, measureText(run.font, token, fontSize));
+        continue;
+      }
+      const tokenWidth = measureText(run.font, token, fontSize);
+      if (width > 0 && width + tokenWidth > maxWidth) breakLine();
+      if (tokenWidth <= maxWidth) {
+        push(token, run.font, tokenWidth);
+        continue;
+      }
+      let chunk = '';
+      for (const ch of Array.from(token)) {
+        if (chunk && width + measureText(run.font, chunk + ch, fontSize) > maxWidth) {
+          push(chunk, run.font, measureText(run.font, chunk, fontSize));
+          breakLine();
+          chunk = ch;
+        } else {
+          chunk += ch;
+        }
+      }
+      if (chunk) push(chunk, run.font, measureText(run.font, chunk, fontSize));
+    }
+  }
+  trimTrailingSpace();
+  lines.push(current);
+  return lines;
+}
+
+const xmlEscape = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    // Characters XML 1.0 does not allow
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+
+const validDate = (iso?: string): Date | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+/** XMP packet mirroring the document information, so XMP-first readers show the same values */
+export const buildXmpPacket = (metadata: DocumentMetadata, created: Date | null, modified: Date): string => {
+  const lines: string[] = [];
+  const alt = (tag: string, value?: string) => {
+    if (value) lines.push(`   <${tag}><rdf:Alt><rdf:li xml:lang="x-default">${xmlEscape(value)}</rdf:li></rdf:Alt></${tag}>`);
+  };
+  const simple = (tag: string, value?: string) => {
+    if (value) lines.push(`   <${tag}>${xmlEscape(value)}</${tag}>`);
+  };
+  lines.push('   <dc:format>application/pdf</dc:format>');
+  alt('dc:title', metadata.title);
+  if (metadata.author) {
+    const authors = metadata.author.split(/\s*;\s*/).filter(Boolean);
+    lines.push(`   <dc:creator><rdf:Seq>${authors.map((a) => `<rdf:li>${xmlEscape(a)}</rdf:li>`).join('')}</rdf:Seq></dc:creator>`);
+  }
+  alt('dc:description', metadata.subject);
+  const keywords = (metadata.keywords || '').split(/[,;]/).map((k) => k.trim()).filter(Boolean);
+  if (keywords.length > 0) {
+    lines.push(`   <dc:subject><rdf:Bag>${keywords.map((k) => `<rdf:li>${xmlEscape(k)}</rdf:li>`).join('')}</rdf:Bag></dc:subject>`);
+  }
+  simple('dc:source', metadata.source);
+  if (metadata.language) lines.push(`   <dc:language><rdf:Bag><rdf:li>${xmlEscape(metadata.language)}</rdf:li></rdf:Bag></dc:language>`);
+  simple('pdf:Keywords', metadata.keywords);
+  simple('pdf:Producer', metadata.producer);
+  simple('xmp:CreatorTool', metadata.creator);
+  if (created) simple('xmp:CreateDate', created.toISOString());
+  simple('xmp:ModifyDate', modified.toISOString());
+  simple('xmp:MetadataDate', modified.toISOString());
+  const bom = String.fromCharCode(0xfeff);
+  return [
+    `<?xpacket begin="${bom}" id="W5M0MpCehiHzreSzNTczkc9d"?>`,
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/">',
+    ' <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">',
+    '  <rdf:Description rdf:about=""',
+    '    xmlns:dc="http://purl.org/dc/elements/1.1/"',
+    '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
+    '    xmlns:pdf="http://ns.adobe.com/pdf/1.3/">',
+    ...lines,
+    '  </rdf:Description>',
+    ' </rdf:RDF>',
+    '</x:xmpmeta>',
+    '<?xpacket end="w"?>',
+  ].join('\n');
+};
+
+/**
+ * Writes document metadata: the information dictionary (standard fields, Source and custom
+ * properties), the catalog language and an XMP packet with the same values. Empty fields are
+ * removed rather than left with pdf-lib's defaults.
+ */
+export const applyDocumentMetadata = (doc: PDFDocument, metadata: DocumentMetadata, now: Date = new Date()) => {
+  const info = (doc as unknown as { getInfoDict(): PDFDict }).getInfoDict();
+  const setText = (key: string, value?: string) => {
+    if (value && value.trim()) info.set(PDFName.of(key), PDFHexString.fromText(value));
+    else info.delete(PDFName.of(key));
+  };
+  setText('Title', metadata.title);
+  setText('Author', metadata.author);
+  setText('Subject', metadata.subject);
+  setText('Keywords', metadata.keywords);
+  setText('Creator', metadata.creator);
+  setText('Producer', metadata.producer);
+  setText('Source', metadata.source);
+
+  const created = validDate(metadata.creationDate);
+  if (created) doc.setCreationDate(created);
+  const modified =
+    metadata.autoModificationDate === false ? validDate(metadata.modificationDate) || now : now;
+  doc.setModificationDate(modified);
+
+  for (const { key, value } of metadata.customProperties || []) {
+    const cleanKey = key.trim();
+    if (!cleanKey || RESERVED_METADATA_KEYS.has(cleanKey)) continue;
+    setText(cleanKey, value);
+  }
+
+  if (metadata.language && metadata.language.trim()) doc.setLanguage(metadata.language.trim());
+
+  const xmp = buildXmpPacket(metadata, created || doc.getCreationDate() || null, modified);
+  const xmpStream = doc.context.stream(new TextEncoder().encode(xmp), {
+    Type: 'Metadata',
+    Subtype: 'XML',
+  });
+  doc.catalog.set(PDFName.of('Metadata'), doc.context.register(xmpStream));
+};
+
 /**
  * Exports edited document with all pages, drawn annotations, and native PDF comments
  */
@@ -678,25 +875,7 @@ export const exportEditedPdf = async (
 
   // Apply document metadata if provided
   if (metadata) {
-    if (metadata.title) outputDoc.setTitle(metadata.title);
-    if (metadata.author) outputDoc.setAuthor(metadata.author);
-    if (metadata.subject) outputDoc.setSubject(metadata.subject);
-    if (metadata.keywords) {
-      const kwList = typeof metadata.keywords === 'string'
-        ? metadata.keywords.split(',').map((k) => k.trim()).filter(Boolean)
-        : metadata.keywords;
-      outputDoc.setKeywords(kwList);
-    }
-    if (metadata.creator) outputDoc.setCreator(metadata.creator);
-    if (metadata.producer) outputDoc.setProducer(metadata.producer);
-    if (metadata.creationDate) {
-      try {
-        outputDoc.setCreationDate(new Date(metadata.creationDate));
-      } catch {
-        // ignore invalid date
-      }
-    }
-    outputDoc.setModificationDate(new Date());
+    applyDocumentMetadata(outputDoc, metadata);
   }
 
   // Pre-load source PDF documents into memory map with automatic catalog repair
@@ -1118,13 +1297,37 @@ export const exportEditedPdf = async (
             const pdfColor = hexToPdfRgb(t.color || '#0f172a');
             const fontSize = t.fontSize || 14;
             const x1 = t.x;
-            const y1 = pageHeight - t.y - t.height;
+            let y1 = pageHeight - t.y - t.height;
             const x2 = t.x + t.width;
             const y2 = pageHeight - t.y;
 
             // 2. Parse lines and spans
             const parsedLines = parseRichTextToLines(t.text, t.richText, t.bulletStyle || 'disc');
             const fullPlainText = linesToPlainText(parsedLines);
+
+            // Typography metrics
+            const lineHeight = fontSize * 1.25;
+            const padX = 4;
+            const padY = 4;
+
+            // Each span uses a standard font when its text fits WinAnsi, otherwise an embedded
+            // Unicode font, so Czech and other non-Latin-1 characters keep their correct glyphs.
+            // Paragraphs are word-wrapped to the box width, as the editor shows them.
+            const maxLineWidth = Math.max(fontSize, x2 - x1 - padX * 2);
+            const visualLines: WrappedPiece[][] = [];
+            for (const line of parsedLines) {
+              const runs: { text: string; font: PDFFont }[] = [];
+              for (const span of line.spans) {
+                if (!span.text) continue;
+                const fontObj = await fonts.fontFor(t.fontFamily, span.bold, span.italic, span.text);
+                runs.push({ text: prepareTextForFont(fontObj, span.text), font: fontObj });
+              }
+              visualLines.push(...wrapStyledRuns(runs, fontSize, maxLineWidth));
+            }
+            // The PDF fonts measure slightly differently from the browser's: grow the box
+            // downward instead of cutting off the last line
+            const neededHeight = padY * 2 + fontSize * 1.25 + Math.max(0, visualLines.length - 1) * lineHeight;
+            if (neededHeight > y2 - y1) y1 = y2 - neededHeight;
 
             // 3. Build ISO 32000-1 Appearance Stream
             let streamOps = '';
@@ -1145,16 +1348,11 @@ export const exportEditedPdf = async (
             }
 
             // Typography stream
-            const lineHeight = fontSize * 1.25;
-            const padX = 4;
-            const padY = 4;
             let curY = y2 - padY - fontSize;
             const { red: tr, green: tg, blue: tb } = pdfColor;
 
             streamOps += `q ${tr.toFixed(3)} ${tg.toFixed(3)} ${tb.toFixed(3)} rg `;
 
-            // Each span uses a standard font when its text fits WinAnsi, otherwise an embedded
-            // Unicode font, so Czech and other non-Latin-1 characters keep their correct glyphs.
             // F1-F4 are the regular/bold/italic/bold-italic standard fonts, U1.. the Unicode ones.
             const spanFontNames = new Map<PDFFont, string>();
             const standardStyles: Array<[boolean, boolean]> = [[false, false], [true, false], [false, true], [true, true]];
@@ -1172,23 +1370,12 @@ export const exportEditedPdf = async (
               return name;
             };
 
-            for (const line of parsedLines) {
-              if (curY < y1) break;
+            for (const pieces of visualLines) {
               let curX = x1 + padX;
-
-              for (const span of line.spans) {
-                if (!span.text) continue;
-                const fontObj = await fonts.fontFor(t.fontFamily, span.bold, span.italic, span.text);
-                const drawable = prepareTextForFont(fontObj, span.text);
-                streamOps += `BT /${fontResourceName(fontObj)} ${fontSize} Tf 1 0 0 1 ${curX.toFixed(2)} ${curY.toFixed(2)} Tm ${fontObj.encodeText(drawable).toString()} Tj ET `;
-
-                let spanW = 0;
-                try {
-                  spanW = fontObj.widthOfTextAtSize(drawable, fontSize);
-                } catch {
-                  spanW = drawable.length * fontSize * 0.55;
-                }
-                curX += spanW;
+              for (const piece of pieces) {
+                if (!piece.text) continue;
+                streamOps += `BT /${fontResourceName(piece.font)} ${fontSize} Tf 1 0 0 1 ${curX.toFixed(2)} ${curY.toFixed(2)} Tm ${piece.font.encodeText(piece.text).toString()} Tj ET `;
+                curX += piece.width;
               }
               curY -= lineHeight;
             }
@@ -1261,15 +1448,22 @@ export const exportEditedPdf = async (
               if (!font) return;
               const lineHeight = fontSize * 1.2;
               let currentTextY = pdfY + w.height - fontSize - 2;
-              for (const line of textLines) {
+              const overlayFont = font;
+              const wrappedLines = textLines.flatMap((line) =>
+                wrapStyledRuns([{ text: prepareTextForFont(overlayFont, line), font: overlayFont }], fontSize, Math.max(fontSize, w.width - 6))
+              );
+              for (const pieces of wrappedLines) {
                 if (currentTextY < pdfY) break;
-                targetPage!.drawText(prepareTextForFont(font, line), {
-                  x: w.x + 3,
-                  y: currentTextY,
-                  size: fontSize,
-                  font,
-                  color: textColor,
-                });
+                const text = pieces.map((p) => p.text).join('');
+                if (text) {
+                  targetPage!.drawText(text, {
+                    x: w.x + 3,
+                    y: currentTextY,
+                    size: fontSize,
+                    font: overlayFont,
+                    color: textColor,
+                  });
+                }
                 currentTextY -= lineHeight;
               }
             });

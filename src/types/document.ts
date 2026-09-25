@@ -46,6 +46,12 @@ export const DEFAULT_RASTERIZATION_SETTINGS: RasterizationSettings = {
   jpegQuality: 0.90,
 };
 
+/** A non-standard entry of the PDF document information dictionary (e.g. Company, Category) */
+export interface CustomMetadataProperty {
+  key: string;
+  value: string;
+}
+
 export interface DocumentMetadata {
   title: string;
   author: string;
@@ -53,10 +59,24 @@ export interface DocumentMetadata {
   keywords: string;
   creator: string;
   producer: string;
+  /** ISO 8601 */
   creationDate?: string;
+  /** ISO 8601 */
   modificationDate?: string;
   pdfVersion?: string;
+  /** Origin of the document (Info /Source, XMP dc:source) */
+  source?: string;
+  /** Natural language of the document, BCP 47 (catalog /Lang), e.g. cs-CZ */
+  language?: string;
+  /** Write the export time as the modification date (default) instead of modificationDate */
+  autoModificationDate?: boolean;
+  customProperties?: CustomMetadataProperty[];
 }
+
+/** Keys with a dedicated field; custom properties must not use them */
+export const RESERVED_METADATA_KEYS = new Set([
+  'Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer', 'CreationDate', 'ModDate', 'Trapped', 'Source',
+]);
 
 export const DEFAULT_DOCUMENT_METADATA: DocumentMetadata = {
   title: '',

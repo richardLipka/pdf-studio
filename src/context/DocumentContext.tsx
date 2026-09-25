@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { PdfPageModel, SourceDocument, RasterizationSettings, DocumentMetadata, DEFAULT_DOCUMENT_METADATA } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { exportEditedPdf } from '../services/pdfExporter';
+import { flattenPdfToImages, FlattenOptions } from '../services/pdfFlattener';
 import {
   deletePage,
   reorderPages,
@@ -176,6 +177,11 @@ interface DocumentContextType {
     rasterSettings?: RasterizationSettings,
     metadataOverride?: DocumentMetadata,
     formExportMode?: FormExportMode
+  ) => Promise<boolean>;
+  /** Exports the document with everything burned in, renders each page to an image and downloads the image-only PDF */
+  flattenAndDownload: (
+    options: FlattenOptions,
+    onProgress?: (done: number, total: number) => void
   ) => Promise<boolean>;
   signAndDownload: (
     privateKeyPem: string,
@@ -1113,6 +1119,38 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const flattenAndDownload = async (
+    options: FlattenOptions,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<boolean> => {
+    if (pages.length === 0) return false;
+    setIsSaving(true);
+    try {
+      const baseName = fileName.replace(/\.pdf$/i, '');
+      const outName = `${baseName}-flattened.pdf`;
+      // Forms are flattened and annotations get appearance streams, so the render includes them
+      const exported = await exportEditedPdf(
+        sources,
+        pages,
+        annotations,
+        outName,
+        undefined,
+        metadata,
+        formValues,
+        'flatten',
+        false
+      );
+      const flattened = await flattenPdfToImages(exported, options, metadata, onProgress);
+      downloadBlob(new Blob([flattened as unknown as BlobPart], { type: 'application/pdf' }), outName);
+      return true;
+    } catch (e: any) {
+      logger.error('save', `Zploštění dokumentu na obrázky selhalo: ${e?.message || e}`, e);
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const signAndDownload = async (
     privateKeyPem: string,
     certificatePem: string,
@@ -1311,6 +1349,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     redo,
     commitHistorySnapshot,
     saveAndDownload,
+    flattenAndDownload,
     signAndDownload,
   };
 
