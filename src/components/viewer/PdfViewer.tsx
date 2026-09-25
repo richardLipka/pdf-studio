@@ -18,6 +18,7 @@ export const PdfViewer: React.FC = () => {
     selectedPageIds,
     setSelectedPageIds,
     togglePageSelection,
+    consumeActivePageScrollSkip,
   } = useDocument();
   const { activeTool } = useEditor();
 
@@ -36,6 +37,8 @@ export const PdfViewer: React.FC = () => {
 
   // Scroll active page into main view when selected from outside (sidebar click, arrow keys)
   useEffect(() => {
+    // Activated by clicking on the page itself: it is in view, scrolling would move it under the pointer
+    if (consumeActivePageScrollSkip()) return;
     if (isUserScrollingRef.current) {
       return; // Do not interrupt user mousewheel / scrollbar scrolling
     }

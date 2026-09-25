@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { ToolType, ShapeType, EditorTab } from '../types/annotations';
 import { SignatureStamp, StampExportPackage } from '../types/stamp';
 import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
@@ -79,10 +79,16 @@ interface EditorContextType {
   editSidePanelTab: 'remove' | 'stream';
   setEditSidePanelTab: (tab: 'remove' | 'stream') => void;
   toggleEditSidePanel: (tab?: 'remove' | 'stream') => void;
+  /**
+   * Selected page element in edit mode (text segment id or image placement id). Ids are only
+   * unique within a page: selectedStreamBlockPageId says which page (null = the active page).
+   */
   selectedStreamBlockId: string | null;
-  setSelectedStreamBlockId: (id: string | null) => void;
+  selectedStreamBlockPageId: string | null;
+  setSelectedStreamBlockId: (id: string | null, pageId?: string | null) => void;
   hoveredBlockId: string | null;
-  setHoveredBlockId: (id: string | null) => void;
+  hoveredBlockPageId: string | null;
+  setHoveredBlockId: (id: string | null, pageId?: string | null) => void;
   hoveredBlockText: string | null;
   setHoveredBlockText: (text: string | null) => void;
 
@@ -124,13 +130,34 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Edit & Stream Right-Side Panel state
   const [isEditSidePanelOpen, setIsEditSidePanelOpenState] = useState<boolean>(false);
   const [editSidePanelTab, setEditSidePanelTab] = useState<'remove' | 'stream'>('remove');
-  const [selectedStreamBlockId, setSelectedStreamBlockId] = useState<string | null>(null);
-  const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{ id: string | null; pageId: string | null }>({ id: null, pageId: null });
+  const [hover, setHover] = useState<{ id: string | null; pageId: string | null }>({ id: null, pageId: null });
+  const selectedStreamBlockId = selection.id;
+  const selectedStreamBlockPageId = selection.pageId;
+  const hoveredBlockId = hover.id;
+  const hoveredBlockPageId = hover.pageId;
+  const setSelectedStreamBlockId = useCallback(
+    (id: string | null, pageId: string | null = null) => setSelection({ id, pageId: id ? pageId : null }),
+    []
+  );
+  const setHoveredBlockId = useCallback(
+    (id: string | null, pageId: string | null = null) => setHover({ id, pageId: id ? pageId : null }),
+    []
+  );
   const [hoveredBlockText, setHoveredBlockText] = useState<string | null>(null);
 
   // Set active tab with auto-switching & mutual exclusivity for right dock
+  // Leaving the edit tab: its tools and page-element selection must not stay active in the
+  // review and signature tabs (their overlays are shown only while editing)
+  const leaveEditMode = () => {
+    setActiveTool((tool) => (tool === 'removeElements' || tool === 'streamReplace' || tool === 'whiteout' ? 'select' : tool));
+    setSelection({ id: null, pageId: null });
+    setHover({ id: null, pageId: null });
+  };
+
   const setActiveTab = (tab: EditorTab) => {
     setActiveTabState(tab);
+    if (tab !== 'edit') leaveEditMode();
     if (tab === 'edit') {
       setIsNotesPanelOpenState(false);
       setIsEditSidePanelOpenState(true);
@@ -158,6 +185,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (next) {
         setIsEditSidePanelOpenState(false);
         setActiveTabState('review');
+        leaveEditMode();
       }
       return next;
     });
@@ -492,8 +520,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setEditSidePanelTab,
     toggleEditSidePanel,
     selectedStreamBlockId,
+    selectedStreamBlockPageId,
     setSelectedStreamBlockId,
     hoveredBlockId,
+    hoveredBlockPageId,
     setHoveredBlockId,
     hoveredBlockText,
     setHoveredBlockText,

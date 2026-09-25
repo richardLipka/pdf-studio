@@ -1811,6 +1811,14 @@ export interface PageImageInfo {
   isFullPageScan?: boolean;
   thumbnailDataUrl?: string;
   rawInvocation?: string;
+  /** How the image is stored: an image XObject or inline image data in the content stream */
+  kind?: 'xobject' | 'inline';
+  /** Index among invocations of the same image (or among inline images) on the page */
+  occurrence?: number;
+  /** How many times the same image XObject is painted on this page */
+  placementCount?: number;
+  /** Painted inside one of the page's Form XObjects */
+  inForm?: boolean;
 }
 
 /**
@@ -1837,128 +1845,91 @@ export async function getPageImages(
     const { streamText } = await getPageContentStream(pdfDocBytes, pageIndex);
 
     const images: PageImageInfo[] = [];
-    const discoveredNames = new Set<string>();
+    const { layout } = await getPageContentStream(pdfDocBytes, pageIndex);
+    if (!streamText || !layout) return { images };
 
-    // 1. Inspect /Resources /XObject dictionary (supporting indirect references and inherited resources)
-    const resources = safeGetPageResources(page.node);
+    const context = page.node.context;
+    const pageResources = safeGetPageResources(page.node);
+    const xObjectsOf = (resources: unknown): PDFDict | undefined => {
+      const dict = resources instanceof PDFDict ? resources.lookup(PDFName.of('XObject')) : undefined;
+      return dict instanceof PDFDict ? dict : undefined;
+    };
+    const streamDict = (obj: unknown): PDFDict | undefined =>
+      obj instanceof PDFDict ? obj : (obj as any)?.dict instanceof PDFDict ? (obj as any).dict : undefined;
+    const pageXObjects = xObjectsOf(pageResources);
+    // Resources of each stream part: the page's, or the form's own (falling back to the page's)
+    const partXObjects = layout.map((part) => {
+      if (part.kind !== 'form' || !part.name || !pageXObjects) return pageXObjects;
+      const formDict = streamDict(context.lookup(pageXObjects.get(PDFName.of(part.name))));
+      return xObjectsOf(formDict?.lookup(PDFName.of('Resources'))) || pageXObjects;
+    });
+    const imageDicts = new Map<string, PDFDict>();
 
-    if (resources) {
-      let xObjectDict = resources.get(PDFName.of('XObject'));
-      if (xObjectDict instanceof PDFRef) {
-        xObjectDict = page.node.context.lookup(xObjectDict);
+    const placements = findImagePlacements(streamText, layout, (partIndex, name) => {
+      const dict = streamDict(context.lookup(partXObjects[partIndex]?.get(PDFName.of(name))));
+      if (!dict) return null;
+      const subtype = dict.get(PDFName.of('Subtype'))?.toString();
+      if (subtype === '/Image') {
+        imageDicts.set(`${partIndex}:${name}`, dict);
+        return { kind: 'image' };
       }
-      if (xObjectDict instanceof PDFDict) {
-        const entries = xObjectDict.entries();
-        for (const [nameKey, refVal] of entries) {
-          const cleanName = nameKey.asString().replace(/^\//, '');
-          const xObj = page.node.context.lookup(refVal);
-          const dict =
-            xObj instanceof PDFDict
-              ? xObj
-              : (xObj as any)?.dict instanceof PDFDict
-              ? (xObj as any).dict
-              : undefined;
-
-          if (dict) {
-            const subtype = dict.get(PDFName.of('Subtype'));
-            if (subtype?.toString() === '/Image') {
-              discoveredNames.add(cleanName);
-
-              const widthVal = dict.get(PDFName.of('Width'));
-              const heightVal = dict.get(PDFName.of('Height'));
-              const colorSpaceVal = dict.get(PDFName.of('ColorSpace'));
-              const filterVal = dict.get(PDFName.of('Filter'));
-
-              const pixelWidth =
-                widthVal instanceof PDFNumber
-                  ? widthVal.asNumber()
-                  : parseInt(String(widthVal || '').replace(/[^0-9]/g, ''), 10) || undefined;
-              const pixelHeight =
-                heightVal instanceof PDFNumber
-                  ? heightVal.asNumber()
-                  : parseInt(String(heightVal || '').replace(/[^0-9]/g, ''), 10) || undefined;
-
-              images.push({
-                id: `img_${images.length + 1}`,
-                name: `/${cleanName}`,
-                cleanName,
-                pixelWidth,
-                pixelHeight,
-                colorSpace: colorSpaceVal ? String(colorSpaceVal).replace(/^\//, '') : undefined,
-                filter: filterVal ? String(filterVal).replace(/^\//, '') : undefined,
-              });
-            }
-          }
-        }
+      if (subtype === '/Form') {
+        const matrixArr = dict.lookup(PDFName.of('Matrix'));
+        const nums =
+          matrixArr instanceof PDFArray ? matrixArr.asArray().map((n) => (n instanceof PDFNumber ? n.asNumber() : NaN)) : [];
+        const matrix = (nums.length === 6 && nums.every((n) => Number.isFinite(n)) ? nums : [1, 0, 0, 1, 0, 0]) as [
+          number, number, number, number, number, number
+        ];
+        const formPart = layout[partIndex]?.kind === 'page' ? layout.findIndex((p) => p.kind === 'form' && p.name === name) : -1;
+        return { kind: 'form', partIndex: formPart >= 0 ? formPart : undefined, matrix };
       }
-    }
+      return null;
+    });
 
-    // 2. Correlate with streamText to find layout coordinates (cm /Do)
-    if (streamText) {
-      const doRegex = /\/([A-Za-z0-9_\-+]+)\s+Do/g;
-      let doMatch: RegExpExecArray | null;
-      while ((doMatch = doRegex.exec(streamText)) !== null) {
-        const cleanName = doMatch[1];
-        const matchIndex = doMatch.index;
-        
-        // Inspect preceding chunk back to last graphics state push 'q' (or up to 600 chars)
-        const precedingChunk = streamText.substring(Math.max(0, matchIndex - 600), matchIndex);
-        const lastQIndex = precedingChunk.lastIndexOf('q');
-        const searchRegion = lastQIndex !== -1 ? precedingChunk.substring(lastQIndex) : precedingChunk;
+    const numberOf = (value: unknown): number | undefined => {
+      if (value instanceof PDFNumber) return value.asNumber();
+      const n = parseInt(String(value ?? '').replace(/[^0-9]/g, ''), 10);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    };
+    const nameOf = (value: unknown): string | undefined => (value ? String(value).replace(/^\//, '') : undefined);
+    const placementCounts = new Map<string, number>();
+    placements.forEach((p) => {
+      if (p.kind === 'xobject') placementCounts.set(p.name, (placementCounts.get(p.name) ?? 0) + 1);
+    });
 
-        // Multiply all 2D affine transformation matrices in order: M = [a, b, c, d, e, f]
-        // Standard PDF affine matrix: [a b 0; c d 0; e f 1]
-        let curM = [1, 0, 0, 1, 0, 0]; // identity
-        let hasCm = false;
-
-        const cmRegex = /([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+([0-9.-]+)\s+cm/g;
-        let cmMatch: RegExpExecArray | null;
-        while ((cmMatch = cmRegex.exec(searchRegion)) !== null) {
-          hasCm = true;
-          const a = parseFloat(cmMatch[1]);
-          const b = parseFloat(cmMatch[2]);
-          const c = parseFloat(cmMatch[3]);
-          const d = parseFloat(cmMatch[4]);
-          const e = parseFloat(cmMatch[5]);
-          const f = parseFloat(cmMatch[6]);
-
-          // Matrix multiplication: newM = curM * [a, b, c, d, e, f]
-          const aPrime = curM[0] * a + curM[2] * b;
-          const bPrime = curM[1] * a + curM[3] * b;
-          const cPrime = curM[0] * c + curM[2] * d;
-          const dPrime = curM[1] * c + curM[3] * d;
-          const ePrime = curM[0] * e + curM[2] * f + curM[4];
-          const fPrime = curM[1] * e + curM[3] * f + curM[5];
-
-          curM = [aPrime, bPrime, cPrime, dPrime, ePrime, fPrime];
-        }
-
-        const calcWidth = hasCm ? Math.round(Math.hypot(curM[0], curM[1]) * 10) / 10 : undefined;
-        const calcHeight = hasCm ? Math.round(Math.hypot(curM[2], curM[3]) * 10) / 10 : undefined;
-        const calcX = hasCm ? Math.round(curM[4] * 10) / 10 : undefined;
-        const calcY = hasCm ? Math.round(curM[5] * 10) / 10 : undefined;
-
-        const existing = images.find((im) => im.cleanName === cleanName);
-        if (existing) {
-          existing.width = calcWidth || existing.width;
-          existing.height = calcHeight || existing.height;
-          existing.x = calcX !== undefined ? calcX : existing.x;
-          existing.y = calcY !== undefined ? calcY : existing.y;
-          existing.rawInvocation = searchRegion.trim();
-        } else if (!discoveredNames.has(cleanName)) {
-          discoveredNames.add(cleanName);
-          images.push({
-            id: `img_${images.length + 1}`,
-            name: `/${cleanName}`,
-            cleanName,
-            width: calcWidth,
-            height: calcHeight,
-            x: calcX,
-            y: calcY,
-            rawInvocation: searchRegion.trim(),
-          });
-        }
+    for (const p of placements) {
+      const [minX, minY, maxX, maxY] = p.bbox;
+      const info: PageImageInfo = {
+        id: p.id,
+        name: p.kind === 'xobject' ? `/${p.name}` : '',
+        cleanName: p.kind === 'xobject' ? p.name : `inline-${p.occurrence + 1}`,
+        kind: p.kind,
+        occurrence: p.occurrence,
+        placementCount: p.kind === 'xobject' ? placementCounts.get(p.name) : 1,
+        inForm: layout[p.partIndex]?.kind === 'form',
+        x: Math.round(minX * 10) / 10,
+        y: Math.round(minY * 10) / 10,
+        width: Math.round((maxX - minX) * 10) / 10,
+        height: Math.round((maxY - minY) * 10) / 10,
+        rawInvocation: streamText.substring(p.start, p.end).slice(0, 300),
+      };
+      if (p.kind === 'xobject') {
+        const dict = imageDicts.get(`${p.partIndex}:${p.name}`);
+        info.pixelWidth = numberOf(dict?.get(PDFName.of('Width')));
+        info.pixelHeight = numberOf(dict?.get(PDFName.of('Height')));
+        info.colorSpace = nameOf(dict?.get(PDFName.of('ColorSpace')));
+        info.filter = nameOf(dict?.get(PDFName.of('Filter')));
+      } else {
+        const params = p.inlineParams || {};
+        info.pixelWidth = numberOf(params.W ?? params.Width);
+        info.pixelHeight = numberOf(params.H ?? params.Height);
+        info.colorSpace = params.CS ?? params.ColorSpace;
+        info.filter = params.F ?? params.Filter;
       }
+      // Resolution along the image's own axes (rotated or skewed placements included)
+      const drawnWidth = Math.hypot(p.matrix[0], p.matrix[1]);
+      if (info.pixelWidth && drawnWidth > 0) info.dpi = Math.round((info.pixelWidth / drawnWidth) * 72);
+      images.push(info);
     }
 
     const pageWidth = page.getWidth();
@@ -1966,20 +1937,17 @@ export async function getPageImages(
 
     for (const img of images) {
       if (!img.format && img.filter) {
-        if (img.filter.includes('DCTDecode') || img.filter.includes('JPXDecode')) {
+        if (img.filter.includes('DCT') || img.filter.includes('JPX')) {
           img.format = 'jpeg';
-        } else if (img.filter.includes('JBIG2Decode')) {
+        } else if (img.filter.includes('JBIG2')) {
           img.format = 'jbig2';
-        } else if (img.filter.includes('CCITTFaxDecode')) {
+        } else if (img.filter.includes('CCITT') || img.filter === 'CCF') {
           img.format = 'ccitt';
-        } else if (img.filter.includes('FlateDecode')) {
+        } else if (img.filter.includes('Flate') || img.filter === 'Fl') {
           img.format = 'png';
         } else {
           img.format = 'unknown';
         }
-      }
-      if (img.pixelWidth && img.width && img.width > 0) {
-        img.dpi = Math.round((img.pixelWidth / img.width) * 72);
       }
       if (img.width && img.height && pageWidth > 0 && pageHeight > 0) {
         const areaRatio = (img.width * img.height) / (pageWidth * pageHeight);
@@ -2161,22 +2129,61 @@ export async function removeStreamSegmentFromPage(
 // Operators that put something on the page; a q ... Q group containing any of them besides the
 // image being removed must stay (only the image invocation goes)
 const PAINTING_OPERATORS = new Set([
-  'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'sh', 'BT', 'BI', 'ID', 'EI', 'Do', 'd0', 'd1',
+  'S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'sh', 'BT', 'INLINE', 'Do', 'd0', 'd1',
 ]);
 
+type WalkMatrix = [number, number, number, number, number, number];
+
+interface WalkOperation {
+  operator: string;
+  operands: { type: string; raw: string }[];
+  start: number;
+  end: number;
+  operatorStart: number;
+}
+
+/** Content stream operations with each inline image (BI ... ID data EI) merged into one INLINE op */
+function walkOperations(stream: string, from = 0, to = stream.length): WalkOperation[] {
+  const ops = tokenizeContentStream(stream, from, to) as WalkOperation[];
+  const merged: WalkOperation[] = [];
+  for (let i = 0; i < ops.length; i++) {
+    const op = ops[i];
+    if (op.operator === 'BI' && ops[i + 1]?.operator === 'ID') {
+      const data = ops[i + 1];
+      merged.push({ operator: 'INLINE', operands: data.operands, start: op.start, end: data.end, operatorStart: op.operatorStart });
+      i++;
+    } else {
+      merged.push(op);
+    }
+  }
+  return merged;
+}
+
+/** Resource name of a /Name operand, with #xx escapes decoded */
+const decodeNameOperand = (raw: string | undefined): string | null => {
+  if (!raw || !raw.startsWith('/')) return null;
+  return raw.slice(1).replace(/#([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+};
+
+const multiplyWalkMatrix = (m1: WalkMatrix, m2: WalkMatrix): WalkMatrix => [
+  m1[0] * m2[0] + m1[2] * m2[1],
+  m1[1] * m2[0] + m1[3] * m2[1],
+  m1[0] * m2[2] + m1[2] * m2[3],
+  m1[1] * m2[2] + m1[3] * m2[3],
+  m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+  m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+];
+
 /**
- * Removes every invocation of the named XObject (`/Name Do`) from a content stream. When the
- * invocation sits in a q ... Q group that only sets up the image (cm, gs, clipping...), the whole
- * group goes; otherwise just the `/Name Do` operation, so nothing else drawn on the page is lost.
+ * Removes the operations selected by `isTarget` from a content stream. When a target sits in a
+ * q ... Q group that only sets it up (cm, gs, clipping...), the whole group goes; otherwise just
+ * the operation, so nothing else drawn on the page is lost. `occurrence` counts invocations of the
+ * same XObject name (Do) or inline images (INLINE) in stream order.
  */
-export function removeXObjectInvocations(stream: string, name: string): { stream: string; removed: number } {
-  const cleanName = name.replace(/^\//, '');
-  const isTarget = (raw: string | undefined) => {
-    if (!raw || !raw.startsWith('/')) return false;
-    // Names may contain #xx escapes
-    const decoded = raw.slice(1).replace(/#([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-    return decoded === cleanName;
-  };
+function removeTargetOperations(
+  stream: string,
+  isTarget: (op: WalkOperation, name: string | null, occurrence: number) => boolean
+): { stream: string; removed: number } {
   interface Frame {
     start: number;
     hasOther: boolean;
@@ -2185,13 +2192,17 @@ export function removeXObjectInvocations(stream: string, name: string): { stream
   const root: Frame = { start: -1, hasOther: true, targets: [] };
   const stack: Frame[] = [root];
   const ranges: { start: number; end: number }[] = [];
+  const doCounts = new Map<string, number>();
+  let inlineCount = 0;
   let removed = 0;
 
-  for (const op of tokenizeContentStream(stream)) {
+  for (const op of walkOperations(stream)) {
     const top = stack[stack.length - 1];
     if (op.operator === 'q') {
       stack.push({ start: op.operatorStart, hasOther: false, targets: [] });
-    } else if (op.operator === 'Q') {
+      continue;
+    }
+    if (op.operator === 'Q') {
       if (stack.length === 1) continue; // unbalanced Q
       const frame = stack.pop()!;
       const parent = stack[stack.length - 1];
@@ -2202,7 +2213,20 @@ export function removeXObjectInvocations(stream: string, name: string): { stream
         if (frame.hasOther) parent.hasOther = true;
       }
       removed += frame.targets.length;
-    } else if (op.operator === 'Do' && isTarget(op.operands[0]?.raw)) {
+      continue;
+    }
+    let name: string | null = null;
+    let occurrence = -1;
+    if (op.operator === 'Do') {
+      name = decodeNameOperand(op.operands[0]?.raw);
+      if (name !== null) {
+        occurrence = doCounts.get(name) ?? 0;
+        doCounts.set(name, occurrence + 1);
+      }
+    } else if (op.operator === 'INLINE') {
+      occurrence = inlineCount++;
+    }
+    if ((op.operator === 'Do' || op.operator === 'INLINE') && isTarget(op, name, occurrence)) {
       top.targets.push({ start: op.start, end: op.end });
     } else if (PAINTING_OPERATORS.has(op.operator)) {
       top.hasOther = true;
@@ -2220,6 +2244,146 @@ export function removeXObjectInvocations(stream: string, name: string): { stream
     out = out.substring(0, range.start) + out.substring(range.end);
   }
   return { stream: out, removed };
+}
+
+/**
+ * Removes invocations of the named XObject (`/Name Do`): all of them, or only the given
+ * occurrence (0-based, in stream order) when one placement of a repeated image is deleted.
+ */
+export function removeXObjectInvocations(
+  stream: string,
+  name: string,
+  occurrence?: number
+): { stream: string; removed: number } {
+  const cleanName = name.replace(/^\//, '');
+  return removeTargetOperations(
+    stream,
+    (op, opName, opOccurrence) =>
+      op.operator === 'Do' && opName === cleanName && (occurrence === undefined || opOccurrence === occurrence)
+  );
+}
+
+/** Removes one inline image (BI ... ID ... EI), counted in stream order */
+export function removeInlineImage(stream: string, occurrence: number): { stream: string; removed: number } {
+  return removeTargetOperations(stream, (op, _name, opOccurrence) => op.operator === 'INLINE' && opOccurrence === occurrence);
+}
+
+/** Number of `/Name Do` invocations in a content stream */
+export function countXObjectInvocations(stream: string, name: string): number {
+  const cleanName = name.replace(/^\//, '');
+  return walkOperations(stream).filter((op) => op.operator === 'Do' && decodeNameOperand(op.operands[0]?.raw) === cleanName)
+    .length;
+}
+
+/** One place where an image is painted on the page */
+export interface ImagePlacement {
+  /** `img:<name>:<occurrence>` for image XObjects, `inline:<occurrence>` for inline images */
+  id: string;
+  kind: 'xobject' | 'inline';
+  /** Resource name (image XObjects) */
+  name: string;
+  /** Index among invocations of the same name / among inline images, in stream order */
+  occurrence: number;
+  partIndex: number;
+  /** Range of the painting operation in the composed stream */
+  start: number;
+  end: number;
+  /** Image space (unit square) -> page user space */
+  matrix: WalkMatrix;
+  /** [minX, minY, maxX, maxY] in page user space */
+  bbox: [number, number, number, number];
+  /** Inline image dictionary entries (W, H, BPC, CS, F...) */
+  inlineParams?: Record<string, string>;
+}
+
+export type XObjectResolution =
+  | { kind: 'image' }
+  | { kind: 'form'; partIndex?: number; matrix: WalkMatrix }
+  | null;
+
+/**
+ * Finds every painted image of a page in the composed stream (page contents followed by its Form
+ * XObjects): image XObjects and inline images, with the transformation in effect, descending into
+ * the page's forms where they are invoked. Each invocation gets its own id, so repeated images can
+ * be listed, selected and deleted one by one.
+ */
+export function findImagePlacements(
+  streamText: string,
+  layout: StreamPartLayout[],
+  resolveXObject: (partIndex: number, name: string) => XObjectResolution
+): ImagePlacement[] {
+  const opsByPart: WalkOperation[][] = layout.map((part) => walkOperations(streamText, part.start, part.end));
+
+  // Occurrence numbers in stream text order, as the removal functions count them
+  const occurrenceAt = new Map<number, number>();
+  const doCounts = new Map<string, number>();
+  let inlineCount = 0;
+  opsByPart.flat().sort((a, b) => a.start - b.start).forEach((op) => {
+    if (op.operator === 'Do') {
+      const name = decodeNameOperand(op.operands[0]?.raw);
+      if (name === null) return;
+      const n = doCounts.get(name) ?? 0;
+      doCounts.set(name, n + 1);
+      occurrenceAt.set(op.start, n);
+    } else if (op.operator === 'INLINE') {
+      occurrenceAt.set(op.start, inlineCount++);
+    }
+  });
+
+  const placements: ImagePlacement[] = [];
+  const usedIds = new Map<string, number>();
+  const pushPlacement = (placement: Omit<ImagePlacement, 'bbox'>) => {
+    const m = placement.matrix;
+    const xs = [m[4], m[0] + m[4], m[0] + m[2] + m[4], m[2] + m[4]];
+    const ys = [m[5], m[1] + m[5], m[1] + m[3] + m[5], m[3] + m[5]];
+    // A form painted twice paints its images twice from the same operation
+    const seen = usedIds.get(placement.id) ?? 0;
+    usedIds.set(placement.id, seen + 1);
+    placements.push({
+      ...placement,
+      id: seen === 0 ? placement.id : `${placement.id}@${seen}`,
+      bbox: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+    });
+  };
+
+  const walk = (ops: WalkOperation[], partIndex: number, initial: WalkMatrix, depth: number) => {
+    let ctm = initial;
+    const stack: WalkMatrix[] = [];
+    for (const op of ops) {
+      if (op.operator === 'q') {
+        stack.push(ctm);
+      } else if (op.operator === 'Q') {
+        if (stack.length > 0) ctm = stack.pop()!;
+      } else if (op.operator === 'cm') {
+        const nums = op.operands.map((o) => Number(o.raw));
+        if (nums.length === 6 && nums.every((n) => Number.isFinite(n))) ctm = multiplyWalkMatrix(ctm, nums as WalkMatrix);
+      } else if (op.operator === 'Do') {
+        const name = decodeNameOperand(op.operands[0]?.raw);
+        if (name === null) continue;
+        const resolved = resolveXObject(partIndex, name);
+        if (resolved?.kind === 'image') {
+          const occurrence = occurrenceAt.get(op.start) ?? 0;
+          pushPlacement({ id: `img:${name}:${occurrence}`, kind: 'xobject', name, occurrence, partIndex, start: op.start, end: op.end, matrix: ctm });
+        } else if (resolved?.kind === 'form' && resolved.partIndex !== undefined && depth < 4) {
+          walk(opsByPart[resolved.partIndex] || [], resolved.partIndex, multiplyWalkMatrix(ctm, resolved.matrix), depth + 1);
+        }
+      } else if (op.operator === 'INLINE') {
+        const occurrence = occurrenceAt.get(op.start) ?? 0;
+        const params: Record<string, string> = {};
+        for (let i = 0; i + 1 < op.operands.length; i += 2) {
+          const key = decodeNameOperand(op.operands[i].raw);
+          if (key) params[key] = op.operands[i + 1].raw.replace(/^\//, '');
+        }
+        pushPlacement({ id: `inline:${occurrence}`, kind: 'inline', name: '', occurrence, partIndex, start: op.start, end: op.end, matrix: ctm, inlineParams: params });
+      }
+    }
+  };
+
+  // Page content streams run in sequence; forms are walked where the page invokes them
+  const pageOps = layout.flatMap((part, idx) => (part.kind === 'page' ? opsByPart[idx] : []));
+  const firstPagePart = Math.max(0, layout.findIndex((part) => part.kind === 'page'));
+  walk(pageOps, firstPagePart, [1, 0, 0, 1, 0, 0], 0);
+  return placements;
 }
 
 /**
@@ -2305,40 +2469,52 @@ export async function removeMultipleElementsFromPage(
         .replace(/\/[A-Za-z0-9_\-+Client]+\s*BMC\s*EMC/g, '');
     }
 
-    // 2. Remove images
+    // 2. Remove images: placement ids ("img:<name>:<occurrence>", "inline:<occurrence>") remove one
+    // painted image, a plain name removes every invocation of that image XObject
     if (imageNames.length > 0) {
       const resources = safeGetPageResources(page.node);
       const sharedXObjectDict = resources?.lookup(PDFName.of('XObject'));
       const hasImageEntry = (name: string) =>
         sharedXObjectDict instanceof PDFDict && sharedXObjectDict.has(PDFName.of(name));
-      // Resources are often shared by many pages; only this page's copy may lose the entry,
-      // otherwise other pages would keep invoking an XObject that no longer exists
-      const xObjectDict = imageNames.some((n) => hasImageEntry(n.replace(/^\//, '')))
-        ? getPageLocalXObjectDict(pdfDoc, page)
-        : undefined;
 
-      for (const rawName of imageNames) {
-        const cleanName = rawName.replace(/^\//, '');
+      type ImageTarget = { kind: 'all' | 'placement' | 'inline'; name: string; occurrence: number; label: string };
+      const targets: ImageTarget[] = imageNames.map((raw) => {
+        const inline = /^inline:(\d+)(?:@\d+)?$/.exec(raw);
+        if (inline) return { kind: 'inline', name: '', occurrence: Number(inline[1]), label: raw };
+        const placed = /^img:(.+):(\d+)(?:@\d+)?$/.exec(raw);
+        if (placed) return { kind: 'placement', name: placed[1], occurrence: Number(placed[2]), label: placed[1] };
+        const name = raw.replace(/^\//, '');
+        return { kind: 'all', name, occurrence: -1, label: name };
+      });
+      // Later occurrences first, so removing one does not renumber the others still to remove
+      targets.sort((a, b) => b.occurrence - a.occurrence);
 
-        // Delete from /Resources /XObject dictionary
-        if (xObjectDict) {
-          xObjectDict.delete(PDFName.of(cleanName));
-        }
-
-        // Delete its invocations from the content stream (token-based: a regex spanning from an
-        // earlier "q" could swallow text and graphics drawn before the image)
-        const result = removeXObjectInvocations(modifiedStream, cleanName);
+      const touchedNames = new Set<string>();
+      for (const target of targets) {
+        const result =
+          target.kind === 'inline'
+            ? removeInlineImage(modifiedStream, target.occurrence)
+            : removeXObjectInvocations(modifiedStream, target.name, target.kind === 'placement' ? target.occurrence : undefined);
         modifiedStream = result.stream;
         if (result.removed > 0) {
           removedCount++;
+          if (target.name) touchedNames.add(target.name);
         } else if (segmentIds.length === 0) {
           return {
             updatedPdfBytes: pdfDocBytes,
             removedCount: 0,
             updatedStream: streamText,
-            error: `Obrázek ${cleanName} se v obsahu stránky nepodařilo najít (může být vložen ve vnořeném objektu).`,
+            error: `Obrázek ${target.label} se v obsahu stránky nepodařilo najít. Obnovte seznam prvků a vyberte ho znovu.`,
           };
         }
+      }
+
+      // An image XObject no longer painted anywhere on the page leaves this page's resources
+      // (a page-local copy: resources are often shared by many pages)
+      const unused = [...touchedNames].filter((name) => hasImageEntry(name) && countXObjectInvocations(modifiedStream, name) === 0);
+      if (unused.length > 0) {
+        const xObjectDict = getPageLocalXObjectDict(pdfDoc, page);
+        unused.forEach((name) => xObjectDict.delete(PDFName.of(name)));
       }
     }
 

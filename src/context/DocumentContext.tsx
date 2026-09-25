@@ -82,7 +82,10 @@ interface DocumentContextType {
   // Document Operations
   loadPdfFile: (file: File) => Promise<void>;
   loadSamplePdf: (buffer: ArrayBuffer, lang: string) => Promise<void>;
-  setActivePageIndex: (index: number) => void;
+  /** scrollIntoView: false when the page is activated by clicking on it (it is already in view) */
+  setActivePageIndex: (index: number, options?: { scrollIntoView?: boolean }) => void;
+  /** True once after setActivePageIndex(..., { scrollIntoView: false }) */
+  consumeActivePageScrollSkip: () => boolean;
   setScale: (scale: number | ((prev: number) => number)) => void;
   zoomToFitPage: (pageIndex?: number) => void;
   zoomToFitWidth: (pageIndex?: number) => void;
@@ -275,9 +278,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setFormValuesState(next);
   }, []);
 
-  const setActivePageIndex = useCallback((index: number) => {
+  const skipActivePageScrollRef = useRef(false);
+  const setActivePageIndex = useCallback((index: number, options?: { scrollIntoView?: boolean }) => {
+    if (options?.scrollIntoView === false && index !== activePageIndexRef.current) skipActivePageScrollRef.current = true;
     activePageIndexRef.current = index;
     setActivePageIndexState(index);
+  }, []);
+  const consumeActivePageScrollSkip = useCallback(() => {
+    const skip = skipActivePageScrollRef.current;
+    skipActivePageScrollRef.current = false;
+    return skip;
   }, []);
 
   const setHistory = useCallback((next: HistoryState) => {
@@ -1350,6 +1360,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     commitHistorySnapshot,
     saveAndDownload,
     flattenAndDownload,
+    consumeActivePageScrollSkip,
     signAndDownload,
   };
 

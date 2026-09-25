@@ -90,8 +90,10 @@ export const EditSidePanel: React.FC = () => {
     editSidePanelTab,
     setEditSidePanelTab,
     selectedStreamBlockId,
+    selectedStreamBlockPageId,
     setSelectedStreamBlockId,
     hoveredBlockId,
+    hoveredBlockPageId,
     setHoveredBlockId,
     hoveredBlockText,
     setHoveredBlockText,
@@ -299,7 +301,7 @@ export const EditSidePanel: React.FC = () => {
       // An image selected on the canvas stays selected; the nearest text block must not replace it
       const selectedImage =
         Boolean(selectedStreamBlockId) &&
-        (selectedStreamBlockId!.startsWith('img_') || selectedStreamBlockId!.startsWith('/'));
+        (selectedStreamBlockId!.startsWith('img:') || selectedStreamBlockId!.startsWith('inline:'));
       const keepSelection =
         (selectedImage && preferredTargetText === undefined && preferredTargetPos === undefined) ||
         (!isFreshTarget &&
@@ -431,7 +433,7 @@ export const EditSidePanel: React.FC = () => {
   const handleDeleteImage = async (im: PageImageInfo) => {
     setIsSaving(true);
     try {
-      const res = await removeMultiplePageElements([], [im.name], activePageIndex);
+      const res = await removeMultiplePageElements([], [im.id], activePageIndex);
       if (res.success) {
         setStatusMessage({
           type: 'success',
@@ -439,7 +441,7 @@ export const EditSidePanel: React.FC = () => {
         });
         setSelectedImageNames((prev) => {
           const next = new Set(prev);
-          next.delete(im.name);
+          next.delete(im.id);
           return next;
         });
         await loadPageData();
@@ -463,13 +465,8 @@ export const EditSidePanel: React.FC = () => {
   // a text block), unless the user is typing or an annotation is selected (that has its own handler)
   const deleteSelectedElementRef = useRef<() => boolean>(() => false);
   deleteSelectedElementRef.current = () => {
-    if (!selectedStreamBlockId || selectedAnnotationId || isSaving || isLoading) return false;
-    const image = images.find(
-      (im) =>
-        selectedStreamBlockId === im.name ||
-        selectedStreamBlockId === `img_${im.cleanName}` ||
-        selectedStreamBlockId === `/${im.cleanName}`
-    );
+    if (!selectedStreamBlockId || !selectionIsOnActivePage || selectedAnnotationId || isSaving || isLoading) return false;
+    const image = images.find((im) => selectedStreamBlockId === im.id);
     if (image) {
       handleDeleteImage(image);
       return true;
@@ -554,6 +551,22 @@ export const EditSidePanel: React.FC = () => {
   useEffect(() => {
     setStatusMessage({ type: 'idle' });
   }, [isEditSidePanelOpen, activePageIndex]);
+
+  // Ids repeat on every page; the panel lists the active page, so a selection or hover made on
+  // another page must neither highlight nor act on this page's elements
+  const activePageId = pages[activePageIndex]?.id ?? null;
+  const selectionIsOnActivePage = !selectedStreamBlockPageId || selectedStreamBlockPageId === activePageId;
+  const hoverIsOnActivePage = !hoveredBlockPageId || hoveredBlockPageId === activePageId;
+  const lastActivePageIdRef = useRef(activePageId);
+  useEffect(() => {
+    if (lastActivePageIdRef.current === activePageId) return;
+    lastActivePageIdRef.current = activePageId;
+    // Switching pages (scrolling, sidebar, keyboard) drops the previous page's selection; a block
+    // clicked on the newly active page keeps its own selection
+    if (selectedStreamBlockId && selectedStreamBlockPageId !== activePageId) setSelectedStreamBlockId(null);
+    setSelectedBlockIds(new Set());
+    setSelectedImageNames(new Set());
+  }, [activePageId]);
 
   // Readable form of the selected block, built from the page text model
   useEffect(() => {
@@ -772,7 +785,7 @@ export const EditSidePanel: React.FC = () => {
     if (section.headingBlock) allTextIds.push(section.headingBlock.id);
     section.items.forEach((c) => {
       if (c.kind === 'text') allTextIds.push(c.block.id);
-      else allImageNames.push(c.image.name);
+      else allImageNames.push(c.image.id);
     });
 
     const allTextSelected = allTextIds.every((id) => selectedBlockIds.has(id));
@@ -801,7 +814,7 @@ export const EditSidePanel: React.FC = () => {
     if (section.headingBlock) allTextIds.push(section.headingBlock.id);
     section.items.forEach((c) => {
       if (c.kind === 'text') allTextIds.push(c.block.id);
-      else allImageNames.push(c.image.name);
+      else allImageNames.push(c.image.id);
     });
     if (allTextIds.length === 0 && allImageNames.length === 0) return;
 
@@ -853,14 +866,6 @@ export const EditSidePanel: React.FC = () => {
       return next;
     });
     setSelectedStreamBlockId(id);
-    const found = segments.find((s) => s.id === id);
-    if (found) {
-      setStreamReplaceTargetText(found.previewText);
-      if (found.x !== undefined && found.y !== undefined) {
-        const pageHeight = pages[activePageIndex]?.height || 842;
-        setStreamReplaceTargetPosition({ x: found.x, y: pageHeight - found.y });
-      }
-    }
   };
 
   const toggleImageSelection = (name: string) => {
@@ -874,7 +879,7 @@ export const EditSidePanel: React.FC = () => {
 
   const selectAll = () => {
     setSelectedBlockIds(new Set(displayedBlocks.map((b) => b.id)));
-    setSelectedImageNames(new Set(filteredImages.map((im) => im.name)));
+    setSelectedImageNames(new Set(filteredImages.map((im) => im.id)));
   };
 
   const clearSelection = () => {
@@ -1075,7 +1080,6 @@ export const EditSidePanel: React.FC = () => {
             setSelectedStreamBlockId(updatedBlock.id);
             setEditorContent(updatedBlock.rawContent);
             setQuickReplaceNewText(updatedBlock.previewText);
-            setStreamReplaceTargetText(updatedBlock.previewText);
           }
         } else {
           await loadPageData();
@@ -1202,10 +1206,11 @@ export const EditSidePanel: React.FC = () => {
 
   const renderBlockCard = (b: StreamSegment, isChild: boolean = false) => {
     const isChecked = selectedBlockIds.has(b.id);
-    const isCurrentActive = selectedStreamBlockId === b.id;
+    const isCurrentActive = selectionIsOnActivePage && selectedStreamBlockId === b.id;
     const isHovered =
-      hoveredBlockId === b.id ||
-      (Boolean(hoveredBlockText) &&
+      (hoverIsOnActivePage && hoveredBlockId === b.id) ||
+      (hoverIsOnActivePage &&
+        Boolean(hoveredBlockText) &&
         b.previewText.length >= 4 &&
         (b.previewText === hoveredBlockText ||
           b.previewText.toLowerCase().includes(hoveredBlockText!.toLowerCase())));
@@ -1374,20 +1379,20 @@ export const EditSidePanel: React.FC = () => {
   };
 
   const renderImageCard = (im: PageImageInfo, isChild = false) => {
-    const isChecked = selectedImageNames.has(im.name);
-    const isCurrentActive =
-      selectedStreamBlockId === im.name ||
-      selectedStreamBlockId === `img_${im.cleanName}` ||
-      selectedStreamBlockId === `/${im.cleanName}`;
+    const isChecked = selectedImageNames.has(im.id);
+    const isCurrentActive = selectionIsOnActivePage && selectedStreamBlockId === im.id;
+    const isHovered = hoverIsOnActivePage && hoveredBlockId === im.id;
 
     return (
       <div
-        key={im.name}
-        id={`panel_item_img_${im.cleanName}`}
+        key={im.id}
+        id={`panel_item_img_${im.id}`}
         onClick={() => {
-          setSelectedStreamBlockId(im.name);
-          toggleImageSelection(im.name);
+          setSelectedStreamBlockId(im.id);
+          toggleImageSelection(im.id);
         }}
+        onMouseEnter={() => setHoveredBlockId(im.id)}
+        onMouseLeave={() => setHoveredBlockId(null)}
         className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col gap-2 ${
           isChild ? 'border-l-2 border-l-amber-500/60' : ''
         } ${
@@ -1401,6 +1406,10 @@ export const EditSidePanel: React.FC = () => {
             ? isMinimal
               ? 'bg-rose-50 border-rose-300'
               : 'bg-rose-950/20 border-rose-700/60'
+            : isHovered
+            ? isMinimal
+              ? 'bg-amber-50/70 border-amber-300'
+              : 'bg-amber-950/20 border-amber-600/60'
             : isMinimal
             ? 'bg-neutral-50/70 hover:bg-neutral-100 border-neutral-200'
             : isLcars
@@ -1417,7 +1426,7 @@ export const EditSidePanel: React.FC = () => {
               onChange={() => {}}
               onClick={(e) => {
                 e.stopPropagation();
-                toggleImageSelection(im.name);
+                toggleImageSelection(im.id);
               }}
               className="rounded border-slate-600 text-rose-600 focus:ring-rose-500"
             />
@@ -1430,8 +1439,21 @@ export const EditSidePanel: React.FC = () => {
                   : 'bg-slate-900 text-amber-300 border border-slate-700'
               }`}
             >
-              /{im.cleanName}
+              {im.kind === 'inline' ? im.cleanName : `/${im.cleanName}`}
             </span>
+            {im.placementCount !== undefined && im.placementCount > 1 && im.occurrence !== undefined && (
+              <span
+                className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-200"
+                title="Stejný obrázek je na stránce vložen vícekrát; smaže se jen toto umístění"
+              >
+                {im.occurrence + 1}/{im.placementCount}
+              </span>
+            )}
+            {(im.kind === 'inline' || im.inForm) && (
+              <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
+                {im.kind === 'inline' ? 'inline' : 'form'}
+              </span>
+            )}
 
             {/* Format Badge */}
             <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">
@@ -1943,7 +1965,7 @@ export const EditSidePanel: React.FC = () => {
                       ...(sec.headingBlock ? [sec.headingBlock.id] : []),
                       ...sec.items.filter((c) => c.kind === 'text').map((c) => (c as any).block.id),
                     ];
-                    const allImgNames = sec.items.filter((c) => c.kind === 'image').map((c) => (c as any).image.name);
+                    const allImgNames = sec.items.filter((c) => c.kind === 'image').map((c) => (c as any).image.id);
                     const isSecAllChecked =
                       (allTextIds.length > 0 || allImgNames.length > 0) &&
                       allTextIds.every((id) => selectedBlockIds.has(id)) &&

@@ -926,8 +926,39 @@ export const getPageTextModel = (
 export const extractPageVisualImages = async (
   pdfPage: pdfjsLib.PDFPageProxy,
   viewport: pdfjsLib.PageViewport,
-  pageImagesInfo: PageImageInfo[] = []
+  placements: PageImageInfo[] | null = null
 ): Promise<import('../utils/textSnap').VisualTextBlock[]> => {
+  // Every painted image from the content stream, with the same id the edit panel lists and the
+  // removal understands (one overlay per placement, also for images repeated on the page)
+  if (placements) {
+    return placements
+      .filter((im) => im.x !== undefined && im.y !== undefined && im.width !== undefined && im.height !== undefined)
+      .map((im) => {
+        const rect = toViewportRect(viewport, [im.x!, im.y!, im.x! + im.width!, im.y! + im.height!]);
+        const vx = Math.min(rect[0], rect[2]);
+        const vy = Math.min(rect[1], rect[3]);
+        const vw = Math.abs(rect[2] - rect[0]);
+        const vh = Math.abs(rect[3] - rect[1]);
+        return {
+          id: im.id,
+          type: 'image' as const,
+          imageName: im.kind === 'inline' ? undefined : im.cleanName,
+          x: vx,
+          y: vy,
+          width: Math.max(4, vw),
+          height: Math.max(4, vh),
+          text: im.kind === 'inline' ? im.cleanName : `/${im.cleanName}`,
+          pixelWidth: im.pixelWidth,
+          pixelHeight: im.pixelHeight,
+          dpi: im.dpi,
+          format: im.format,
+          colorSpace: im.colorSpace,
+          filter: im.filter,
+          isFullPageScan: im.isFullPageScan,
+        };
+      });
+  }
+  const pageImagesInfo: PageImageInfo[] = [];
   try {
     const opList = await pdfPage.getOperatorList();
     const ops = pdfjsLib.OPS;
@@ -1060,11 +1091,13 @@ export const getPageTextBlocks = async (
       rotation: pageModel.rotation,
     });
 
-    let pageImagesInfo: PageImageInfo[] = [];
+    // Image placements from the content stream (null when the stream cannot be read, e.g. an
+    // encrypted document: the overlay then falls back to pdf.js' painted images, display only)
+    let pageImagesInfo: PageImageInfo[] | null = null;
     if (sourceDoc.arrayBuffer) {
       try {
         const imgRes = await getPageImages(sourceDoc.arrayBuffer, pageModel.originalPageIndex);
-        if (imgRes.images) pageImagesInfo = imgRes.images;
+        if (!imgRes.error) pageImagesInfo = imgRes.images;
       } catch {
         // ignore
       }

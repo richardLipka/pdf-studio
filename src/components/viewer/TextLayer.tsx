@@ -55,10 +55,13 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     editSidePanelTab,
     setEditSidePanelTab,
     selectedStreamBlockId,
+    selectedStreamBlockPageId,
     setSelectedStreamBlockId,
     hoveredBlockId,
+    hoveredBlockPageId,
     setHoveredBlockId,
     setHoveredBlockText,
+    activeTab,
   } = useEditor();
   const {
     addAnnotation,
@@ -71,6 +74,9 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     removePageImage,
     replacePageImage,
     exportPageImage,
+    activePageIndex,
+    setActivePageIndex,
+    setSelectedPageIds,
   } = useDocument();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -82,11 +88,27 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
 
+  // Page element overlays belong to the edit tab only; the review and signature tabs never show them
   const isRemoveActive =
-    activeTool === 'removeElements' ||
-    activeTool === 'streamReplace' ||
-    isRemoveElementsModalOpen ||
-    isEditSidePanelOpen;
+    activeTab === 'edit' &&
+    (activeTool === 'removeElements' ||
+      activeTool === 'streamReplace' ||
+      isRemoveElementsModalOpen ||
+      isEditSidePanelOpen);
+  const pageIndex = pages.findIndex((p) => p.id === page.id);
+  const isActivePage = pageIndex === activePageIndex;
+  // Element ids (block_3, img:Im1:0) repeat on every page: a selection or hover applies to its own
+  // page, or to the active page when it came from the edit panel (which lists the active page)
+  const selectionOnThisPage = selectedStreamBlockPageId ? selectedStreamBlockPageId === page.id : isActivePage;
+  const hoverOnThisPage = hoveredBlockPageId ? hoveredBlockPageId === page.id : isActivePage;
+
+  /** Makes this page the active one (the edit panel lists the active page) without scrolling it */
+  const activateThisPage = () => {
+    if (pageIndex >= 0 && pageIndex !== activePageIndex) {
+      setActivePageIndex(pageIndex, { scrollIntoView: false });
+      setSelectedPageIds([page.id]);
+    }
+  };
   const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
   const visualLoadRef = useRef(0);
   const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
@@ -154,6 +176,18 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     const timer = setTimeout(() => setLineEditStatus(null), 4000);
     return () => clearTimeout(timer);
   }, [lineEditStatus]);
+
+  // An element selected in the edit panel is scrolled into view on its page
+  useEffect(() => {
+    if (!isRemoveActive || !selectedStreamBlockId || !selectionOnThisPage || selectedStreamBlockPageId) return;
+    const timer = setTimeout(() => {
+      const overlay = containerRef.current?.parentElement?.querySelector<HTMLElement>(
+        `[data-block-id="${CSS.escape(selectedStreamBlockId)}"]`
+      );
+      overlay?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [selectedStreamBlockId, selectedStreamBlockPageId, selectionOnThisPage, isRemoveActive]);
 
   // A different document version or page invalidates an open editor
   useEffect(() => {
@@ -561,7 +595,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   };
 
   const handleLayerClick = (e: React.MouseEvent) => {
-    if (activeTool === 'streamReplace' || activeTool === 'removeElements') {
+    if (activeTab === 'edit' && (activeTool === 'streamReplace' || activeTool === 'removeElements')) {
+      activateThisPage();
       const container = containerRef.current;
       if (!container) return;
       const containerRect = container.getBoundingClientRect();
@@ -645,24 +680,22 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   (isEditSidePanelOpen && editSidePanelTab === 'stream'));
 
               const isSelected =
-                selectedStreamBlockId === block.id ||
-                Boolean(
-                  block.segmentIds &&
-                    selectedStreamBlockId &&
-                    block.segmentIds.includes(selectedStreamBlockId)
-                ) ||
-                (isImage &&
-                  Boolean(block.imageName) &&
-                  (selectedStreamBlockId === `img_${block.imageName}` ||
-                    selectedStreamBlockId === `/${block.imageName}`));
+                selectionOnThisPage &&
+                (selectedStreamBlockId === block.id ||
+                  Boolean(
+                    block.segmentIds &&
+                      selectedStreamBlockId &&
+                      block.segmentIds.includes(selectedStreamBlockId)
+                  ));
 
               const isHovered =
-                hoveredBlockId === block.id ||
-                Boolean(
-                  block.segmentIds &&
-                    hoveredBlockId &&
-                    block.segmentIds.includes(hoveredBlockId)
-                );
+                hoverOnThisPage &&
+                (hoveredBlockId === block.id ||
+                  Boolean(
+                    block.segmentIds &&
+                      hoveredBlockId &&
+                      block.segmentIds.includes(hoveredBlockId)
+                  ));
 
               // Calculate z-index: smaller blocks get higher z-index so inner items are clickable over enclosing boxes
               const area = block.width * block.height;
@@ -672,8 +705,9 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
               return (
                 <div
                   key={block.id}
+                  data-block-id={block.id}
                   onMouseEnter={() => {
-                    setHoveredBlockId(block.id);
+                    setHoveredBlockId(block.id, page.id);
                     setHoveredBlockText(block.text);
                   }}
                   onMouseLeave={() => {
@@ -687,7 +721,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setSelectedStreamBlockId(block.id);
+                    activateThisPage();
+                    setSelectedStreamBlockId(block.id, page.id);
                     // The text target makes the panel pick the text block under it; an image is
                     // selected by its id alone
                     if (!isImage) {
@@ -700,9 +735,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
 
                     setTimeout(() => {
                       const el = document.getElementById(
-                        isImage
-                          ? `panel_item_img_${block.imageName || block.id}`
-                          : `panel_item_${block.id}`
+                        isImage ? `panel_item_img_${block.id}` : `panel_item_${block.id}`
                       );
                       if (el) {
                         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -908,13 +941,12 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                         onClick={async (e) => {
                           e.stopPropagation();
                           if (
-                            block.imageName &&
-                            window.confirm(`Opravdu chcete z dokumentu odstranit obrázek ${block.imageName}?`)
+                            window.confirm(`Opravdu chcete z dokumentu odstranit obrázek ${block.imageName || block.text}?`)
                           ) {
-                            const pageIndex = pages.findIndex((p) => p.id === page.id);
                             if (pageIndex < 0) return;
-                            // Removes the image's Do invocation and XObject entry, not a whole stream segment
-                            const res = await removePageImage(block.imageName, pageIndex);
+                            // Removes exactly this placement (its q ... Do ... Q or inline image), not a
+                            // whole stream segment; the XObject entry goes once it is painted nowhere else
+                            const res = await removePageImage(block.id, pageIndex);
                             if (res.success) {
                               refreshVisualBlocksRef.current();
                               setSelectedStreamBlockId(null);

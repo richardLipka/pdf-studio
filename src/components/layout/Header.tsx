@@ -129,7 +129,7 @@ export const Header: React.FC = () => {
 
   return (
     <header
-      className={`h-16 border-b px-4 flex items-center justify-between select-none z-30 transition-colors ${
+      className={`h-16 border-b px-2 lg:px-4 gap-2 flex items-center justify-between select-none z-30 transition-colors ${
         isMinimal
           ? 'bg-white border-neutral-200 text-black'
           : isLcars
@@ -161,7 +161,7 @@ export const Header: React.FC = () => {
                 {t.app.title}
               </span>
               <span
-                className={`hidden sm:inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 ${
+                className={`hidden xl:inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-medium px-2 py-0.5 ${
                   isMinimal
                     ? 'rounded-md bg-neutral-100 text-neutral-800 border border-neutral-300'
                     : isLcars
@@ -195,7 +195,7 @@ export const Header: React.FC = () => {
       </div>
 
       {/* Center Actions: Open, Sample, Undo, Redo */}
-      <div className="flex items-center gap-1.5 sm:gap-2">
+      <div className="flex items-center gap-1 lg:gap-2">
         <input
           type="file"
           ref={fileInputRef}
@@ -220,7 +220,7 @@ export const Header: React.FC = () => {
               isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-sky-400'
             }`}
           />
-          <span className="hidden md:inline">{t.app.openFile}</span>
+          <span className="hidden lg:inline">{t.app.openFile}</span>
         </button>
 
         <button
@@ -239,7 +239,7 @@ export const Header: React.FC = () => {
               isMinimal ? 'text-black' : isLcars ? 'text-[#ff9966]' : 'text-amber-400'
             }`}
           />
-          <span className="hidden lg:inline">{t.app.samplePdf}</span>
+          <span className="hidden xl:inline">{t.app.samplePdf}</span>
         </button>
 
         {hasDoc && (
@@ -340,7 +340,7 @@ export const Header: React.FC = () => {
       </div>
 
       {/* Right Side: Protocol, Metadata, Settings, Theme, Language & Save/Download */}
-      <div className="flex items-center gap-1.5 sm:gap-2">
+      <div className="flex items-center gap-1 lg:gap-2">
         {/* Diagnostic Log Button (Icon only with Tooltip) */}
         <button
           onClick={toggleLogModal}
