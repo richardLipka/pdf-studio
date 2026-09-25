@@ -160,6 +160,14 @@ export function safeGetPageContents(page: any): any {
  */
 export function isLikelyCiphertext(str: string): boolean {
   if (!str || str.length < 20) return false;
+  // Inline image data (BI ... ID <binary> EI) is binary in any valid stream; judge the operators only
+  if (/\bID\s/.test(str.substring(0, 4000))) {
+    const operators = tokenizeContentStream(str.substring(0, 20000))
+      .filter((op) => op.operator !== 'ID')
+      .map((op) => str.substring(op.start, op.end))
+      .join(' ');
+    if (operators.length >= 20) str = operators;
+  }
   let nonAsciiCount = 0;
   const sampleLen = Math.min(str.length, 500);
   for (let i = 0; i < sampleLen; i++) {
@@ -1111,14 +1119,14 @@ export async function getPageContentStream(
     const { text: streamText, layout } = composePageStreamLayout(parts);
     const streamCount = parts.pageStreamCount + parts.forms.length;
 
-    // Check if the stream content is encrypted ciphertext
-    const ciphertext = isLikelyCiphertext(streamText);
-    if (encInfo.isEncrypted || ciphertext) {
+    // Without /Encrypt, binary-looking operators mean the stream could not be decoded (e.g. an
+    // unsupported filter); editing it would corrupt the page
+    if (isLikelyCiphertext(streamText)) {
       return {
         streamText: '',
         streamCount,
-        isEncrypted: true,
-        error: 'Dokument používá standardní šifrování oprávnění (Standard Security). Přímá editace content streamu je uzamčena.',
+        isEncrypted: false,
+        error: 'Obsah stránky se nepodařilo dekódovat (nepodporovaný filtr nebo poškozený stream). Přímá editace je vypnuta.',
       };
     }
 

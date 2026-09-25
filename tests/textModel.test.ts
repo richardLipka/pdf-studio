@@ -4,9 +4,10 @@ import * as path from 'path';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import { getPageTextModel } from '../src/services/pdfLoader';
-import { parseStreamSegments, getPageContentStream } from '../src/services/contentStreamEditor';
+import { parseStreamSegments, getPageContentStream, isLikelyCiphertext } from '../src/services/contentStreamEditor';
 import { tokenizeContentStream, decodeLiteralStringBytes } from '../src/services/pdfContentTokenizer';
-import { replaceTextBlockContent } from '../src/services/pdfTextEditor';
+import { replaceTextBlockContent, replaceTextLineContent } from '../src/services/pdfTextEditor';
+import { toReadableBlock, fromReadableBlock } from '../src/services/pdfReadableStream';
 import { PdfPageModel, SourceDocument } from '../src/types/document';
 
 // Serve pdfjs-dist's Liberation fonts for the substitute font, like the browser build does
@@ -163,5 +164,66 @@ describe('Text block editing', () => {
     const form = await edit(source, page, 3, 'Header');
     expect(form.editedModel.blocks[3].text).toBe('Header');
     expect(form.editedModel.blocks[3].bbox.x).toBeCloseTo(310, 0);
+  });
+});
+
+describe('Human editing helpers', () => {
+  const lineDoc = async () => {
+    const doc = await PDFDocument.create();
+    const helvetica = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([600, 800]);
+    page.drawText('x', { x: 10, y: 10, size: 1, font: helvetica });
+    const fonts = page.node.Resources()!.lookup(PDFName.of('Font')) as any;
+    fonts.set(PDFName.of('FL'), helvetica.ref);
+    const extra = doc.context.register(
+      doc.context.flateStream('BT /FL 12 Tf 14 TL 1 0 0 1 50 500 Tm (Line one) Tj T* [(Line) -250 (two)] TJ T* (Line three) Tj ET')
+    );
+    (page.node.Contents() as any).push(extra);
+    const bytes = await doc.save();
+    const source: SourceDocument = { id: 'lines', name: 'lines.pdf', arrayBuffer: toArrayBuffer(bytes) };
+    const pageModel: PdfPageModel = {
+      id: 'p1', sourceDocId: 'lines', sourceType: 'pdf', originalPageIndex: 0, rotation: 0, width: 600, height: 800,
+    };
+    return { source, pageModel };
+  };
+
+  it('splits a text object into lines and rewrites one line without moving the others', async () => {
+    const { source, pageModel } = await lineDoc();
+    const model = (await getPageTextModel(source, pageModel))!;
+    const block = model.blocks.find((b) => b.text.startsWith('Line one'))!;
+    expect(block.lines.map((l) => l.text)).toEqual(['Line one', 'Line two', 'Line three']);
+    const third = block.lines[2].bbox;
+
+    const result = await replaceTextLineContent(source.arrayBuffer, 0, model, block.lines[1].id, 'Zebra quiz');
+    expect(result.error).toBeUndefined();
+    // Characters not shown on the page come from the standard font's full encoding
+    expect(result.fontSubstituted).toBe(false);
+    const edited = (await getPageTextModel({ ...source, id: 'lines-2', arrayBuffer: result.updatedPdfBytes }, { ...pageModel, sourceDocId: 'lines-2' }))!;
+    const editedBlock = edited.blocks.find((b) => b.text.startsWith('Line one'))!;
+    expect(editedBlock.lines.map((l) => l.text)).toEqual(['Line one', 'Zebra quiz', 'Line three']);
+    expect(editedBlock.lines[2].bbox.y).toBeCloseTo(third.y, 1);
+    expect(editedBlock.lines[2].bbox.x).toBeCloseTo(third.x, 1);
+  });
+
+  it('shows hex glyph codes as readable text and converts only changed strings back', async () => {
+    const { source, page } = await buildSamplePdf();
+    const model = (await getPageTextModel(source, page))!;
+    const block = model.blocks[1];
+    const raw = model.streamText.substring(block.startIndex, block.endIndex);
+    const readable = toReadableBlock(model, block);
+    expect(readable.text).toContain('«Příliš žluťoučký kůň»');
+    expect(fromReadableBlock(model, block, readable, readable.text)).toEqual({ raw });
+
+    const changed = fromReadableBlock(model, block, readable, readable.text.replace('«Příliš žluťoučký kůň»', '«kůň úpí»'));
+    expect('raw' in changed).toBe(false);
+    const ok = fromReadableBlock(model, block, readable, readable.text.replace('«Příliš žluťoučký kůň»', '«kůň žluťoučký»'));
+    expect('raw' in ok && /<[0-9A-F]+> Tj/.test(ok.raw)).toBe(true);
+  });
+
+  it('does not report pages starting with an inline image as undecodable', () => {
+    const binary = Array.from({ length: 400 }, (_, i) => String.fromCharCode(128 + (i % 120))).join('');
+    const stream = `q 100 0 0 100 0 0 cm BI /W 20 /H 20 /BPC 8 /CS /G ID ${binary} EI Q BT /F1 12 Tf (Hello) Tj ET`;
+    expect(isLikelyCiphertext(stream)).toBe(false);
+    expect(isLikelyCiphertext(binary + binary)).toBe(true);
   });
 });

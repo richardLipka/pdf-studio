@@ -60,7 +60,12 @@ export const getCachedPdfDocument = async (
 
   // Create a copy of the buffer because pdfjs-dist may transfer ownership
   const copyBuffer = arrayBuffer.slice(0);
-  const loadingTask = pdfjsLib.getDocument({ data: copyBuffer, ...getPdfjsAssetOptions() });
+  const loadingTask = pdfjsLib.getDocument({
+    data: copyBuffer,
+    // Full ToUnicode tables of the fonts, used to write characters not shown on the page
+    fontExtraProperties: true,
+    ...getPdfjsAssetOptions(),
+  });
   const entry: DocCacheEntry = { buffer: arrayBuffer, loadingTask, promise: loadingTask.promise };
   entry.promise.catch(() => {
     if (docCache.get(sourceId) === entry) {

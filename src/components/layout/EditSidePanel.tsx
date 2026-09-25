@@ -77,6 +77,8 @@ import {
   normalizeTextForSearch,
 } from '../../services/contentStreamEditor';
 import { getPageTextBlocks, getPageTextModel } from '../../services/pdfLoader';
+import { fromReadableBlock, ReadableBlock, toReadableBlock } from '../../services/pdfReadableStream';
+import type { PageTextModel, TextBlock } from '../../services/pdfTextModel';
 import { VisualTextBlock } from '../../utils/textSnap';
 
 export const EditSidePanel: React.FC = () => {
@@ -145,6 +147,15 @@ export const EditSidePanel: React.FC = () => {
   // Stream Editor Tab State
   const [streamEditorSubTab, setStreamEditorSubTab] = useState<'segment' | 'fullStream'>('segment');
   const [editorContent, setEditorContent] = useState<string>('');
+  // Readable code: string operands shown as «decoded text» instead of font codes
+  const [readableMode, setReadableMode] = useState<boolean>(true);
+  const [readableText, setReadableText] = useState<string>('');
+  const [readableState, setReadableState] = useState<{
+    blockId: string;
+    readable: ReadableBlock;
+    model: PageTextModel;
+    block: TextBlock;
+  } | null>(null);
   const [quickReplaceNewText, setQuickReplaceNewText] = useState<string>('');
   const [isDocumentEncrypted, setIsDocumentEncrypted] = useState(false);
 
@@ -500,6 +511,32 @@ export const EditSidePanel: React.FC = () => {
   useEffect(() => {
     setStatusMessage({ type: 'idle' });
   }, [isEditSidePanelOpen, activePageIndex]);
+
+  // Readable form of the selected block, built from the page text model
+  useEffect(() => {
+    let cancelled = false;
+    setReadableState(null);
+    const activePageModel = pages[activePageIndex];
+    const activeSource = activePageModel
+      ? sources.find((src) => src.id === activePageModel.sourceDocId) || sources[0]
+      : null;
+    if (!selectedStreamBlockId || !activePageModel || !activeSource) return;
+    getPageTextModel(activeSource, activePageModel).then((model) => {
+      if (cancelled || !model?.aligned) return;
+      const block = model.blocksById.get(selectedStreamBlockId);
+      const segment = segments.find((seg) => seg.id === selectedStreamBlockId);
+      if (!block || !segment || model.streamText.substring(block.startIndex, block.endIndex) !== segment.rawContent) return;
+      const readable = toReadableBlock(model, block);
+      if (readable.originals.length === 0) return;
+      setReadableState({ blockId: selectedStreamBlockId, readable, model, block });
+      setReadableText(readable.text);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStreamBlockId, segments, activePageIndex, sources, pages]);
+
+  const showReadable = readableMode && readableState?.blockId === selectedStreamBlockId;
 
   // When selectedStreamBlockId changes, update editorContent
   useEffect(() => {
@@ -953,6 +990,15 @@ export const EditSidePanel: React.FC = () => {
     if (!selectedStreamBlockId || !editorContent.trim()) return;
     const origBlock = segments.find((s) => s.id === selectedStreamBlockId);
     if (!origBlock) return;
+    let content = editorContent;
+    if (showReadable && readableState) {
+      const converted = fromReadableBlock(readableState.model, readableState.block, readableState.readable, readableText);
+      if ('error' in converted) {
+        setStatusMessage({ type: 'error', text: converted.error });
+        return;
+      }
+      content = converted.raw;
+    }
 
     setIsSaving(true);
     setStatusMessage({ type: 'idle' });
@@ -960,7 +1006,7 @@ export const EditSidePanel: React.FC = () => {
     try {
       const res = await applyStreamSegmentEdit(
         origBlock.rawContent,
-        editorContent,
+        content,
         activePageIndex
       );
 
@@ -979,7 +1025,7 @@ export const EditSidePanel: React.FC = () => {
 
           const updatedBlock =
             textSegments.find((s) => s.id === selectedStreamBlockId) ||
-            textSegments.find((s) => s.rawContent === editorContent) ||
+            textSegments.find((s) => s.rawContent === content) ||
             textSegments[0];
 
           if (updatedBlock) {
@@ -2192,12 +2238,28 @@ export const EditSidePanel: React.FC = () => {
                         <Code className="w-3.5 h-3.5 text-indigo-400" />
                         KÓD OPERÁTORŮ STREAMU
                       </span>
-                      <span>{editorContent.length} bajtů</span>
+                      <span className="flex items-center gap-2">
+                        {readableState?.blockId === selectedStreamBlockId && (
+                          <label
+                            className="flex items-center gap-1 cursor-pointer select-none"
+                            title="Řetězce se zobrazí jako čitelný text «…» místo kódů písma; při uložení se změněné řetězce zakódují zpět."
+                          >
+                            <input
+                              type="checkbox"
+                              checked={readableMode}
+                              onChange={(e) => setReadableMode(e.target.checked)}
+                              className="accent-indigo-500"
+                            />
+                            Čitelný text
+                          </label>
+                        )}
+                        <span>{editorContent.length} bajtů</span>
+                      </span>
                     </div>
 
                     <textarea
-                      value={editorContent}
-                      onChange={(e) => setEditorContent(e.target.value)}
+                      value={showReadable ? readableText : editorContent}
+                      onChange={(e) => (showReadable ? setReadableText(e.target.value) : setEditorContent(e.target.value))}
                       rows={9}
                       className={`w-full p-2.5 rounded-xl font-mono text-xs leading-relaxed outline-none border resize-y ${
                         isMinimal

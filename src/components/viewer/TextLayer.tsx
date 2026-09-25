@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { PdfPageModel, SourceDocument } from '../../types/document';
-import { renderPdfTextLayer, getPageTextBlocks } from '../../services/pdfLoader';
+import { renderPdfTextLayer, getPageTextBlocks, getPageTextModel } from '../../services/pdfLoader';
 import { renderQueue, RenderPriority } from '../../services/renderQueue';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
@@ -67,6 +67,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     getPageStream,
     removePageBlock,
     removeMultiplePageElements,
+    applyLineTextEdit,
     removePageImage,
     replacePageImage,
     exportPageImage,
@@ -89,6 +90,75 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
   const visualLoadRef = useRef(0);
   const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
+  // Inline editor for one line of text, opened by double-clicking a text block
+  const [lineEditor, setLineEditor] = useState<{
+    lineId: string;
+    text: string;
+    original: string;
+    box: { x: number; y: number; width: number; height: number };
+  } | null>(null);
+  const [lineEditStatus, setLineEditStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [isSavingLine, setIsSavingLine] = useState(false);
+
+  const openLineEditor = async (clientX: number, clientY: number) => {
+    const container = containerRef.current;
+    if (!container || page.sourceType !== 'pdf') return;
+    const rect = container.getBoundingClientRect();
+    const x = (clientX - rect.left) / scale;
+    const y = (clientY - rect.top) / scale;
+    const model = await getPageTextModel(sourceDoc, page);
+    if (!model?.aligned) {
+      setLineEditStatus({ ok: false, text: 'Text této stránky nelze spolehlivě namapovat — použijte panel Editace.' });
+      return;
+    }
+    const line = model.blocks
+      .flatMap((b) => b.lines)
+      .filter(
+        (l) => x >= l.bbox.x - 2 && x <= l.bbox.x + l.bbox.width + 2 && y >= l.bbox.y - 2 && y <= l.bbox.y + l.bbox.height + 2
+      )
+      .sort((a, b) => a.bbox.width * a.bbox.height - b.bbox.width * b.bbox.height)[0];
+    if (!line) return;
+    setLineEditStatus(null);
+    setLineEditor({ lineId: line.id, text: line.text, original: line.text, box: line.bbox });
+  };
+
+  const saveLineEditor = async () => {
+    if (!lineEditor || isSavingLine) return;
+    if (lineEditor.text === lineEditor.original) {
+      setLineEditor(null);
+      return;
+    }
+    const pageIndex = pages.findIndex((p) => p.id === page.id);
+    if (pageIndex < 0) return;
+    setIsSavingLine(true);
+    try {
+      const res = await applyLineTextEdit(lineEditor.lineId, lineEditor.text, pageIndex);
+      if (res.success) {
+        setLineEditor(null);
+        setLineEditStatus({
+          ok: true,
+          text: res.fontSubstituted
+            ? 'Řádek přepsán; chybějící znaky doplněny náhradním písmem.'
+            : 'Řádek přepsán původním písmem.',
+        });
+      } else {
+        setLineEditStatus({ ok: false, text: res.error || 'Přepis řádku selhal.' });
+      }
+    } finally {
+      setIsSavingLine(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!lineEditStatus) return;
+    const timer = setTimeout(() => setLineEditStatus(null), 4000);
+    return () => clearTimeout(timer);
+  }, [lineEditStatus]);
+
+  // A different document version or page invalidates an open editor
+  useEffect(() => {
+    setLineEditor(null);
+  }, [sourceDoc.updatedAt, page.id, page.rotation]);
 
   const refreshVisualBlocks = useCallback(async () => {
     // Newest load wins: a slower load started for an older version of the document must not
@@ -610,6 +680,11 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                     setHoveredBlockId(null);
                     setHoveredBlockText(null);
                   }}
+                  onDoubleClick={(e) => {
+                    if (isImage) return;
+                    e.stopPropagation();
+                    openLineEditor(e.clientX, e.clientY);
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedStreamBlockId(block.id);
@@ -707,7 +782,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                       ? `Obrázek: ${block.imageName || block.text}${
                           block.pixelWidth && block.pixelHeight ? ` (${block.pixelWidth}×${block.pixelHeight} px)` : ''
                         }`
-                      : `${block.text}`
+                      : `${block.text}
+(dvojklikem upravíte řádek)`
                   }
                 >
                   {/* Small Icon Badge on Hover or Active; in remove mode it deletes the text block */}
@@ -858,6 +934,67 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
                 </div>
               );
             })}
+
+        {/* Inline line editor */}
+        {lineEditor && (
+          <div
+            className="absolute z-50 pointer-events-auto"
+            style={{
+              left: `${lineEditor.box.x * scale - 4}px`,
+              top: `${lineEditor.box.y * scale - 4}px`,
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              autoFocus
+              value={lineEditor.text}
+              disabled={isSavingLine}
+              aria-label="Upravit řádek textu"
+              onChange={(e) => setLineEditor({ ...lineEditor, text: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  saveLineEditor();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setLineEditor(null);
+                }
+              }}
+              style={{
+                width: `${Math.max(lineEditor.box.width * scale + 60, 160)}px`,
+                height: `${Math.max(lineEditor.box.height * scale + 8, 22)}px`,
+                fontSize: `${Math.max(lineEditor.box.height * scale * 0.72, 11)}px`,
+              }}
+              className="px-1 rounded border-2 border-indigo-500 bg-white text-slate-900 shadow-xl outline-none font-sans"
+            />
+            <div className="mt-1 flex gap-1 text-[10px]">
+              <button
+                onClick={saveLineEditor}
+                disabled={isSavingLine}
+                className="px-2 py-0.5 rounded bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50"
+              >
+                {isSavingLine ? 'Ukládám…' : 'Uložit (Enter)'}
+              </button>
+              <button
+                onClick={() => setLineEditor(null)}
+                className="px-2 py-0.5 rounded bg-slate-700 text-white hover:bg-slate-600"
+              >
+                Zrušit (Esc)
+              </button>
+            </div>
+          </div>
+        )}
+        {lineEditStatus && (
+          <div
+            role="status"
+            className={`absolute left-1/2 -translate-x-1/2 top-2 z-50 px-3 py-1.5 rounded-lg text-xs shadow-lg pointer-events-none ${
+              lineEditStatus.ok ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+            }`}
+          >
+            {lineEditStatus.text}
+          </div>
+        )}
 
         {/* Floating Quick Action Selection Toolbar */}
         {floatingMenuPos && (

@@ -1,6 +1,6 @@
 import { PDFDict, PDFDocument, PDFFont, PDFName, PDFRawStream, PDFRef } from 'pdf-lib';
 import { ContentOperation, TEXT_SHOW_OPERATORS, tokenizeContentStream } from './pdfContentTokenizer';
-import { FontCodeMap, PageTextModel, TextBlock, measureLineLeading } from './pdfTextModel';
+import { FontCodeMap, PageTextModel, TextBlock, TextRun, measureLineLeading } from './pdfTextModel';
 import {
   getPageContentStream,
   getPageLocalResourceDict,
@@ -154,6 +154,124 @@ function buildTextObject(
     ...(restoreFontOperator && !afterSetsFont ? [restoreFontOperator] : []),
     'ET',
   ].join('\n');
+}
+
+/**
+ * Text-showing operations for the given lines: the original font's codes when it has every
+ * character, otherwise a substitute font registered in the resources of the run's stream part.
+ */
+async function encodeForRun(
+  pdfDoc: PDFDocument,
+  pageIndex: number,
+  model: PageTextModel,
+  layout: { kind: string; name?: string }[] | undefined,
+  run: TextRun,
+  partIndex: number,
+  lines: string[]
+): Promise<{ fontOperator: string | null; originalFontOperator: string | null; lineOperations: string[]; substituteFont: PDFFont | null } | { error: string }> {
+  const originalFontOperator = run.fontResource ? `/${run.fontResource} ${formatNumber(run.fontSize)} Tf` : null;
+  const codeMap = model.fontCodeMaps.get(run.fontKey);
+  const originalEncoded = codeMap ? lines.map((line) => encodeLineWithOriginalFont(line, codeMap)) : null;
+  if (originalEncoded && originalEncoded.every((op): op is string => op !== null)) {
+    return { fontOperator: originalFontOperator, originalFontOperator, lineOperations: originalEncoded, substituteFont: null };
+  }
+  const { family, bold, italic } = describeOriginalFont(run.fontName);
+  const substituteFont = await new PdfFontProvider(pdfDoc).fontFor(family, bold, italic, lines.join(''));
+  const partLayout = layout?.[partIndex];
+  const fontDict = fontDictForPart(pdfDoc, pageIndex, partLayout?.kind === 'form' ? partLayout.name : undefined);
+  if (!fontDict) return { error: 'Nelze přidat náhradní písmo do zdrojů stránky.' };
+  const resourceName = uniqueResourceName(fontDict, 'PSF');
+  fontDict.set(PDFName.of(resourceName), substituteFont.ref as PDFRef);
+  return {
+    fontOperator: `/${resourceName} ${formatNumber(run.fontSize)} Tf`,
+    originalFontOperator,
+    lineOperations: lines.map((line) => `${substituteFont.encodeText(prepareTextForFont(substituteFont, line)).toString()} Tj`),
+    substituteFont,
+  };
+}
+
+/**
+ * Replaces the text of one line of a text object and nothing else. The first text-showing
+ * operation of the line gets the new text (the text position there is exactly where the line
+ * starts); the line's other text-showing operations are removed, while every positioning and
+ * state operation stays, so the lines that follow keep their positions.
+ */
+export async function replaceTextLineContent(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  model: PageTextModel,
+  lineId: string,
+  newText: string
+): Promise<TextBlockEditResult> {
+  const fail = (error: string): TextBlockEditResult => ({
+    updatedPdfBytes: pdfDocBytes,
+    updatedStream: model.streamText,
+    fontSubstituted: false,
+    error,
+  });
+  const line = model.linesById.get(lineId);
+  if (!model.aligned || !line || line.runs.length === 0) return fail('Řádek textu nelze na stránce spolehlivě určit.');
+  const current = await getPageContentStream(pdfDocBytes, pageIndex);
+  if (current.error || current.streamText !== model.streamText) {
+    return fail('Obsah stránky se mezitím změnil. Vyberte řádek znovu.');
+  }
+  const text = newText.replace(/[\r\n]+/g, ' ');
+  if (text === line.text) return fail('Text řádku se nezměnil.');
+
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, { ignoreEncryption: true, updateMetadata: false });
+    const first = line.runs[0];
+    const encoded = await encodeForRun(pdfDoc, pageIndex, model, current.layout, first, first.partIndex, [text]);
+    if ('error' in encoded) return fail(encoded.error);
+
+    const lineStart = first.start;
+    const lineEnd = line.runs[line.runs.length - 1].end;
+    const runStarts = new Set(line.runs.map((r) => r.start));
+    const firstShowStart = first.start;
+    let rebuilt = '';
+    let cursor = lineStart;
+    for (const op of tokenizeContentStream(model.streamText, lineStart, lineEnd)) {
+      if (!TEXT_SHOW_OPERATORS.has(op.operator) || !runStarts.has(op.start)) continue;
+      rebuilt += model.streamText.substring(cursor, op.start);
+      cursor = op.end;
+      // ' and " also move to the next line (and " sets spacing); keep that effect
+      const lineMove =
+        op.operator === "'"
+          ? 'T* '
+          : op.operator === '"'
+          ? `${op.operands[0]?.raw ?? '0'} Tw ${op.operands[1]?.raw ?? '0'} Tc T* `
+          : '';
+      if (op.start === firstShowStart) {
+        const useSubstitute = Boolean(encoded.substituteFont);
+        rebuilt +=
+          lineMove +
+          (useSubstitute && encoded.fontOperator ? `${encoded.fontOperator} ` : '') +
+          encoded.lineOperations[0] +
+          (useSubstitute && encoded.originalFontOperator ? ` ${encoded.originalFontOperator}` : '');
+      } else {
+        rebuilt += lineMove.trim();
+      }
+    }
+    rebuilt += model.streamText.substring(cursor, lineEnd);
+    const newStreamText = model.streamText.substring(0, lineStart) + rebuilt + model.streamText.substring(lineEnd);
+
+    const page = pdfDoc.getPage(pageIndex);
+    const updatedStream = writePageStreamText(pdfDoc, page, newStreamText);
+    const saved = await pdfDoc.save();
+    logger.success('edit', `Řádek ${lineId} na straně ${pageIndex + 1} byl přepsán`, {
+      lineId,
+      fontSubstituted: Boolean(encoded.substituteFont),
+    });
+    return {
+      updatedPdfBytes: saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength) as ArrayBuffer,
+      updatedStream,
+      fontSubstituted: Boolean(encoded.substituteFont),
+      substituteFontName: encoded.substituteFont?.name,
+    };
+  } catch (err: any) {
+    logger.error('edit', `Přepis řádku ${lineId} selhal: ${err?.message || err}`);
+    return fail(err?.message || String(err));
+  }
 }
 
 export async function replaceTextBlockContent(

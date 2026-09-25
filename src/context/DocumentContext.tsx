@@ -17,7 +17,7 @@ import {
   clearPdfCache,
   getPageTextModel,
 } from '../services/pdfLoader';
-import { replaceTextBlockContent } from '../services/pdfTextEditor';
+import { replaceTextBlockContent, replaceTextLineContent } from '../services/pdfTextEditor';
 import { logger } from '../services/logger';
 import { downloadBlob } from '../utils/file';
 
@@ -154,6 +154,12 @@ interface DocumentContextType {
     newText: string,
     pageIndex?: number
   ) => Promise<{ success: boolean; updatedStream?: string; fontSubstituted?: boolean; error?: string }>;
+  /** Replaces the text of one line of a text object (id from the page text model: `segmentId#n`) */
+  applyLineTextEdit: (
+    lineId: string,
+    newText: string,
+    pageIndex?: number
+  ) => Promise<{ success: boolean; fontSubstituted?: boolean; error?: string }>;
 
   // Interactive Form Fields (AcroForms)
   formFields: FormFieldModel[];
@@ -937,6 +943,25 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return { success: true, updatedStream: result.updatedStream, fontSubstituted: result.fontSubstituted };
   };
 
+  const applyLineTextEdit = async (
+    lineId: string,
+    newText: string,
+    pageIndex: number = activePageIndexRef.current
+  ): Promise<{ success: boolean; fontSubstituted?: boolean; error?: string }> => {
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { targetPage, sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+    const model = await getPageTextModel(sourceDoc, targetPage);
+    if (!model?.aligned) {
+      return { success: false, error: 'Text této stránky nelze spolehlivě namapovat na obsah PDF.' };
+    }
+    const result = await replaceTextLineContent(sourceDoc.arrayBuffer, sourcePageIndex, model, lineId, newText);
+    if (result.error) return { success: false, error: result.error };
+    commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+    return { success: true, fontSubstituted: result.fontSubstituted };
+  };
+
   const replacePageImage = async (
     imageName: string,
     fileOrBytes: File | Blob | ArrayBuffer | Uint8Array,
@@ -1277,6 +1302,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     removePageBlock,
     removeMultiplePageElements,
     applyBlockTextEdit,
+    applyLineTextEdit,
     formFields,
     formValues,
     updateFormFieldValue,

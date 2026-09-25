@@ -102,6 +102,17 @@ export interface TextRun {
   emSize: number;
 }
 
+/** One visual line of a text object (runs sharing a baseline) */
+export interface TextLine {
+  /** `${segmentId}#${index}` */
+  id: string;
+  segmentId: string;
+  index: number;
+  runs: TextRun[];
+  text: string;
+  bbox: Box;
+}
+
 export interface TextBlock {
   segmentId: string;
   startIndex: number;
@@ -109,6 +120,7 @@ export interface TextBlock {
   runs: TextRun[];
   text: string;
   bbox: Box;
+  lines: TextLine[];
 }
 
 export interface FontCodeMap {
@@ -124,7 +136,11 @@ export interface PageTextModel {
   runs: TextRun[];
   blocks: TextBlock[];
   blocksById: Map<string, TextBlock>;
-  /** Character -> code maps per pdf.js font, from the glyphs used on the page */
+  linesById: Map<string, TextLine>;
+  /**
+   * Character -> code maps per pdf.js font: the glyphs used on the page, extended with the font's
+   * complete ToUnicode table where the font is known to contain those glyphs
+   */
   fontCodeMaps: Map<string, FontCodeMap>;
 }
 
@@ -134,6 +150,10 @@ export interface FontMetrics {
   descent?: number;
   name?: string;
   vertical?: boolean;
+  /** Available when pdf.js runs with fontExtraProperties */
+  toUnicode?: { _map?: unknown[]; firstChar?: number; lastChar?: number } | null;
+  composite?: boolean;
+  missingFile?: boolean;
 }
 
 export interface PageTextModelInput {
@@ -417,6 +437,31 @@ const unionBox = (boxes: Box[]): Box => {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 };
 
+/** Splits the runs of a text object into lines using their baselines */
+function splitLines(runs: TextRun[]): TextRun[][] {
+  const lines: TextRun[][] = [];
+  runs.forEach((run, idx) => {
+    if (idx === 0) {
+      lines.push([run]);
+      return;
+    }
+    const prev = runs[idx - 1];
+    const dirX = prev.baselineEnd[0] - prev.baselineStart[0];
+    const dirY = prev.baselineEnd[1] - prev.baselineStart[1];
+    const len = Math.hypot(dirX, dirY);
+    const [ux, uy] = len > 1e-6 ? [dirX / len, dirY / len] : [1, 0];
+    const dx = run.baselineStart[0] - prev.baselineEnd[0];
+    const dy = run.baselineStart[1] - prev.baselineEnd[1];
+    const along = dx * ux + dy * uy;
+    const across = -dx * uy + dy * ux;
+    const em = Math.max(prev.emSize, run.emSize, 1e-6);
+    // A new line: the baseline moves across, or the text jumps back to the left (next column row)
+    if (Math.abs(across) > em * 0.5 || along < -em * 2) lines.push([run]);
+    else lines[lines.length - 1].push(run);
+  });
+  return lines;
+}
+
 /** Joins the runs of a text object into lines using their baselines */
 function blockText(runs: TextRun[]): string {
   let text = '';
@@ -452,6 +497,7 @@ export function buildPageTextModel(input: PageTextModelInput): PageTextModel {
     runs: [],
     blocks: [],
     blocksById: new Map(),
+    linesById: new Map(),
     fontCodeMaps: new Map(),
   });
 
@@ -511,9 +557,25 @@ export function buildPageTextModel(input: PageTextModelInput): PageTextModel {
       if (glyph.unicode && !map.codes.has(glyph.unicode)) map.codes.set(glyph.unicode, glyph.code);
     }
   }
+  // The font's full ToUnicode table adds characters used elsewhere in the document. It is trusted
+  // for composite fonts (their ToUnicode lists glyphs the embedded program contains) and for
+  // non-embedded fonts (drawn from a complete system/standard font); a subset simple font may
+  // lack the glyphs of its encoding, so it keeps the page glyphs only.
+  for (const [fontKey, map] of fontCodeMaps) {
+    const font = input.getFont(fontKey);
+    const table = font?.toUnicode?._map;
+    if (!font || !Array.isArray(table) || !(font.composite || font.missingFile)) continue;
+    const limit = map.codeBytes === 1 ? 256 : 65536;
+    table.forEach((value, code) => {
+      if (code >= limit || typeof value !== 'string' || value.length === 0) return;
+      if ([...value].length !== 1 || /[\u0000-\u001F�-]/.test(value)) return;
+      if (!map.codes.has(value)) map.codes.set(value, code);
+    });
+  }
 
   const blocks: TextBlock[] = [];
   const blocksById = new Map<string, TextBlock>();
+  const linesById = new Map<string, TextLine>();
   const segments = parseStreamSegments(streamText).filter((s) => s.type === 'text');
   let runIdx = 0;
   const sortedRuns = [...runs].sort((a, b) => a.start - b.start);
@@ -535,12 +597,22 @@ export function buildPageTextModel(input: PageTextModelInput): PageTextModel {
       runs: uniqueRuns,
       text: blockText(uniqueRuns),
       bbox: unionBox(uniqueRuns.map((r) => r.bbox)),
+      lines: [],
     };
+    block.lines = splitLines(uniqueRuns).map((lineRuns, index) => ({
+      id: `${segment.id}#${index}`,
+      segmentId: segment.id,
+      index,
+      runs: lineRuns,
+      text: blockText(lineRuns),
+      bbox: unionBox(lineRuns.map((r) => r.bbox)),
+    }));
+    block.lines.forEach((line) => linesById.set(line.id, line));
     blocks.push(block);
     blocksById.set(block.segmentId, block);
   }
 
-  return { aligned: true, streamText, runs, blocks, blocksById, fontCodeMaps };
+  return { aligned: true, streamText, runs, blocks, blocksById, linesById, fontCodeMaps };
 }
 
 /**
