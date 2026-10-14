@@ -8,7 +8,15 @@ import { SignatureStamp } from '../types/stamp';
 import { RecentFileItem } from '../shared/desktopApi';
 import { getDesktopApi, getDesktopFilePath, onDesktopMessage, toArrayBuffer } from '../services/desktopBridge';
 import { logger } from '../services/logger';
-import { createSamplePdfDoc } from '../utils/file';
+import { createSamplePdfDoc, downloadBlob } from '../utils/file';
+import {
+  backupFileName,
+  createSettingsBackup,
+  mergeSignatures,
+  parseSettingsBackup,
+  sanitizeRasterSettings,
+} from '../services/settingsBackup';
+import { APP_VERSION } from '../utils/appInfo';
 
 /**
  * Opening and saving documents, shared by the web app and the desktop edition:
@@ -56,6 +64,10 @@ interface FileContextType {
   newDocument: () => Promise<void>;
   closeDocument: () => void;
   clearRecentFiles: () => Promise<void>;
+  /** Saves language, theme, raster settings and signatures to a JSON file */
+  exportSettingsBackup: () => Promise<void>;
+  /** Restores settings from a backup file (signatures are merged) */
+  importSettingsBackup: () => Promise<void>;
   showNotice: (kind: FileNotice['kind'], text: string) => void;
 }
 
@@ -84,7 +96,7 @@ export const FileProvider: React.FC<{ children: React.ReactNode }> = ({ children
     createNewBlankDocument,
     closeDocument: closeDocumentState,
   } = useDocument();
-  const { rasterSettings, stamps, setStamps, setIsExportFormModalOpen } = useEditor();
+  const { rasterSettings, setRasterSettings, stamps, setStamps, setIsExportFormModalOpen } = useEditor();
 
   const [filePath, setFilePath] = useState<string | null>(null);
   const [recentFiles, setRecentFiles] = useState<RecentFileItem[]>([]);
@@ -92,8 +104,8 @@ export const FileProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [pendingSaveAs, setPendingSaveAs] = useState(false);
 
   // Latest values for callbacks that outlive a render (IPC listeners, async flows)
-  const latest = useRef({ isDirty, filePath, fileName, t, language, theme, setLanguage, setTheme });
-  latest.current = { isDirty, filePath, fileName, t, language, theme, setLanguage, setTheme };
+  const latest = useRef({ isDirty, filePath, fileName, t, language, theme, setLanguage, setTheme, rasterSettings, stamps });
+  latest.current = { isDirty, filePath, fileName, t, language, theme, setLanguage, setTheme, rasterSettings, stamps };
 
   const noticeTimer = useRef<number | null>(null);
   const showNotice = useCallback((kind: FileNotice['kind'], text: string) => {
@@ -276,6 +288,99 @@ export const FileProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // ---------------------------------------------------------------------------------------------
+  // Settings backup
+  // ---------------------------------------------------------------------------------------------
+
+  const exportSettingsBackup = useCallback(async () => {
+    const desktop = getDesktopApi();
+    const { t: strings, language: lang, theme: currentTheme, rasterSettings: raster, stamps: signatures } = latest.current;
+    const desktopSettings = desktop ? await desktop.getSettings() : null;
+    const backup = createSettingsBackup({
+      appVersion: APP_VERSION,
+      edition: desktop ? 'desktop' : 'web',
+      settings: {
+        language: lang,
+        theme: currentTheme,
+        rasterSettings: raster,
+        ...(desktopSettings
+          ? {
+              reopenLastFileOnStartup: desktopSettings.reopenLastFileOnStartup,
+              confirmOverwrite: desktopSettings.confirmOverwrite,
+            }
+          : {}),
+      },
+      signatures,
+    });
+    const content = JSON.stringify(backup, null, 2);
+    const name = backupFileName();
+    if (desktop) {
+      const result = await desktop.saveTextFile(name, content);
+      if (result.cancelled) return;
+      if (result.error) {
+        showNotice('error', `${strings.backup.failed}: ${result.error}`);
+        return;
+      }
+    } else {
+      downloadBlob(new Blob([content], { type: 'application/json' }), name);
+    }
+    showNotice('success', strings.backup.exported);
+    logger.success('system', `Záloha nastavení uložena (${signatures.length} podpisů a razítek)`);
+  }, [showNotice]);
+
+  const applyBackupText = useCallback(
+    async (text: string) => {
+      const strings = latest.current.t;
+      const parsed = parseSettingsBackup(text);
+      if ('error' in parsed) {
+        showNotice('error', parsed.error === 'newer-version' ? strings.backup.newerVersion : strings.backup.invalidFile);
+        return;
+      }
+      const { backup } = parsed;
+      const date = backup.createdAt && !Number.isNaN(Date.parse(backup.createdAt)) ? new Date(backup.createdAt).toLocaleString() : '?';
+      if (!window.confirm(strings.backup.confirmRestore.replace('{date}', date).replace('{count}', String(backup.signatures.length)))) {
+        return;
+      }
+      const { settings } = backup;
+      if (settings.language) latest.current.setLanguage(settings.language);
+      if (settings.theme) latest.current.setTheme(settings.theme as AppTheme);
+      if (settings.rasterSettings) setRasterSettings(settings.rasterSettings);
+      if (backup.signatures.length > 0) setStamps((current) => mergeSignatures(current, backup.signatures));
+      const desktop = getDesktopApi();
+      if (desktop && (settings.reopenLastFileOnStartup !== undefined || settings.confirmOverwrite !== undefined)) {
+        await desktop.updateSettings({
+          ...(settings.reopenLastFileOnStartup !== undefined ? { reopenLastFileOnStartup: settings.reopenLastFileOnStartup } : {}),
+          ...(settings.confirmOverwrite !== undefined ? { confirmOverwrite: settings.confirmOverwrite } : {}),
+        });
+      }
+      showNotice('success', strings.backup.restored.replace('{count}', String(backup.signatures.length)));
+      logger.success('system', `Nastavení obnoveno ze zálohy (${backup.signatures.length} podpisů a razítek)`);
+    },
+    [setRasterSettings, setStamps, showNotice]
+  );
+
+  const importSettingsBackup = useCallback(async () => {
+    const desktop = getDesktopApi();
+    if (desktop) {
+      const result = await desktop.openTextFile();
+      if (result.cancelled) return;
+      if (result.error || result.content === undefined) {
+        showNotice('error', latest.current.t.backup.invalidFile);
+        return;
+      }
+      await applyBackupText(result.content);
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) void file.text().then(applyBackupText);
+    };
+    input.click();
+  }, [applyBackupText, showNotice]);
+
+  // ---------------------------------------------------------------------------------------------
   // Desktop shell synchronisation
   // ---------------------------------------------------------------------------------------------
 
@@ -293,6 +398,13 @@ export const FileProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setRecentFiles(recent);
       if (settings.theme !== latest.current.theme) latest.current.setTheme(settings.theme as AppTheme);
       if (settings.language !== latest.current.language) latest.current.setLanguage(settings.language);
+      const savedRaster = sanitizeRasterSettings(settings.rasterSettings);
+      if (savedRaster) {
+        setRasterSettings(savedRaster);
+      } else {
+        // First start of the desktop edition: keep the browser-storage settings in the shell too
+        void desktop.updateSettings({ rasterSettings: latest.current.rasterSettings });
+      }
       const savedStamps = (Array.isArray(settings.stamps) ? settings.stamps : []) as SignatureStamp[];
       if (savedStamps.length === 0 && latestStamps.current.length > 0) {
         // First start of the desktop edition: keep the library from localStorage in the shell too
@@ -327,6 +439,10 @@ export const FileProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (settingsLoadedRef.current) void getDesktopApi()?.updateSettings({ stamps });
   }, [stamps]);
 
+  useEffect(() => {
+    if (settingsLoadedRef.current) void getDesktopApi()?.updateSettings({ rasterSettings });
+  }, [rasterSettings]);
+
   // Window title, dirty marker and the close guard of the shell
   useEffect(() => {
     getDesktopApi()?.notifyDocumentState({
@@ -353,11 +469,40 @@ export const FileProvider: React.FC<{ children: React.ReactNode }> = ({ children
         case 'save-before-close':
           void saveDocument({ skipConfirm: true }).then((saved) => getDesktopApi()?.confirmSaveBeforeClose(saved));
           break;
+        case 'file-changed': {
+          const { t: strings, isDirty: dirty, filePath: current } = latest.current;
+          if (current !== message.path) break;
+          const question = (dirty ? strings.files.changedOnDiskUnsaved : strings.files.changedOnDisk).replace('{name}', baseName(message.path));
+          if (window.confirm(question)) void openPath(message.path, { skipDiscardCheck: true });
+          break;
+        }
         default:
           break;
       }
     });
   }, [openPath, saveDocument]);
+
+  // A PDF dropped anywhere outside a drop zone is opened (the browser would otherwise navigate to it
+  // and leave the app); drop zones that handle the drop themselves call preventDefault first
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+    const onDragOver = (e: DragEvent) => {
+      if (hasFiles(e) && !e.defaultPrevented) e.preventDefault();
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e) || e.defaultPrevented) return;
+      e.preventDefault();
+      const file = Array.from(e.dataTransfer?.files ?? []).find((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+      if (file) void openFile(file);
+      else showNotice('error', latest.current.t.notifications.invalidFile);
+    };
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [openFile, showNotice]);
 
   // Browser: warn before leaving the page with unsaved changes (the desktop shell asks on close itself)
   useEffect(() => {
@@ -385,6 +530,8 @@ export const FileProvider: React.FC<{ children: React.ReactNode }> = ({ children
     newDocument,
     closeDocument,
     clearRecentFiles,
+    exportSettingsBackup,
+    importSettingsBackup,
     showNotice,
   };
 

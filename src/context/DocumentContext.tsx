@@ -22,6 +22,7 @@ import {
 } from '../services/pdfLoader';
 import { replaceTextBlockContent, replaceTextLineContent } from '../services/pdfTextEditor';
 import { logger } from '../services/logger';
+import { repairPdfDefects } from '../services/pdfRepair';
 import { downloadBlob } from '../utils/file';
 
 import {
@@ -59,6 +60,33 @@ interface HistoryState {
 }
 
 const MAX_HISTORY = 100; // Generous 100-step undo/redo stack
+// Every content edit keeps a full copy of the edited PDF for undo; beyond this many bytes of distinct
+// PDF versions the oldest steps are dropped (100 edits of a 50 MB scan would otherwise hold 5 GB)
+export const HISTORY_BUFFER_BUDGET = 384 * 1024 * 1024;
+
+/** Bytes of the distinct source buffers referenced by history entries */
+export const historyBufferBytes = (entries: Array<{ sources: SourceDocument[] }>): number => {
+  const seen = new Set<ArrayBuffer>();
+  let total = 0;
+  for (const entry of entries) {
+    for (const source of entry.sources) {
+      const buffer = source.arrayBuffer;
+      if (buffer && !seen.has(buffer)) {
+        seen.add(buffer);
+        total += buffer.byteLength;
+      }
+    }
+  }
+  return total;
+};
+
+/** Drops the oldest entries while there are too many or they hold too many PDF versions */
+export const trimHistory = <T extends { sources: SourceDocument[] }>(entries: T[], budget = HISTORY_BUFFER_BUDGET): T[] => {
+  const next = entries.slice();
+  while (next.length > MAX_HISTORY) next.shift();
+  while (next.length > 1 && historyBufferBytes(next) > budget) next.shift();
+  return next;
+};
 
 interface DocumentContextType {
   fileName: string;
@@ -398,11 +426,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (current && isSameSnapshot(current, snapshot)) {
       return;
     }
-    const next = entries.slice(0, index + 1);
-    next.push(snapshot);
-    while (next.length > MAX_HISTORY) {
-      next.shift();
-    }
+    const next = trimHistory([...entries.slice(0, index + 1), snapshot]);
     setHistory({ entries: next, index: next.length - 1 });
   }, [setHistory]);
 
@@ -449,8 +473,12 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setSavedState({ entry: initialEntry, metadata: loadedMetadata });
   };
 
-  const loadPdfBuffer = async (name: string, buffer: ArrayBuffer) => {
+  const loadPdfBuffer = async (name: string, rawBuffer: ArrayBuffer) => {
     clearPdfCache();
+    const { buffer, repairs } = await repairPdfDefects(rawBuffer);
+    if (repairs.length > 0) {
+      logger.info('load', `Dokument "${name}" obsahoval vady, které by znemožnily zobrazení; opraveno: ${repairs.join('; ')}`);
+    }
     const mainSource: SourceDocument = {
       id: 'main',
       name,

@@ -30,7 +30,10 @@ export type AppCommandId =
   | 'settings'
   | 'shortcuts'
   | 'eventLog'
-  | 'about';
+  | 'about'
+  | 'backupSettings'
+  | 'restoreSettings'
+  | 'showInFolder';
 
 export type ShortcutGroup = 'document' | 'edit' | 'view' | 'navigation';
 

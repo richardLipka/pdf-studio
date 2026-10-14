@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
+import type { PageZone } from '../../hooks/usePageZones';
 import { PdfPageModel, SourceDocument } from '../../types/document';
 import { renderPdfPageToCanvas } from '../../services/pdfLoader';
 import { renderQueue, RenderPriority } from '../../services/renderQueue';
@@ -9,92 +10,93 @@ interface PageCanvasProps {
   page: PdfPageModel;
   sourceDoc: SourceDocument;
   scale: number;
+  /** Distance from the viewport (usePageZones): near pages render, far pages release their bitmap */
+  zone: PageZone;
+  /** Device pixels per CSS pixel the bitmap is rendered at (crisp on HiDPI screens) */
+  pixelRatio: number;
 }
 
 const PageCanvasComponent: React.FC<PageCanvasProps> = ({
   page,
   sourceDoc,
   scale,
+  zone,
+  pixelRatio,
 }) => {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [initialLoading, setInitialLoading] = useState<boolean>(true);
+  const [isDrawn, setIsDrawn] = useState<boolean>(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState<number>(0);
-  const hasDrawnRef = useRef<boolean>(false);
-  const isIntersectingRef = useRef<boolean>(false);
+  // Page state of the bitmap currently on the canvas (null: blank / released)
+  const drawnKeyRef = useRef<string | null>(null);
 
-  // Track viewport visibility with IntersectionObserver to dynamically elevate render priority
+  const taskId = `canvas_${page.id}`;
+  const renderKey = [
+    page.id,
+    page.originalPageIndex,
+    page.rotation,
+    page.sourceDocId,
+    page.sourceType,
+    page.imageDataUrl ? page.imageDataUrl.length : '',
+    page.width,
+    page.height,
+    sourceDoc?.updatedAt ?? '',
+    sourceDoc?.arrayBuffer?.byteLength ?? '',
+    scale,
+    pixelRatio,
+    retryNonce,
+  ].join('|');
+
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container || typeof IntersectionObserver === 'undefined') {
-      isIntersectingRef.current = true;
+    if (zone === 'far') {
+      // The canvas element itself is unmounted below: even an empty 2D canvas costs memory
+      renderQueue.cancel(taskId);
+      if (drawnKeyRef.current !== null) {
+        drawnKeyRef.current = null;
+        setIsDrawn(false);
+      }
       return;
     }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            isIntersectingRef.current = true;
-            // Elevate priority in render queue if page is currently visible
-            const taskId = `canvas_${page.id}_${page.rotation}_${scale}`;
-            renderQueue.elevatePriority(taskId, RenderPriority.VIEWPORT);
-          } else {
-            isIntersectingRef.current = false;
-          }
-        }
-      },
-      {
-        root: null,
-        rootMargin: '300px 0px 300px 0px', // Prefetch margin
-        threshold: 0.01,
-      }
-    );
-
-    observer.observe(container);
-    return () => {
-      observer.disconnect();
-    };
-  }, [page.id, page.rotation, scale]);
-
-  useEffect(() => {
-    let isCancelled = false;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (!hasDrawnRef.current) {
-      setInitialLoading(true);
+    const release = () => {
+      renderQueue.cancel(taskId);
+      if (drawnKeyRef.current !== null || canvas.width > 0) {
+        // Frees the bitmap: a 0x0 canvas has no backing store
+        canvas.width = 0;
+        canvas.height = 0;
+        drawnKeyRef.current = null;
+        setIsDrawn(false);
+      }
+    };
+
+    if (drawnKeyRef.current === renderKey) return;
+    if (zone === 'keep') {
+      // Off screen with an outdated bitmap (zoom, edit): drop it, it is re-rendered when it comes near
+      if (drawnKeyRef.current !== null) release();
+      return;
     }
 
-    const taskId = `canvas_${page.id}_${page.rotation}_${scale}`;
-    const isInitialBatch = page.originalPageIndex < 5;
-    const initialPriority = isIntersectingRef.current
-      ? RenderPriority.VIEWPORT
-      : isInitialBatch
-      ? RenderPriority.INITIAL_BATCH
-      : RenderPriority.BACKGROUND;
-
+    let isCancelled = false;
     renderQueue
-      .enqueue(taskId, initialPriority, async () => {
-        if (isCancelled || !canvas) return;
-        await renderPdfPageToCanvas(sourceDoc, page, canvas, scale);
+      .enqueue(taskId, RenderPriority.VIEWPORT, async () => {
+        if (isCancelled) return;
+        await renderPdfPageToCanvas(sourceDoc, page, canvas, scale, pixelRatio);
       })
       .then(() => {
         if (!isCancelled) {
-          hasDrawnRef.current = true;
+          drawnKeyRef.current = renderKey;
+          setIsDrawn(true);
           setRenderError(null);
-          setInitialLoading(false);
         }
       })
       .catch((err) => {
-        if (!isCancelled) {
-          if (err?.name !== 'RenderingCancelledException') {
-            console.error(`Failed to render page ${page.id}:`, err);
-            setRenderError(err?.message || 'Chyba při vykreslování strany');
-          }
-          setInitialLoading(false);
+        if (!isCancelled && err?.name !== 'RenderingCancelledException') {
+          console.error(`Failed to render page ${page.id}:`, err);
+          setRenderError(err?.message || 'Chyba při vykreslování strany');
         }
       });
 
@@ -102,28 +104,15 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
       isCancelled = true;
       renderQueue.cancel(taskId);
     };
-  }, [
-    page.id,
-    page.originalPageIndex,
-    page.rotation,
-    page.sourceDocId,
-    page.sourceType,
-    page.imageDataUrl,
-    page.width,
-    page.height,
-    sourceDoc,
-    sourceDoc?.updatedAt,
-    scale,
-    retryNonce,
-  ]);
+    // renderKey covers the page, document version, scale and pixel ratio
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zone, renderKey]);
 
   const handleRetry = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const taskId = `canvas_${page.id}_${page.rotation}_${scale}`;
     renderQueue.cancel(taskId);
-    hasDrawnRef.current = false;
+    drawnKeyRef.current = null;
     setRenderError(null);
-    setInitialLoading(true);
     setRetryNonce((prev) => prev + 1);
   };
 
@@ -136,20 +125,22 @@ const PageCanvasComponent: React.FC<PageCanvasProps> = ({
       }}
       className="relative shadow-2xl rounded-sm bg-white overflow-hidden"
     >
-      <canvas
-        ref={canvasRef}
-        id={`page_canvas_${page.id}`}
-        data-page-canvas={page.id}
-        className="block select-none"
-      />
+      {zone !== 'far' && (
+        <canvas
+          ref={canvasRef}
+          id={`page_canvas_${page.id}`}
+          data-page-canvas={page.id}
+          className="block select-none"
+        />
+      )}
 
-      {initialLoading && !hasDrawnRef.current && !renderError && (
+      {zone === 'near' && !isDrawn && !renderError && (
         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
         </div>
       )}
 
-      {renderError && !hasDrawnRef.current && (
+      {renderError && !isDrawn && (
         <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center z-10 animate-in fade-in duration-200">
           <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mb-3">
             <AlertTriangle className="w-6 h-6" />
@@ -185,6 +176,9 @@ export const PageCanvas = memo(PageCanvasComponent, (prev, next) => {
     prev.page.height === next.page.height &&
     prev.sourceDoc === next.sourceDoc &&
     prev.sourceDoc?.updatedAt === next.sourceDoc?.updatedAt &&
-    prev.scale === next.scale
+    prev.page.sourceDocId === next.page.sourceDocId &&
+    prev.scale === next.scale &&
+    prev.zone === next.zone &&
+    prev.pixelRatio === next.pixelRatio
   );
 });

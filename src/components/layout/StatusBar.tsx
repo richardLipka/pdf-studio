@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
+  MoveHorizontal,
   ShieldCheck,
   ScrollText,
   Sliders,
@@ -26,9 +27,11 @@ export const StatusBar: React.FC = () => {
     activePageIndex,
     setActivePageIndex,
     scale,
-    setScale,
     zoomToFitPage,
     zoomToFitWidth,
+    zoomIn,
+    zoomOut,
+    zoomActualSize,
   } = useDocument();
 
   const { toggleLogModal, toggleSettingsModal, toggleAboutModal, rasterSettings } = useEditor();
@@ -61,7 +64,7 @@ export const StatusBar: React.FC = () => {
 
   return (
     <footer
-      className={`h-10 border-t px-4 flex items-center justify-between text-xs select-none z-20 transition-colors ${
+      className={`h-10 border-t px-2 lg:px-4 flex items-center justify-between gap-2 text-xs whitespace-nowrap select-none z-20 transition-colors ${
         isMinimal
           ? 'bg-white border-neutral-200 text-neutral-600'
           : isLcars
@@ -70,7 +73,7 @@ export const StatusBar: React.FC = () => {
       }`}
     >
       {/* Left: Page Navigation when doc loaded, or Privacy badge on first page */}
-      <div className="flex items-center gap-2 min-w-[140px]">
+      <div className="flex items-center gap-1 lg:gap-2 shrink-0">
         {hasPages ? (
           <>
             <button
@@ -128,14 +131,14 @@ export const StatusBar: React.FC = () => {
                 isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-emerald-400'
               }`}
             />
-            <span className="hidden sm:inline font-medium">100% Client-Side Privacy</span>
+            <span className="hidden sm:inline font-medium">{isDesktopApp() ? t.files.privacyBadgeDesktop : t.app.privacyBadge}</span>
           </div>
         )}
       </div>
 
       {/* Center: Author Copyright, Email & FAV ZČU Logo */}
       <div
-        className={`flex items-center gap-3 text-[11px] ${
+        className={`flex items-center justify-center gap-2 xl:gap-3 min-w-0 flex-1 overflow-hidden text-[11px] ${
           isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#99ccff]' : 'text-slate-400'
         }`}
       >
@@ -143,21 +146,21 @@ export const StatusBar: React.FC = () => {
           href="https://www.fav.zcu.cz/cs/"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+          className="hidden md:flex items-center gap-1.5 shrink-0 hover:opacity-90 transition-opacity"
           title="Fakulta aplikovaných věd ZČU v Plzni (https://www.fav.zcu.cz/cs/)"
         >
           <img src={`${import.meta.env.BASE_URL}fav-logo.svg`} alt="FAV ZČU" className="h-5 object-contain" />
         </a>
 
         <span
-          className={`select-none ${
+          className={`hidden xl:inline select-none ${
             isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
           }`}
         >
           •
         </span>
 
-        <span className="flex items-center gap-1">
+        <span className="hidden xl:flex items-center gap-1">
           <span>©</span>
           <a
             href="https://home.zcu.cz/~lipka/"
@@ -177,7 +180,7 @@ export const StatusBar: React.FC = () => {
         </span>
 
         <span
-          className={`select-none ${
+          className={`hidden 2xl:inline select-none ${
             isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
           }`}
         >
@@ -186,7 +189,7 @@ export const StatusBar: React.FC = () => {
 
         <a
           href="mailto:lipka@fav.zcu.cz"
-          className={`transition-colors flex items-center gap-1 font-mono text-[10.5px] ${
+          className={`hidden 2xl:flex transition-colors items-center gap-1 font-mono text-[10.5px] ${
             isMinimal
               ? 'text-neutral-700 hover:text-black'
               : isLcars
@@ -199,7 +202,7 @@ export const StatusBar: React.FC = () => {
         </a>
 
         <span
-          className={`hidden sm:inline select-none ${
+          className={`hidden md:inline select-none ${
             isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
           }`}
         >
@@ -241,7 +244,7 @@ export const StatusBar: React.FC = () => {
         </button>
 
         <span
-          className={`hidden md:inline select-none ${
+          className={`hidden xl:inline select-none ${
             isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
           }`}
         >
@@ -251,7 +254,7 @@ export const StatusBar: React.FC = () => {
         {/* Rasterization Settings Quick Status */}
         <button
           onClick={toggleSettingsModal}
-          className={`hidden md:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+          className={`hidden xl:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
             isMinimal
               ? 'text-neutral-600 hover:text-black hover:bg-neutral-100'
               : isLcars
@@ -296,11 +299,11 @@ export const StatusBar: React.FC = () => {
       </div>
 
       {/* Right: Zoom Controls when doc loaded, or subtle status on first page */}
-      <div className="flex items-center gap-1.5 min-w-[140px] justify-end">
+      <div className="flex items-center gap-1 lg:gap-1.5 shrink-0 justify-end">
         {hasPages ? (
           <>
             <button
-              onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
+              onClick={zoomOut}
               className={`p-1 rounded transition-colors ${
                 isMinimal
                   ? 'hover:bg-neutral-100 text-black'
@@ -313,16 +316,22 @@ export const StatusBar: React.FC = () => {
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
 
-            <span
-              className={`w-12 text-center font-mono font-medium ${
-                isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-300'
+            <button
+              onClick={zoomActualSize}
+              className={`w-12 text-center font-mono font-medium rounded transition-colors ${
+                isMinimal
+                  ? 'text-black hover:bg-neutral-100'
+                  : isLcars
+                  ? 'text-[#ff9900] hover:bg-[#222222]'
+                  : 'text-slate-300 hover:bg-slate-800'
               }`}
+              title={`${t.commands.zoomActual} (Ctrl + 1)`}
             >
               {zoomPercent}%
-            </span>
+            </button>
 
             <button
-              onClick={() => setScale((s) => Math.min(3.0, Number((s + 0.15).toFixed(2))))}
+              onClick={zoomIn}
               className={`p-1 rounded transition-colors ${
                 isMinimal
                   ? 'hover:bg-neutral-100 text-black'
@@ -351,9 +360,10 @@ export const StatusBar: React.FC = () => {
                   ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border-[#99ccff]'
                   : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
               }`}
-              title={t.app.fitWidth}
+              title={`${t.app.fitWidth} (Ctrl + 2)`}
             >
-              {t.app.fitWidth}
+              <MoveHorizontal className="w-3 h-3 inline lg:mr-1" />
+              <span className="hidden lg:inline">{t.app.fitWidth}</span>
             </button>
 
             {/* Fit Page */}
@@ -366,26 +376,12 @@ export const StatusBar: React.FC = () => {
                   ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border-[#ff9966]'
                   : 'rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
               }`}
-              title={t.app.fitPage}
+              title={`${t.app.fitPage} (Ctrl + 0)`}
             >
-              <Maximize2 className="w-3 h-3 inline mr-1" />
-              {t.app.fitPage}
+              <Maximize2 className="w-3 h-3 inline lg:mr-1" />
+              <span className="hidden lg:inline">{t.app.fitPage}</span>
             </button>
 
-            {/* Fit Selected */}
-            <button
-              onClick={() => zoomToFitPage(activePageIndex)}
-              className={`px-2 py-0.5 text-[11px] font-medium border transition-colors ${
-                isMinimal
-                  ? 'rounded-md bg-neutral-100 hover:bg-neutral-200 text-black border-neutral-300'
-                  : isLcars
-                  ? 'rounded-full bg-black hover:bg-[#111111] text-[#ffcc00] border-[#ffcc00]'
-                  : 'rounded bg-sky-950/80 hover:bg-sky-900 text-sky-300 border-sky-800/80'
-              }`}
-              title={`${t.app.fitSelected} (Ctrl + 0)`}
-            >
-              {t.app.fitSelected}
-            </button>
           </>
         ) : (
           <span
@@ -393,7 +389,7 @@ export const StatusBar: React.FC = () => {
               isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#ff9966]' : 'text-slate-500'
             }`}
           >
-            v1.0.0
+            v{APP_VERSION}
           </span>
         )}
       </div>

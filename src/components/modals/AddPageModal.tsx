@@ -8,6 +8,8 @@ import {
   InsertPosition,
 } from '../../services/pageManager';
 import { parsePdfPages, extractPdfAnnotations } from '../../services/pdfLoader';
+import { logger } from '../../services/logger';
+import { repairPdfDefects } from '../../services/pdfRepair';
 import {
   convertImageDataUrlToPng,
   dataUrlToBytes,
@@ -150,7 +152,10 @@ export const AddPageModal: React.FC = () => {
         const imagePage = createImagePage(dataUrl, width, height, imageBytes, mimeType);
         insertPages([imagePage], position);
       } else if (activeTab === 'pdf' && selectedFile) {
-        const arrayBuffer = await readFileAsArrayBuffer(selectedFile);
+        const { buffer: arrayBuffer, repairs } = await repairPdfDefects(await readFileAsArrayBuffer(selectedFile));
+        if (repairs.length > 0) {
+          logger.info('load', `Vložený dokument "${selectedFile.name}" byl opraven: ${repairs.join('; ')}`);
+        }
         const sourceDocId = `merged_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
         const newSource: SourceDocument = {
           id: sourceDocId,

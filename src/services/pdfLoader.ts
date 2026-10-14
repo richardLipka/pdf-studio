@@ -87,6 +87,28 @@ const destroyDocument = (entry: DocCacheEntry) => {
   });
 };
 
+// pdf.js keeps the parsed pages, decoded images and fonts of every page it has rendered, on the
+// main thread and in the worker, until the document is cleaned up. With the viewer releasing
+// off-screen pages that cache would still grow with every page scrolled past (hundreds of MB for
+// long documents), so after a few seconds without rendering the caches of all open documents are
+// dropped. Loaded fonts stay, so revisited pages do not flash.
+const IDLE_CLEANUP_MS = 8000;
+let idleCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+
+export const scheduleIdleDocumentCleanup = () => {
+  if (typeof window === 'undefined') return;
+  if (idleCleanupTimer) clearTimeout(idleCleanupTimer);
+  idleCleanupTimer = setTimeout(() => {
+    idleCleanupTimer = null;
+    for (const entry of docCache.values()) {
+      entry.promise
+        .then((doc) => doc.cleanup(true))
+        // A page is still rendering: try again after the next quiet period
+        .catch(() => scheduleIdleDocumentCleanup());
+    }
+  }, IDLE_CLEANUP_MS);
+};
+
 /**
  * Maps a PDF user-space rectangle [x1, y1, x2, y2] to viewport coordinates (the corners may come
  * back in any order; callers take min/max). Replaces PageViewport.convertToViewportRectangle,
@@ -771,12 +793,25 @@ export const extractPdfAnnotations = async (
   }
 };
 
+/**
+ * Draws a page into a canvas at `scale` CSS pixels per point. `pixelRatio` > 1 renders that many
+ * device pixels per CSS pixel (sharp on HiDPI screens); the canvas keeps its CSS size, and canvas
+ * readers use canvas.width / page width, so they are unaffected.
+ */
 export const renderPdfPageToCanvas = async (
   sourceDoc: SourceDocument,
   pageModel: PdfPageModel,
   canvas: HTMLCanvasElement,
-  scale: number = 1.0
+  scale: number = 1.0,
+  pixelRatio: number = 1
 ): Promise<void> => {
+  const sizeCanvas = (cssWidth: number, cssHeight: number) => {
+    canvas.width = Math.max(1, Math.floor(cssWidth * pixelRatio));
+    canvas.height = Math.max(1, Math.floor(cssHeight * pixelRatio));
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+  };
+
   if (pageModel.sourceType === 'image' && pageModel.imageDataUrl) {
     // Render image page directly to canvas
     const img = new Image();
@@ -791,13 +826,10 @@ export const renderPdfPageToCanvas = async (
 
     const width = pageModel.width * scale;
     const height = pageModel.height * scale;
-
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    sizeCanvas(width, height);
 
     ctx.save();
+    ctx.scale(pixelRatio, pixelRatio);
     // Handle page rotation
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
@@ -820,14 +852,9 @@ export const renderPdfPageToCanvas = async (
   if (pageModel.sourceType === 'blank') {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const width = pageModel.width * scale;
-    const height = pageModel.height * scale;
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    sizeCanvas(pageModel.width * scale, pageModel.height * scale);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     return;
   }
 
@@ -852,15 +879,13 @@ export const renderPdfPageToCanvas = async (
     rotation: pageModel.rotation,
   });
 
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  canvas.style.width = `${viewport.width}px`;
-  canvas.style.height = `${viewport.height}px`;
+  sizeCanvas(viewport.width, viewport.height);
 
   const renderContext = {
     canvas,
     viewport,
     annotationMode: pdfjsLib.AnnotationMode.DISABLE,
+    ...(pixelRatio !== 1 ? { transform: [pixelRatio, 0, 0, pixelRatio, 0, 0] } : {}),
   };
 
   const renderTask = pdfPage.render(renderContext);
@@ -883,6 +908,7 @@ export const renderPdfPageToCanvas = async (
     } catch {
       // ignore
     }
+    scheduleIdleDocumentCleanup();
   }
 };
 
@@ -957,6 +983,7 @@ export const renderPdfTextLayer = async (
         // ignore
       }
     }
+    scheduleIdleDocumentCleanup();
   }
 };
 

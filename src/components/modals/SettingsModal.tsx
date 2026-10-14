@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
-import { Sliders, X, RotateCcw, Check, Sparkles, Image, Cpu } from 'lucide-react';
+import { Sliders, X, RotateCcw, Check, Sparkles, Image, Cpu, DatabaseBackup, Upload, Download } from 'lucide-react';
+import { useFiles } from '../../context/FileContext';
 import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../../types/document';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 
@@ -10,6 +11,7 @@ export const SettingsModal: React.FC = () => {
   const { t } = useI18n();
   const { theme } = useTheme();
   const { isSettingsModalOpen, setIsSettingsModalOpen, rasterSettings, setRasterSettings, resetRasterSettings } = useEditor();
+  const { isDesktop, exportSettingsBackup, importSettingsBackup } = useFiles();
 
   const [tempSettings, setTempSettings] = useState<RasterizationSettings>(rasterSettings);
 
@@ -341,6 +343,43 @@ export const SettingsModal: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* Settings backup (both editions) */}
+          <div
+            className={`p-4 rounded-xl border space-y-3 ${
+              isMinimal ? 'bg-neutral-50 border-neutral-200' : isLcars ? 'bg-[#0a0a0a] border-[#ff9900]/30' : 'bg-slate-800/30 border-slate-700/60'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <DatabaseBackup className={`w-4 h-4 ${isLcars ? 'text-[#ff9900]' : 'text-emerald-400'}`} />
+              <h3 className="text-xs font-bold uppercase tracking-wider">{t.backup.title}</h3>
+            </div>
+            <p className={`text-[11px] leading-relaxed ${isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ffcc99]' : 'text-slate-400'}`}>
+              {t.backup.description} {isDesktop ? t.backup.automaticDesktop : t.backup.automaticWeb}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: t.backup.exportButton, icon: <Download className="w-3.5 h-3.5" />, onClick: exportSettingsBackup },
+                { label: t.backup.importButton, icon: <Upload className="w-3.5 h-3.5" />, onClick: importSettingsBackup },
+              ].map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  onClick={() => void action.onClick()}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                    isMinimal
+                      ? 'bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                      : isLcars
+                      ? 'bg-black hover:bg-[#1a1400] text-[#ff9900] border-[#ff9900]/60 font-mono'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  }`}
+                >
+                  {action.icon}
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Footer Actions */}
