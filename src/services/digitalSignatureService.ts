@@ -11,6 +11,7 @@ import {
 } from 'pdf-lib';
 import { logger } from './logger';
 import { PdfFontProvider, prepareTextForFont } from './pdfFonts';
+import { findByteSequence, findBytePattern } from '../utils/binarySearch';
 
 export interface ParsedCertificateInfo {
   commonName: string;
@@ -496,9 +497,8 @@ Q
   const rawBytes = await pdfDoc.save({ useObjectStreams: false });
   let pdfBuffer = new Uint8Array(rawBytes);
 
-  // 6. Find ByteRange and Contents offsets
-  const pdfString = uint8ToString(pdfBuffer);
-  const contentsOffset = pdfString.indexOf(placeholderHex);
+  // 6. Find ByteRange and Contents offsets directly on Uint8Array (Zero String Allocation)
+  const contentsOffset = findByteSequence(pdfBuffer, placeholderHex);
 
   if (contentsOffset === -1) {
     throw new Error('Nepodařilo se nalézt vyhrazený prostor pro digitální podpis v PDF struktuře.');
@@ -508,14 +508,14 @@ Q
   const contentsEnd = contentsStart + SIGNATURE_LENGTH;
 
   const byteRangeRegex = /\/ByteRange\s*\[\s*0\s+1000000000\s+1000000000\s+1000000000\s*\]/;
-  const byteRangeMatch = pdfString.match(byteRangeRegex);
+  const byteRangeMatch = findBytePattern(pdfBuffer, byteRangeRegex);
 
-  if (!byteRangeMatch || byteRangeMatch.index === undefined) {
+  if (!byteRangeMatch) {
     throw new Error('Nepodařilo se nalézt ByteRange placeholder v PDF struktuře.');
   }
 
   const byteRangeOffset = byteRangeMatch.index;
-  const matchedPlaceholder = byteRangeMatch[0];
+  const matchedPlaceholder = byteRangeMatch.match;
 
   // 7. Replace ByteRange with exact values (0, contentsStart - 1, contentsEnd + 1, totalLength - (contentsEnd + 1))
   const b1 = 0;
@@ -536,8 +536,8 @@ Q
   const part2 = pdfBuffer.subarray(b3, b3 + b4);
 
   const detachedContentBuffer = forge.util.createBuffer();
-  detachedContentBuffer.putBytes(uint8ToString(part1));
-  detachedContentBuffer.putBytes(uint8ToString(part2));
+  appendUint8ToForge(detachedContentBuffer, part1);
+  appendUint8ToForge(detachedContentBuffer, part2);
 
   // 9. Generate PKCS#7 / CMS SignedData detached signature
   const p7 = forge.pkcs7.createSignedData();
@@ -616,11 +616,14 @@ export function formatPdfDate(date: Date): string {
   return `D:${y}${m}${d}${h}${min}${s}${sign}${offsetHours}'${offsetMinutes}'`;
 }
 
-function uint8ToString(u8: Uint8Array): string {
-  let str = '';
-  const chunk = 32768;
-  for (let i = 0; i < u8.length; i += chunk) {
-    str += String.fromCharCode.apply(null, Array.from(u8.subarray(i, i + chunk)));
+function appendUint8ToForge(buffer: forge.util.ByteBuffer, u8: Uint8Array): void {
+  const CHUNK_SIZE = 8192;
+  for (let i = 0; i < u8.length; i += CHUNK_SIZE) {
+    const end = Math.min(i + CHUNK_SIZE, u8.length);
+    let chunkStr = '';
+    for (let j = i; j < end; j++) {
+      chunkStr += String.fromCharCode(u8[j]);
+    }
+    buffer.putBytes(chunkStr);
   }
-  return str;
 }

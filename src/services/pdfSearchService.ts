@@ -70,6 +70,7 @@ export const searchPdfDocument = async (
     const sourceDoc = (pageModel.sourceDocId ? sources.find((s) => s.id === pageModel.sourceDocId) : null) || sources[0];
     if (!sourceDoc?.arrayBuffer) continue;
 
+    let pdfPage: any = null;
     try {
       const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
       const originalIdx = typeof pageModel.originalPageIndex === 'number' 
@@ -77,7 +78,7 @@ export const searchPdfDocument = async (
         : typeof (pageModel as any).sourcePageIndex === 'number' 
         ? (pageModel as any).sourcePageIndex 
         : pageIdx;
-      const pdfPage = await pdfDoc.getPage(originalIdx + 1);
+      pdfPage = await pdfDoc.getPage(originalIdx + 1);
       const textContent = await pdfPage.getTextContent();
       const viewport = pdfPage.getViewport({ scale: 1, rotation: pageModel.rotation || 0 });
 
@@ -183,10 +184,16 @@ export const searchPdfDocument = async (
           regex.lastIndex++;
         }
       }
-
-      pdfPage.cleanup();
     } catch (err) {
       console.warn(`Search error on page ${pageModel.id}:`, err);
+    } finally {
+      if (pdfPage) {
+        try {
+          pdfPage.cleanup();
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 

@@ -16,22 +16,33 @@ type LogListener = (logs: LogEntry[]) => void;
  * Safely serializes arbitrary details (including circular structures, BigInt,
  * and massive typed arrays/buffers) without throwing or causing memory bloat.
  */
-export function safeSerializeDetails(details: any): string | undefined {
+export function safeSerializeDetails(
+  details: any,
+  maxDepth = 6,
+  seenErrors: WeakSet<object> = new WeakSet()
+): string | undefined {
   if (details === undefined || details === null) {
     return details === null ? 'null' : undefined;
   }
 
+  // 1. Error unrolling with circular cause protection
   if (details instanceof Error) {
+    if (seenErrors.has(details)) {
+      return `[Circular Error: ${details.name}: ${details.message}]`;
+    }
+    seenErrors.add(details);
+
     let result = `${details.name}: ${details.message}`;
     if (details.stack) {
       result += `\n${details.stack}`;
     }
-    if ((details as any).cause) {
-      result += `\nCaused by: ${safeSerializeDetails((details as any).cause)}`;
+    if ((details as any).cause && maxDepth > 0) {
+      result += `\nCaused by: ${safeSerializeDetails((details as any).cause, maxDepth - 1, seenErrors)}`;
     }
     return result;
   }
 
+  // 2. Primitives
   if (typeof details === 'string') {
     return details;
   }
@@ -44,6 +55,7 @@ export function safeSerializeDetails(details: any): string | undefined {
     return `${details.toString()}n`;
   }
 
+  // 3. Binary Buffers
   if (details instanceof ArrayBuffer) {
     return `[ArrayBuffer: ${details.byteLength} B (${(details.byteLength / 1024).toFixed(1)} KB)]`;
   }
@@ -52,13 +64,13 @@ export function safeSerializeDetails(details: any): string | undefined {
     return `[${details.constructor.name}: ${details.byteLength} B (${(details.byteLength / 1024).toFixed(1)} KB)]`;
   }
 
-  // Handle circular references and serialize objects safely
-  const seen = new WeakSet();
+  // 4. Handle circular references on ancestor chains without false positives on DAGs
+  const ancestors: any[] = [];
 
   try {
     const stringified = JSON.stringify(
       details,
-      (_key, value) => {
+      function (this: any, _key, value) {
         if (value === null) return null;
         if (typeof value === 'bigint') return `${value.toString()}n`;
         if (value instanceof ArrayBuffer) {
@@ -74,11 +86,16 @@ export function safeSerializeDetails(details: any): string | undefined {
             stack: value.stack,
           };
         }
-        if (typeof value === 'object') {
-          if (seen.has(value)) {
+        if (typeof value === 'object' && value !== null) {
+          // Unwind ancestor stack back to current parent object
+          while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) {
+            ancestors.pop();
+          }
+          // If the object appears in its own ancestor chain, it is truly circular
+          if (ancestors.includes(value)) {
             return '[Circular Reference]';
           }
-          seen.add(value);
+          ancestors.push(value);
         }
         // Truncate gigantic strings in individual properties to prevent OOM
         if (typeof value === 'string' && value.length > 4096) {
@@ -97,7 +114,7 @@ export function safeSerializeDetails(details: any): string | undefined {
       for (const k of keys.slice(0, 25)) {
         const val = (details as any)[k];
         if (typeof val === 'function') continue;
-        safeSummary[k] = typeof val === 'object' ? '[Object]' : String(val);
+        safeSummary[k] = typeof val === 'object' && val !== null ? '[Object]' : String(val);
       }
       return JSON.stringify(safeSummary, null, 2);
     } catch {
@@ -111,6 +128,10 @@ class LoggerService {
   private listeners: Set<LogListener> = new Set();
   private maxLogs = 500;
 
+  // Running counters for constant-time O(1) status queries
+  private warnCount = 0;
+  private errorCount = 0;
+
   public log(level: LogLevel, category: LogCategory, title: string, details?: string | Error | any) {
     const detailsStr = safeSerializeDetails(details);
 
@@ -123,9 +144,14 @@ class LoggerService {
       details: detailsStr,
     };
 
+    if (level === 'warn') this.warnCount++;
+    if (level === 'error') this.errorCount++;
+
     this.logs.unshift(entry);
     if (this.logs.length > this.maxLogs) {
-      this.logs.pop();
+      const removed = this.logs.pop();
+      if (removed?.level === 'warn') this.warnCount--;
+      if (removed?.level === 'error') this.errorCount--;
     }
 
     this.notify();
@@ -162,13 +188,17 @@ class LoggerService {
   }
 
   public getWarningAndErrorCount(): { warns: number; errors: number; totalIssues: number } {
-    const warns = this.logs.filter((l) => l.level === 'warn').length;
-    const errors = this.logs.filter((l) => l.level === 'error').length;
-    return { warns, errors, totalIssues: warns + errors };
+    return {
+      warns: this.warnCount,
+      errors: this.errorCount,
+      totalIssues: this.warnCount + this.errorCount,
+    };
   }
 
   public clear() {
     this.logs = [];
+    this.warnCount = 0;
+    this.errorCount = 0;
     this.notify();
   }
 

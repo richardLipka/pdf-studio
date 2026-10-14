@@ -49,21 +49,29 @@ export const cropPageRegionToClipboard = async (
       const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
       const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
 
-      const viewport = pdfPage.getViewport({
-        scale: highResScale,
-        rotation: pageModel.rotation,
-      });
+      try {
+        const viewport = pdfPage.getViewport({
+          scale: highResScale,
+          rotation: pageModel.rotation,
+        });
 
-      fullCanvas.width = viewport.width;
-      fullCanvas.height = viewport.height;
+        fullCanvas.width = viewport.width;
+        fullCanvas.height = viewport.height;
 
-      const renderContext = {
-        canvas: fullCanvas,
-        viewport,
-        annotationMode: 0, // AnnotationMode.DISABLE
-      };
+        const renderContext = {
+          canvas: fullCanvas,
+          viewport,
+          annotationMode: 0, // AnnotationMode.DISABLE
+        };
 
-      await pdfPage.render(renderContext).promise;
+        await pdfPage.render(renderContext).promise;
+      } finally {
+        try {
+          pdfPage.cleanup();
+        } catch {
+          // ignore
+        }
+      }
     } else if (pageModel.sourceType === 'image' && pageModel.imageDataUrl) {
       const img = new Image();
       await new Promise<void>((resolve, reject) => {
@@ -228,6 +236,11 @@ export const cropPageRegionToClipboard = async (
         console.warn('Direct ClipboardItem write failed:', clipErr);
       }
     }
+
+    fullCanvas.width = 0;
+    fullCanvas.height = 0;
+    targetCanvas.width = 0;
+    targetCanvas.height = 0;
 
     return {
       success: true,

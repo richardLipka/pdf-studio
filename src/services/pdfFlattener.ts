@@ -149,24 +149,29 @@ export async function flattenPdfToImages(
     for (let pageNumber = 1; pageNumber <= total; pageNumber++) {
       onProgress?.(pageNumber - 1, total);
       const page = await pdf.getPage(pageNumber);
-      const size = page.getViewport({ scale: 1 });
-      const scale = flattenScaleFor(size.width, size.height, options.dpi);
-      const viewport = page.getViewport({ scale });
+      let rendered: HTMLCanvasElement;
+      let size: any;
+      try {
+        size = page.getViewport({ scale: 1 });
+        const scale = flattenScaleFor(size.width, size.height, options.dpi);
+        const viewport = page.getViewport({ scale });
 
-      const rendered = document.createElement('canvas');
-      rendered.width = Math.max(1, Math.ceil(viewport.width));
-      rendered.height = Math.max(1, Math.ceil(viewport.height));
-      // Rendered as for printing: annotations marked printable (all the editor writes, highlights,
-      // stamps, signatures, flattened fields) are part of the page, as on a scanned paper copy. The
-      // print intent also renders in one pass instead of continuing on animation frames, which
-      // background tabs pause.
-      await page.render({
-        canvas: rendered,
-        viewport,
-        intent: 'print',
-        annotationMode: pdfjsLib.AnnotationMode.ENABLE,
-      }).promise;
-      page.cleanup();
+        rendered = document.createElement('canvas');
+        rendered.width = Math.max(1, Math.ceil(viewport.width));
+        rendered.height = Math.max(1, Math.ceil(viewport.height));
+        // Rendered as for printing: annotations marked printable (all the editor writes, highlights,
+        // stamps, signatures, flattened fields) are part of the page, as on a scanned paper copy. The
+        // print intent also renders in one pass instead of continuing on animation frames, which
+        // background tabs pause.
+        await page.render({
+          canvas: rendered,
+          viewport,
+          intent: 'print',
+          annotationMode: pdfjsLib.AnnotationMode.ENABLE,
+        }).promise;
+      } finally {
+        page.cleanup();
+      }
 
       let output = rendered;
       if (options.scanEffect) {

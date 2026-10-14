@@ -1061,6 +1061,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           const ctx = canvas.getContext('2d');
           if (ctx) ctx.drawImage(img, 0, 0);
           const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+          canvas.width = 0;
+          canvas.height = 0;
           if (!pngBlob) throw new Error('Konverze WebP na PNG selhala.');
           buffer = await pngBlob.arrayBuffer();
           effectiveMime = 'image/png';

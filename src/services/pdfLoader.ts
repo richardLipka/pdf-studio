@@ -56,6 +56,10 @@ export const getCachedPdfDocument = async (
   }
   if (cached) {
     retiredDocs.push(cached);
+    while (retiredDocs.length > 2) {
+      const oldest = retiredDocs.shift();
+      if (oldest) destroyDocument(oldest);
+    }
   }
 
   // Create a copy of the buffer because pdfjs-dist may transfer ownership
@@ -228,8 +232,9 @@ export const parsePdfPages = async (
     const pages: PdfPageModel[] = [];
 
     for (let i = 1; i <= pdfDoc.numPages; i++) {
+      let page: pdfjsLib.PDFPageProxy | null = null;
       try {
-        const page = await pdfDoc.getPage(i);
+        page = await pdfDoc.getPage(i);
         const viewport = page.getViewport({ scale: 1.0 });
 
         pages.push({
@@ -253,6 +258,14 @@ export const parsePdfPages = async (
             stack: pageErr?.stack,
           }
         );
+      } finally {
+        if (page) {
+          try {
+            page.cleanup();
+          } catch {
+            // ignore
+          }
+        }
       }
     }
 
@@ -978,27 +991,36 @@ export const getPageTextModel = (
       if (error || !layout) return null;
       const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
       const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
-      const viewport = page.getViewport({ scale: 1.0, rotation: pageModel.rotation });
-      const operatorList = await page.getOperatorList({ annotationMode: pdfjsLib.AnnotationMode.DISABLE });
-      const model = buildPageTextModel({
-        streamText,
-        layout,
-        operatorList,
-        ops: pdfjsLib.OPS as unknown as Record<string, number>,
-        getFont: (fontKey) => {
-          try {
-            return page.commonObjs.has(fontKey) ? (page.commonObjs.get(fontKey) as FontMetrics) : null;
-          } catch {
-            return null;
-          }
-        },
-        toDisplay: (x, y) => viewport.convertToViewportPoint(x, y) as [number, number],
-      });
-      if (!model.aligned) {
-        logger.warn(
-          'edit',
-          `Textový model strany ${pageModel.originalPageIndex + 1} nelze sestavit (${model.reason}); bloky se určují odhadem.`
-        );
+      let model: PageTextModel | null = null;
+      try {
+        const viewport = page.getViewport({ scale: 1.0, rotation: pageModel.rotation });
+        const operatorList = await page.getOperatorList({ annotationMode: pdfjsLib.AnnotationMode.DISABLE });
+        model = buildPageTextModel({
+          streamText,
+          layout,
+          operatorList,
+          ops: pdfjsLib.OPS as unknown as Record<string, number>,
+          getFont: (fontKey) => {
+            try {
+              return page.commonObjs.has(fontKey) ? (page.commonObjs.get(fontKey) as FontMetrics) : null;
+            } catch {
+              return null;
+            }
+          },
+          toDisplay: (x, y) => viewport.convertToViewportPoint(x, y) as [number, number],
+        });
+        if (!model.aligned) {
+          logger.warn(
+            'edit',
+            `Textový model strany ${pageModel.originalPageIndex + 1} nelze sestavit (${model.reason}); bloky se určují odhadem.`
+          );
+        }
+      } finally {
+        try {
+          page.cleanup();
+        } catch {
+          // ignore
+        }
       }
       return model;
     } catch (err: any) {
@@ -1172,9 +1194,10 @@ export const getPageTextBlocks = async (
 ): Promise<import('../utils/textSnap').VisualTextBlock[]> => {
   if (pageModel.sourceType !== 'pdf') return [];
 
+  let pdfPage: pdfjsLib.PDFPageProxy | null = null;
   try {
     const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
-    const pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+    pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
 
     const viewport = pdfPage.getViewport({
       scale: 1.0,
@@ -1513,5 +1536,13 @@ export const getPageTextBlocks = async (
   } catch (err) {
     console.warn(`Failed to extract text blocks for page ${pageModel.id}:`, err);
     return [];
+  } finally {
+    if (pdfPage) {
+      try {
+        pdfPage.cleanup();
+      } catch {
+        // ignore
+      }
+    }
   }
 };
