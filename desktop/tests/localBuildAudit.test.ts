@@ -1,10 +1,17 @@
+/**
+ * Local audit of the desktop build and of a private PDF corpus (src/assets/testfiles, not in git).
+ * Each part runs only when its inputs exist, so the regular test run passes on a fresh checkout:
+ *   desktop: npm run build && npm run pack   -> build checks and the packaged executable
+ *   src/assets/testfiles/*.pdf               -> per-file content visibility matrix
+ * Run it on its own with `npm run audit` in desktop/.
+ */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cp from 'child_process';
 import { PDFDocument } from 'pdf-lib';
-import { getCachedPdfDocument, getPageTextBlocks } from '../src/services/pdfLoader';
-import { SourceDocument, PdfPageModel } from '../src/types/document';
+import { getCachedPdfDocument, getPageTextBlocks } from '../../src/services/pdfLoader';
+import { SourceDocument, PdfPageModel } from '../../src/types/document';
 
 interface FileVisibilityAudit {
   fileName: string;
@@ -35,12 +42,15 @@ const PDFJS_OPS = {
 };
 
 describe('Local Build & Asset Visibility Test Suite', () => {
-  const rootDir = path.resolve(__dirname, '..');
-  const releaseExePath = path.join(rootDir, 'release/win-unpacked/PDF Studio.exe');
-  const distIndexPath = path.join(rootDir, 'dist/index.html');
-  const distElectronMainPath = path.join(rootDir, 'dist-electron/main.cjs');
-  const distElectronPreloadPath = path.join(rootDir, 'dist-electron/preload.cjs');
+  const desktopDir = path.resolve(__dirname, '..');
+  const rootDir = path.resolve(desktopDir, '..');
+  const releaseExePath = path.join(desktopDir, 'release/win-unpacked/PDF Studio.exe');
+  const distIndexPath = path.join(desktopDir, 'build/web/index.html');
+  const distElectronMainPath = path.join(desktopDir, 'build/main.cjs');
+  const distElectronPreloadPath = path.join(desktopDir, 'build/preload.cjs');
   const testFilesDir = path.join(rootDir, 'src/assets/testfiles');
+  const hasBuild = fs.existsSync(distElectronMainPath);
+  const hasExe = fs.existsSync(releaseExePath);
 
   const assetFiles = fs.existsSync(testFilesDir)
     ? fs.readdirSync(testFilesDir).filter((f) => f.toLowerCase().endsWith('.pdf'))
@@ -52,7 +62,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
   // 1. Local Build Verification
   // =========================================================================
   describe('Local Build Artifacts & Desktop Binary Verification', () => {
-    it('verifies that the web bundle (dist/index.html) is built and valid', () => {
+    it.skipIf(!hasBuild)('verifies that the web bundle (build/web/index.html) is built and valid', () => {
       expect(fs.existsSync(distIndexPath)).toBe(true);
       const htmlContent = fs.readFileSync(distIndexPath, 'utf-8');
       expect(htmlContent).toContain('id="root"');
@@ -60,7 +70,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
       expect(htmlContent).toMatch(/<script type="module"/);
     });
 
-    it('verifies that the Electron main and preload bundles are built', () => {
+    it.skipIf(!hasBuild)('verifies that the Electron main and preload bundles are built', () => {
       expect(fs.existsSync(distElectronMainPath)).toBe(true);
       expect(fs.existsSync(distElectronPreloadPath)).toBe(true);
       const mainStat = fs.statSync(distElectronMainPath);
@@ -69,7 +79,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
       expect(preloadStat.size).toBeGreaterThan(500);
     });
 
-    it('verifies that the local desktop executable (PDF Studio.exe) exists and has valid PE headers', () => {
+    it.skipIf(!hasExe)('verifies that the local desktop executable (PDF Studio.exe) exists and has valid PE headers', () => {
       expect(fs.existsSync(releaseExePath)).toBe(true);
       const stat = fs.statSync(releaseExePath);
       // Packaged electron binary should be substantial (> 100 MB)
@@ -85,7 +95,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
       expect(magic).toBe('MZ');
     });
 
-    it('verifies that the local executable can be launched with an asset file as parameter', async () => {
+    it.skipIf(!hasExe || assetFiles.length === 0)('verifies that the local executable can be launched with an asset file as parameter', async () => {
       if (assetFiles.length === 0 || !fs.existsSync(releaseExePath)) return;
 
       const sampleAsset = path.join(testFilesDir, assetFiles[0]);
@@ -112,8 +122,8 @@ describe('Local Build & Asset Visibility Test Suite', () => {
   // 2. Asset Discovery Verification
   // =========================================================================
   describe('Assets Corpus Discovery', () => {
-    it('discovers all PDF files in src/assets/testfiles', () => {
-      expect(assetFiles.length).toBeGreaterThanOrEqual(14);
+    it.skipIf(assetFiles.length === 0)('discovers all PDF files in src/assets/testfiles', () => {
+      expect(assetFiles.length).toBeGreaterThan(0);
       console.log(`\nDiscovered ${assetFiles.length} asset files for local build visibility testing:`);
       assetFiles.forEach((file, idx) => console.log(`  ${idx + 1}. ${file}`));
     });
@@ -123,6 +133,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
   // 3. Execution & Visibility Verification for Each Asset File
   // =========================================================================
   describe('Per-File Execution & Content Visibility Verification', () => {
+    if (assetFiles.length === 0) it.skip('no local corpus in src/assets/testfiles', () => {});
     for (const fileName of assetFiles) {
       it(`executes and verifies visible content for [${fileName}]`, async () => {
         const filePath = path.join(testFilesDir, fileName);
@@ -213,7 +224,6 @@ describe('Local Build & Asset Visibility Test Suite', () => {
 
         const visualBlocks = await getPageTextBlocks(sourceDoc, pageModel);
         const visualImages = visualBlocks.filter((b) => b.isImage);
-        const visualTexts = visualBlocks.filter((b) => !b.isImage);
 
         // Determine content classification
         let contentType: FileVisibilityAudit['contentType'] = 'Text Document';
@@ -264,7 +274,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
   // 4. Audit Summary & Visibility Matrix Output
   // =========================================================================
   describe('Audit Summary Matrix', () => {
-    it('verifies that 100% of tested asset files have visible content', () => {
+    it.skipIf(assetFiles.length === 0)('verifies that 100% of tested asset files have visible content', () => {
       expect(auditResults.length).toBe(assetFiles.length);
 
       console.log('\n========================================================================================================================');

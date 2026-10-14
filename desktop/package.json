@@ -1,0 +1,71 @@
+{
+  "name": "pdf-studio-desktop",
+  "productName": "PDF Studio",
+  "version": "2.0.0",
+  "description": "PDF Studio desktop edition: the web app (repository root) in an Electron shell with native dialogs, in-place saving, recent files and persistent settings",
+  "author": "Richard Lipka <lipka@fav.zcu.cz>",
+  "homepage": "https://github.com/richardLipka/pdf-studio",
+  "license": "MIT",
+  "private": true,
+  "main": "build/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/build.mjs --skip-web && electron .",
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "cd .. && vitest run desktop/tests",
+    "audit": "cd .. && vitest run desktop/tests/localBuildAudit.test.ts",
+    "e2e": "node e2e/desktop.e2e.mjs",
+    "pack": "node scripts/build.mjs && node scripts/package.mjs --dir",
+    "dist": "node scripts/build.mjs && node scripts/package.mjs",
+    "dist:nsis": "node scripts/build.mjs && node scripts/package.mjs nsis",
+    "dist:portable": "node scripts/build.mjs && node scripts/package.mjs portable",
+    "dist:zip": "node scripts/build.mjs && node scripts/package.mjs zip"
+  },
+  "devDependencies": {
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.12",
+    "playwright-core": "^1.56.1"
+  },
+  "build": {
+    "appId": "cz.zcu.fav.pdfstudio",
+    "productName": "PDF Studio",
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "build/**/*",
+      "package.json"
+    ],
+    "artifactName": "PDF-Studio-${version}-${os}-${arch}.${ext}",
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF Document",
+        "description": "PDF Document",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PDF Studio",
+      "artifactName": "PDF-Studio-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "PDF-Studio-Portable-${version}.${ext}"
+    }
+  }
+}

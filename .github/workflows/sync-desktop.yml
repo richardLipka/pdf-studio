@@ -1,0 +1,55 @@
+name: Sync desktop branch
+
+# The desktop edition (branch `desktop`) is the web app plus the Electron shell in desktop/. That
+# branch only adds files, so every update of master merges into it without conflicts; this workflow
+# does the merge, checks that the desktop edition still type-checks and passes the tests against the
+# updated web app, and pushes it. When the check fails, desktop stays as it was and the run fails.
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-desktop
+  cancel-in-progress: false
+
+jobs:
+  merge-master-into-desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the desktop branch
+        uses: actions/checkout@v4
+        with:
+          ref: desktop
+          fetch-depth: 0
+
+      - name: Merge master
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit origin/master
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: |
+          npm ci
+          npm ci --prefix desktop
+
+      - name: Check the desktop edition against the merged web app
+        run: |
+          npm test
+          npm run typecheck --prefix desktop
+
+      - name: Push the desktop branch
+        run: git push origin HEAD:desktop

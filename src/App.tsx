@@ -22,7 +22,8 @@ import { AboutModal } from './components/modals/AboutModal';
 import { ShortcutsModal } from './components/modals/ShortcutsModal';
 import { FlattenModal } from './components/modals/FlattenModal';
 import { SearchBar } from './components/viewer/SearchBar';
-import { DesktopProvider } from './context/DesktopContext';
+import { FileProvider } from './context/FileContext';
+import { useAppCommands } from './hooks/useAppCommands';
 
 const MainWorkspace: React.FC = () => {
   const { theme } = useTheme();
@@ -31,23 +32,18 @@ const MainWorkspace: React.FC = () => {
     setIsDeleteConfirmModalOpen,
     setDeleteTargetPageId,
     setDeleteMode,
-    setIsSearchOpen,
   } = useEditor();
 
   const hasDoc = pages.length > 0;
+
+  // Ctrl/Cmd shortcuts and the native menu of the desktop edition
+  useAppCommands();
 
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Already handled, e.g. the edit panel deleted the image or text block selected on the page
       if (e.defaultPrevented) return;
-
-      // Ctrl+F / Cmd+F: toggle search
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
-        e.preventDefault();
-        setIsSearchOpen((prev) => !prev);
-        return;
-      }
 
       // Do not trigger deletion shortcuts if user is typing inside an input/textarea
       const target = e.target as HTMLElement;
@@ -81,7 +77,7 @@ const MainWorkspace: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, selectedPageIds, pages.length, setDeleteTargetPageId, setDeleteMode, setIsDeleteConfirmModalOpen, setIsSearchOpen]);
+  }, [selectedAnnotationId, selectedPageIds, pages.length, setDeleteTargetPageId, setDeleteMode, setIsDeleteConfirmModalOpen]);
 
   const bgClass =
     theme === 'minimal'
@@ -125,9 +121,9 @@ const MainWorkspace: React.FC = () => {
       <SettingsModal />
       <MetadataModal />
       <ExportFormModal />
+      <FlattenModal />
       <AboutModal />
       <ShortcutsModal />
-      <FlattenModal />
     </div>
   );
 };
@@ -138,9 +134,9 @@ export const App: React.FC = () => {
       <I18nProvider>
         <DocumentProvider>
           <EditorProvider>
-            <DesktopProvider>
+            <FileProvider>
               <MainWorkspace />
-            </DesktopProvider>
+            </FileProvider>
           </EditorProvider>
         </DocumentProvider>
       </I18nProvider>

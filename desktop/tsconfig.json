@@ -1,0 +1,19 @@
+{
+  // Type-checks the Electron shell together with the parts of the web app it shares
+  // (contract in src/shared, translations for the menu and dialogs)
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["electron/**/*.ts", "tests/shell.test.ts", "../src/shared/**/*.ts", "../src/i18n/cs.ts", "../src/i18n/en.ts", "../src/types/i18n.ts"]
+}

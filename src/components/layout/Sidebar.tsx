@@ -25,19 +25,24 @@ import {
   Loader2,
 } from 'lucide-react';
 import { PdfOutlineItem } from '../../types/document';
+import { resolveOutlineTarget } from '../../utils/outlineTargets';
 
 interface OutlineNodeProps {
   item: PdfOutlineItem;
   level: number;
   activePageIndex: number;
+  /** Index of the outline target in the edited document (-1 when the page was deleted) */
+  resolvePage: (sourcePageIndex: number | null) => number;
   onSelect: (pageIndex: number) => void;
   theme: string;
+  untitledLabel: string;
 }
 
-const OutlineNode: React.FC<OutlineNodeProps> = ({ item, level, activePageIndex, onSelect, theme }) => {
+const OutlineNode: React.FC<OutlineNodeProps> = ({ item, level, activePageIndex, resolvePage, onSelect, theme, untitledLabel }) => {
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const hasChildren = Boolean(item.items && item.items.length > 0);
-  const isSelected = item.pageIndex !== null && item.pageIndex === activePageIndex;
+  const targetIndex = resolvePage(item.pageIndex);
+  const isSelected = targetIndex >= 0 && targetIndex === activePageIndex;
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
 
@@ -59,8 +64,8 @@ const OutlineNode: React.FC<OutlineNodeProps> = ({ item, level, activePageIndex,
         }`}
         style={{ paddingLeft: `${Math.max(8, level * 14 + 6)}px` }}
         onClick={() => {
-          if (item.pageIndex !== null) {
-            onSelect(item.pageIndex);
+          if (targetIndex >= 0) {
+            onSelect(targetIndex);
           } else if (hasChildren) {
             setIsExpanded((prev) => !prev);
           }
@@ -89,16 +94,16 @@ const OutlineNode: React.FC<OutlineNodeProps> = ({ item, level, activePageIndex,
         <span
           className={`flex-1 truncate ${item.bold ? 'font-bold' : ''} ${item.italic ? 'italic' : ''}`}
         >
-          {item.title || '(Bez názvu)'}
+          {item.title || untitledLabel}
         </span>
 
-        {item.pageIndex !== null && (
+        {targetIndex >= 0 && (
           <span
             className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono opacity-70 flex-shrink-0 ${
               isMinimal ? 'bg-neutral-100' : isLcars ? 'bg-black text-[#ff9900]' : 'bg-slate-800'
             }`}
           >
-            {item.pageIndex + 1}
+            {targetIndex + 1}
           </span>
         )}
       </div>
@@ -111,8 +116,10 @@ const OutlineNode: React.FC<OutlineNodeProps> = ({ item, level, activePageIndex,
               item={child}
               level={level + 1}
               activePageIndex={activePageIndex}
+              resolvePage={resolvePage}
               onSelect={onSelect}
               theme={theme}
+              untitledLabel={untitledLabel}
             />
           ))}
         </div>
@@ -130,6 +137,7 @@ export const Sidebar: React.FC = () => {
     activePageIndex,
     setActivePageIndex,
     selectedPageIds,
+    setSelectedPageIds,
     togglePageSelection,
     selectAllPages,
     clearPageSelection,
@@ -155,7 +163,11 @@ export const Sidebar: React.FC = () => {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const canvasRefs = useRef<{ [key: string]: HTMLCanvasElement | null }>({});
-  const renderedThumbnailsRef = useRef<{ [key: string]: string }>({});
+  // Page state last requested for each thumbnail canvas; a remounted canvas (sidebar collapsed and
+  // opened again, outline tab and back) is blank and is not in the map, so it is rendered again
+  const renderedThumbnailsRef = useRef(new WeakMap<HTMLCanvasElement, string>());
+  // Queue ids must differ per canvas, the queue merges pending tasks with the same id
+  const canvasSerialsRef = useRef({ next: 0, ids: new WeakMap<HTMLCanvasElement, number>() });
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const isMinimal = theme === 'minimal';
@@ -182,11 +194,16 @@ export const Sidebar: React.FC = () => {
       if (!sourceDoc && page.sourceType === 'pdf') return;
 
       const pageRenderKey = `${page.id}_${page.rotation}_${page.sourceType}_${sourceDoc?.updatedAt || 0}_${page.imageDataUrl ? page.imageDataUrl.length : ''}`;
-      if (renderedThumbnailsRef.current[page.id] === pageRenderKey) {
-        return; // Already rendered this exact page state
+      // Compared with the last *requested* state: after rotate + undo the page is back at the state
+      // rendered first, but the rotated render queued in between still has to be painted over
+      if (renderedThumbnailsRef.current.get(canvas) === pageRenderKey) {
+        return; // This exact page state is rendered or queued on this canvas
       }
+      renderedThumbnailsRef.current.set(canvas, pageRenderKey);
 
-      const taskId = `thumb_${page.id}_${page.rotation}_${sourceDoc?.updatedAt || 0}`;
+      const serials = canvasSerialsRef.current;
+      if (!serials.ids.has(canvas)) serials.ids.set(canvas, ++serials.next);
+      const taskId = `thumb_${pageRenderKey}_${serials.ids.get(canvas)}`;
       const isNearActive = Math.abs(index - activePageIndex) <= 2;
       const priority = isNearActive ? RenderPriority.BACKGROUND : RenderPriority.THUMBNAIL;
 
@@ -195,14 +212,13 @@ export const Sidebar: React.FC = () => {
           if (!canvas) return;
           await renderPdfPageToCanvas(sourceDoc, page, canvas, 0.22);
         })
-        .then(() => {
-          renderedThumbnailsRef.current[page.id] = pageRenderKey;
-        })
         .catch((err) => {
+          // Let the next effect run try again
+          if (renderedThumbnailsRef.current.get(canvas) === pageRenderKey) renderedThumbnailsRef.current.delete(canvas);
           console.error('Thumbnail render error:', err);
         });
     });
-  }, [pages, sources, activePageIndex]);
+  }, [pages, sources, activePageIndex, isSidebarOpen, sidebarTab]);
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
@@ -249,6 +265,11 @@ export const Sidebar: React.FC = () => {
   };
 
   const isMultipleSelected = selectedPageIds.length > 1;
+
+  // Outline destinations are pages of the opened file; pages may since have been moved, deleted or
+  // had pages inserted before them
+  const resolveOutlinePage = (sourcePageIndex: number | null) =>
+    resolveOutlineTarget(pages, sources[0]?.id, sourcePageIndex);
 
   if (!isSidebarOpen) {
     return (
@@ -865,8 +886,13 @@ export const Sidebar: React.FC = () => {
                   item={item}
                   level={0}
                   activePageIndex={activePageIndex}
-                  onSelect={(idx) => setActivePageIndex(idx)}
+                  resolvePage={resolveOutlinePage}
+                  onSelect={(idx) => {
+                    setActivePageIndex(idx);
+                    setSelectedPageIds([pages[idx].id]);
+                  }}
                   theme={theme}
+                  untitledLabel={t.sidebar.untitledOutline}
                 />
               ))}
             </div>

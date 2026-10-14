@@ -1,41 +1,16 @@
-# PDF Studio (Web & Desktop PDF Editor) 📄✨
+# PDF Studio (Web PDF Editor) 📄✨
 
-[![Live Demo: Web](https://img.shields.io/badge/Live%20Web-richardlipka.github.io%2Fpdf--studio-blue?style=for-the-badge&logo=githubpages&logoColor=white)](https://richardlipka.github.io/pdf-studio/)
-[![Download Desktop: Windows](https://img.shields.io/badge/Download-Windows%20(.exe)-blueviolet?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/richardLipka/pdf-studio/releases)
+[![Live Demo: GitHub Pages](https://img.shields.io/badge/Live%20Demo-richardlipka.github.io%2Fpdf--studio-blue?style=for-the-badge&logo=githubpages&logoColor=white)](https://richardlipka.github.io/pdf-studio/)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-242%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-233%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
-A modern, fast, and privacy-first application for editing, annotating, signing, and managing PDF documents directly on your machine with **zero server uploads**, **zero telemetry**, and **zero database requirements**. Available both as a zero-install **web application** and a native **Windows desktop application**.
+A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
 
----
-
-## 📥 Download & Access
-
-### 💻 Windows Desktop Edition
-Pre-built binaries are published under [**GitHub Releases**](https://github.com/richardLipka/pdf-studio/releases) with every tagged version:
-
-- **Installer (Recommended)**: `PDF Studio-Setup-<version>.exe`
-  - Installs to local user directory (no administrator rights required).
-  - Creates Start Menu and Desktop shortcuts with standard Windows uninstaller.
-- **Portable Executable**: `PDF Studio-Portable-<version>.exe`
-  - Standalone single executable, zero installation required.
-  - Run directly from any folder or USB flash drive without touching system directories.
-- **Portable ZIP**: `PDF Studio-win-x64-<version>.zip`
-  - Unpacked standalone folder containing `PDF Studio.exe` and runtime assets.
-
-> **Desktop-Exclusive Advantages:**
-> - **Direct Disk Overwrite**: Pressing `Ctrl + S` directly updates the file on your disk without browser save/download prompts (includes overwrite protection warning).
-> - **Command-Line & File Association**: Launch files directly from the command line (`"PDF Studio.exe" my_doc.pdf`) or right-click *Open With*.
-> - **Persistent Preferences & Signatures**: Saves language, theme, and reusable signatures across app restarts directly in OS AppData.
-> - **Native Application Menus**: Fully localized menu bar in Czech and English.
-
-### 🌐 Web Edition
-- **Instant Web Access**: [https://richardlipka.github.io/pdf-studio/](https://richardlipka.github.io/pdf-studio/) (Hosted on GitHub Pages)
-- **Offline / Self-Hosted Web Bundle**: Download `pdf-studio-web.zip` from [GitHub Releases](https://github.com/richardLipka/pdf-studio/releases) and host on your own internal intranet or local static server.
+👉 **Live Application**: [https://richardlipka.github.io/pdf-studio/](https://richardlipka.github.io/pdf-studio/)
 
 ---
 
@@ -228,15 +203,13 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Framework & Build** | [React 18](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/) | Fast development and strict type safety |
-| **Desktop Runtime** | [Electron 44](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) | Cross-platform desktop runtime, AppData persistence, and binary packaging |
-| **PDF Rendering** | [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) | Fast in-browser and desktop canvas rendering of PDF pages |
+| **Framework & Build** | [React 18](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/) | Fast development and type safety |
+| **PDF Rendering** | [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) | Fast in-browser canvas rendering of PDF pages |
 | **PDF Manipulation & Export** | [`pdf-lib`](https://pdf-lib.js.org/) | Native vector page preservation, PageTree repair, burning annotations, signatures & shapes |
-| **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture with pressure sensitivity |
-| **Typography & Subsetting** | [`fontkit`](https://github.com/foliojs/fontkit) | Font glyph parsing, Unicode diacritics mapping, and font subsetting |
+| **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Automated Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated test suite (39 test files, 242 tests) |
+| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (37 test files, 233 tests) |
 
 ---
 
@@ -245,8 +218,8 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 PDF Studio includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, document outlines, full-text search, the page text model and block text rewriting, geometric shapes, and PDF export:
 
 ```bash
-# Run all unit and integration tests
-npm test
+# Run all unit tests
+npm run test
 ```
 
 ---
@@ -267,89 +240,21 @@ cd pdf-studio
 # Install dependencies
 npm install
 
-# Start local web development server
+# Start local development server
 npm run dev
-
-# Start desktop app in development mode (with hot-reload)
-npm run electron:dev
-
-# Run automated Vitest test suite (41 test files, 274 tests)
-npm test
-
-# Run local build & asset content visibility test suite
-npm run test:assets
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the web version, or the desktop window will launch automatically.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
----
-
-## 🔨 Building & Packaging
-
-### Web Version Build
+### Production Build
 
 ```bash
-# Build optimized static web bundle (outputs to dist/)
+# Build optimized static bundle
 npm run build
 
 # Preview production build locally
 npm run preview
 ```
-
-### Windows Desktop Binaries (Local Build)
-
-```bash
-# Build full Windows release (NSIS Installer + Portable Exe + ZIP Archive)
-npm run electron:dist
-
-# Build only standalone portable executable
-npm run electron:dist:portable
-
-# Build only NSIS setup installer
-npm run electron:dist:nsis
-
-# Build unpacked folder for rapid testing without packaging
-npm run electron:pack
-```
-
-All generated binaries are located in the `release/` directory:
-- `release/PDF Studio-Setup-2.0.0.exe` (Installer)
-- `release/PDF Studio-Portable-2.0.0.exe` (Single standalone executable)
-- `release/PDF Studio-win-x64-2.0.0.zip` (Portable ZIP archive)
-
----
-
-## 🚀 Publishing Releases (Desktop & Web Dual Release)
-
-PDF Studio is configured with automated GitHub Actions CI/CD ([`.github/workflows/release.yml`](.github/workflows/release.yml)) for publishing both web and desktop versions:
-
-### Automated GitHub Release via Git Tag
-
-To publish a new version:
-
-```bash
-# 1. Update version in package.json (e.g. 2.0.0)
-# 2. Commit and tag the release
-git tag v2.0.0
-git push origin v2.0.0
-```
-
-### What Happens Automatically on Tag Push:
-
-1. **Web Release Job** (Ubuntu):
-   - Runs full Vitest test suite (`npm test`).
-   - Builds production web assets (`npm run build`).
-   - Packages `pdf-studio-web.zip` for offline self-hosting.
-   - Deploys live web app to **GitHub Pages** ([https://richardlipka.github.io/pdf-studio/](https://richardlipka.github.io/pdf-studio/)).
-2. **Windows Desktop Release Job** (Windows):
-   - Compiles desktop scripts and web assets (`npm run electron:build`).
-   - Packages `PDF Studio-Setup-*.exe`, `PDF Studio-Portable-*.exe`, and `PDF Studio-win-x64-*.zip`.
-3. **GitHub Release Publishing Job**:
-   - Creates a new [**GitHub Release**](https://github.com/richardLipka/pdf-studio/releases) under tag `v2.0.0`.
-   - Attaches all Windows desktop binaries and the offline `pdf-studio-web.zip`.
-   - Generates automated release notes from commit history.
-
-You can also trigger a release manually anytime from GitHub under the **Actions** tab by choosing **Release & Publish (Desktop & Web)** → **Run workflow**.
 
 ---
 
@@ -357,4 +262,3 @@ You can also trigger a release manually anytime from GitHub under the **Actions*
 
 - **Author**: [Richard Lipka](https://home.zcu.cz/~lipka/) ([lipka@fav.zcu.cz](mailto:lipka@fav.zcu.cz))
 - **Institution**: [Faculty of Applied Sciences (FAV), University of West Bohemia](https://www.fav.zcu.cz/cs/)
-- **Repository**: [https://github.com/richardLipka/pdf-studio](https://github.com/richardLipka/pdf-studio)

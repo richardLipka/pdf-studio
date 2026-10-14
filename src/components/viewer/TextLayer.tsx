@@ -108,8 +108,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   // Search matches belonging to this page
   const pageSearchMatches = useMemo(() => {
     if (!isSearchOpen || !searchResults || searchResults.length === 0) return [];
-    return searchResults.filter((m) => m.pageId === page.id || m.pageIndex === pageIndex);
-  }, [isSearchOpen, searchResults, page.id, pageIndex]);
+    return searchResults.filter((m) => m.pageId === page.id);
+  }, [isSearchOpen, searchResults, page.id]);
 
   /** Makes this page the active one (the edit panel lists the active page) without scrolling it */
   const activateThisPage = () => {
@@ -677,6 +677,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
               <div
                 key={`search-${match.id}-${rIdx}`}
                 id={isActiveMatch && rIdx === 0 ? 'active-search-match' : undefined}
+                data-search-match={rIdx === 0 ? match.id : undefined}
                 style={{
                   left: `${rect.x * scale}px`,
                   top: `${rect.y * scale}px`,

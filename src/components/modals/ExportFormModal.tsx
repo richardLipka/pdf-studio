@@ -3,14 +3,16 @@ import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
+import { useFiles } from '../../context/FileContext';
 import { FormExportMode } from '../../types/form';
 import { FileEdit, Lock, Download, X, CheckCircle2 } from 'lucide-react';
 
 export const ExportFormModal: React.FC = () => {
   const { t } = useI18n();
   const { theme } = useTheme();
-  const { isExportFormModalOpen, setIsExportFormModalOpen, rasterSettings } = useEditor();
-  const { saveAndDownload, formFields, formValues, metadata } = useDocument();
+  const { isExportFormModalOpen, setIsExportFormModalOpen } = useEditor();
+  const { formFields, formValues } = useDocument();
+  const { isDesktop, saveDocument, pendingSaveAs } = useFiles();
 
   const [selectedMode, setSelectedMode] = useState<FormExportMode>('interactive');
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -27,7 +29,8 @@ export const ExportFormModal: React.FC = () => {
   const handleConfirm = async () => {
     setIsExporting(true);
     try {
-      await saveAndDownload(undefined, rasterSettings, metadata, selectedMode);
+      // Web: download, desktop: write the file (Save / Save As as requested)
+      await saveDocument({ saveAs: pendingSaveAs, formExportMode: selectedMode });
       setIsExportFormModalOpen(false);
     } catch (err) {
       console.error('Export failed:', err);
@@ -232,7 +235,7 @@ export const ExportFormModal: React.FC = () => {
             }`}
           >
             <Download className="w-4 h-4" />
-            {isExporting ? t.app.saving : (t.exportFormModal?.downloadBtn || 'Stáhnout PDF')}
+            {isExporting ? t.app.saving : isDesktop ? t.files.saveButton : t.exportFormModal.downloadBtn}
           </button>
         </div>
       </div>

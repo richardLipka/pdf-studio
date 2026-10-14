@@ -16,6 +16,7 @@ import {
   Info,
 } from 'lucide-react';
 import { isDesktopApp } from '../../services/desktopBridge';
+import { APP_VERSION } from '../../utils/appInfo';
 
 export const StatusBar: React.FC = () => {
   const { t } = useI18n();
@@ -145,7 +146,7 @@ export const StatusBar: React.FC = () => {
           className="flex items-center gap-1.5 hover:opacity-90 transition-opacity"
           title="Fakulta aplikovaných věd ZČU v Plzni (https://www.fav.zcu.cz/cs/)"
         >
-          <img src="/fav-logo.svg" alt="FAV ZČU" className="h-5 object-contain" />
+          <img src={`${import.meta.env.BASE_URL}fav-logo.svg`} alt="FAV ZČU" className="h-5 object-contain" />
         </a>
 
         <span
@@ -288,7 +289,9 @@ export const StatusBar: React.FC = () => {
           title={t.aboutModal.title}
         >
           <Info className="w-3 h-3" />
-          <span>v2.0.0 ({isDesktopApp() ? 'Desktop' : 'Web'})</span>
+          <span>
+            v{APP_VERSION} ({isDesktopApp() ? 'Desktop' : 'Web'})
+          </span>
         </button>
       </div>
 

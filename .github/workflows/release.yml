@@ -1,4 +1,8 @@
-name: Release & Publish (Desktop & Web)
+name: Release (desktop & offline web bundle)
+
+# Publishes a GitHub Release from a version tag on the desktop branch (git tag v2.0.0 && git push
+# origin v2.0.0): Windows installer, portable executable and zip of the desktop edition, plus the
+# offline web bundle. The live web app is deployed from master by deploy.yml.
 
 on:
   push:
@@ -10,7 +14,7 @@ on:
         description: 'Publish as a draft release'
         required: false
         type: boolean
-        default: false
+        default: true
       prerelease:
         description: 'Publish as a prerelease'
         required: false
@@ -19,26 +23,19 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: 'release-${{ github.ref }}'
   cancel-in-progress: true
 
 jobs:
-  # -------------------------------------------------------------
-  # Job 1: Build & Verify Web Release (and zip offline bundle)
-  # -------------------------------------------------------------
-  build-web:
-    name: Build & Verify Web Release
+  web-bundle:
+    name: Offline web bundle
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: 'npm'
@@ -46,119 +43,100 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run automated test suite
+      - name: Run tests
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: npm test
 
-      - name: Build web application bundle
-        run: npm run build
-
-      - name: Package offline web bundle (ZIP)
+      - name: Build and verify the web app
         run: |
-          cd dist
-          zip -r ../pdf-studio-web.zip .
-          cd ..
+          npm run build
+          npm run verify:dist
 
-      - name: Upload Web Release Artifact
-        uses: actions/upload-artifact@v4
+      - name: Package the offline web bundle
+        run: cd dist && zip -r ../pdf-studio-web.zip .
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: web-release-bundle
+          name: web-bundle
           path: pdf-studio-web.zip
           if-no-files-found: error
 
-      - name: Setup GitHub Pages deployment
-        uses: actions/configure-pages@v5
-
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './dist'
-
-      - name: Deploy to GitHub Pages (Live Web)
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-  # -------------------------------------------------------------
-  # Job 2: Build Windows Desktop Binaries (NSIS, Portable, ZIP)
-  # -------------------------------------------------------------
-  build-windows-desktop:
-    name: Build Windows Desktop Release
+  windows-desktop:
+    name: Windows desktop edition
     runs-on: windows-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Compile web app & Electron scripts
-        run: npm run electron:build
-
-      - name: Package Windows Binaries (Installer, Portable, ZIP)
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: |
-          npx electron-builder --win nsis portable zip
+          npm ci
+          npm ci --prefix desktop
 
-      - name: Upload Windows Binaries Artifact
-        uses: actions/upload-artifact@v4
+      - name: Type-check the Electron shell
+        run: npm run typecheck --prefix desktop
+
+      - name: Build and package (installer, portable, zip)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run dist --prefix desktop
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: windows-desktop-binaries
+          name: windows-desktop
           path: |
-            release/*.exe
-            release/*.zip
+            desktop/release/*.exe
+            desktop/release/*.zip
           if-no-files-found: error
 
-  # -------------------------------------------------------------
-  # Job 3: Publish GitHub Release with all Assets
-  # -------------------------------------------------------------
-  publish-release:
+  publish:
     name: Publish GitHub Release
-    needs: [build-web, build-windows-desktop]
+    needs: [web-bundle, windows-desktop]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download all release artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Flatten and list release assets
+      - name: Collect release assets
+        id: assets
         run: |
           mkdir -p release-assets
           find artifacts -type f \( -name "*.exe" -o -name "*.zip" \) -exec cp {} release-assets/ \;
-          echo "=== Release assets to upload ==="
           ls -lah release-assets
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Create or Update GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
-          draft: ${{ github.event.inputs.draft || false }}
-          prerelease: ${{ github.event.inputs.prerelease || false }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
           generate_release_notes: true
-          name: PDF Studio ${{ github.ref_name }}
+          name: PDF Studio ${{ steps.assets.outputs.version }}
           body: |
-            ## 📄 PDF Studio ${{ github.ref_name }} Release
+            ## PDF Studio ${{ steps.assets.outputs.version }}
 
-            ### 💻 Windows Desktop Edition
-            Download the desktop application for offline privacy, direct file overwriting without browser re-downloads, persistent preferences, and command-line file opening:
-            - **Installer (Recommended)**: `PDF Studio-Setup-${{ github.ref_name }}.exe` (Full NSIS setup with Start Menu and Desktop shortcuts)
-            - **Portable Executable**: `PDF Studio-Portable-${{ github.ref_name }}.exe` (Zero-install standalone single executable; runs from any folder or USB stick)
-            - **ZIP Archive**: `PDF Studio-win-x64-${{ github.ref_name }}.zip` (Unpacked portable Windows application)
+            ### Windows desktop edition
+            - **Installer**: `PDF-Studio-Setup-${{ steps.assets.outputs.version }}.exe` (per-user install, Start menu and desktop shortcuts, "Open with" for PDF files)
+            - **Portable**: `PDF-Studio-Portable-${{ steps.assets.outputs.version }}.exe` (no installation; settings are kept next to the executable)
+            - **Zip**: `PDF-Studio-${{ steps.assets.outputs.version }}-win-x64.zip` (unpacked application folder)
 
-            ### 🌐 Web Edition
-            - **Live Web Application**: [https://richardlipka.github.io/pdf-studio/](https://richardlipka.github.io/pdf-studio/)
-            - **Self-Hosted / Offline Web Bundle**: `pdf-studio-web.zip` (Extract into any web server or static host)
+            ### Web edition
+            - **Live**: https://richardlipka.github.io/pdf-studio/
+            - **Offline bundle**: `pdf-studio-web.zip` (unpack and serve from any static web server, e.g. an intranet)
 
-            ---
-            *All PDF processing, rendering, cryptographical PAdES signing, and content edits occur strictly in-memory on your local machine with 100% privacy.*
+            All PDF processing, rendering, signing and editing happens locally; nothing is uploaded.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

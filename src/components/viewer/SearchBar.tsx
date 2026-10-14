@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useI18n } from '../../i18n/context';
@@ -10,6 +10,7 @@ import {
   ChevronDown,
   X,
   Loader2,
+  GripVertical,
 } from 'lucide-react';
 
 export const SearchBar: React.FC = () => {
@@ -41,6 +42,25 @@ export const SearchBar: React.FC = () => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
+  // Only the latest search may publish its results (an older, slower one finishing later must not)
+  const searchRunRef = useRef(0);
+
+  // The bar can be dragged aside by its handle so it does not cover the matches
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
+  const handleDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: offset.x, baseY: offset.y };
+  };
+  const handleDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setOffset({ x: drag.baseX + e.clientX - drag.startX, y: Math.max(-8, drag.baseY + e.clientY - drag.startY) });
+  };
+  const handleDragEnd = () => {
+    dragRef.current = null;
+  };
 
   // Auto-focus input when opened
   useEffect(() => {
@@ -55,6 +75,7 @@ export const SearchBar: React.FC = () => {
   // Execute search when query or options change
   const executeSearch = useCallback(
     async (queryText: string, caseSens: boolean, wholeW: boolean) => {
+      const run = ++searchRunRef.current;
       const trimmed = queryText.trim();
       if (!trimmed || pages.length === 0) {
         setSearchResults([]);
@@ -69,20 +90,19 @@ export const SearchBar: React.FC = () => {
           caseSensitive: caseSens,
           wholeWord: wholeW,
         });
+        if (run !== searchRunRef.current) return;
+        // The effect below navigates to the first match
         setSearchResults(matches);
         setActiveSearchMatchIndex(0);
-        if (matches.length > 0) {
-          // Immediately navigate to the first match
-          setActivePageIndex(matches[0].pageIndex);
-        }
       } catch (err) {
+        if (run !== searchRunRef.current) return;
         console.warn('Search execution failed:', err);
         setSearchResults([]);
       } finally {
-        setIsSearching(false);
+        if (run === searchRunRef.current) setIsSearching(false);
       }
     },
-    [pages, sources, setSearchResults, setActiveSearchMatchIndex, setIsSearching, setActivePageIndex]
+    [pages, sources, setSearchResults, setActiveSearchMatchIndex, setIsSearching]
   );
 
   // Debounced search trigger on typing
@@ -104,13 +124,30 @@ export const SearchBar: React.FC = () => {
     };
   }, [searchQuery, searchCaseSensitive, searchWholeWord, isSearchOpen, executeSearch]);
 
-  // Scroll to active match page when index changes
+  // Brings the active match into view: the match itself when its page is rendered, otherwise the page
+  // first and the match once its highlight exists
   useEffect(() => {
-    if (searchResults.length > 0 && activeSearchMatchIndex >= 0 && activeSearchMatchIndex < searchResults.length) {
-      const activeMatch = searchResults[activeSearchMatchIndex];
-      setActivePageIndex(activeMatch.pageIndex);
+    const activeMatch = searchResults[activeSearchMatchIndex];
+    if (!activeMatch) return;
+    const findHighlight = () =>
+      document.querySelector<HTMLElement>(`[data-search-match="${CSS.escape(activeMatch.id)}"]`);
+    const highlight = findHighlight();
+    if (highlight) {
+      setActivePageIndex(activeMatch.pageIndex, { scrollIntoView: false });
+      highlight.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+      return;
     }
+    setActivePageIndex(activeMatch.pageIndex);
+    const timer = window.setTimeout(() => {
+      findHighlight()?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+    }, 450);
+    return () => window.clearTimeout(timer);
   }, [activeSearchMatchIndex, searchResults, setActivePageIndex]);
+
+  // Every opening starts with the bar at its default place
+  useEffect(() => {
+    if (!isSearchOpen) setOffset({ x: 0, y: 0 });
+  }, [isSearchOpen]);
 
   // Keyboard navigation inside search input
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -140,7 +177,8 @@ export const SearchBar: React.FC = () => {
 
   return (
     <div
-      className={`absolute top-4 right-6 z-30 flex items-center gap-1.5 p-1.5 rounded-xl border shadow-xl transition-all duration-150 animate-in fade-in slide-in-from-top-2 ${
+      style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+      className={`absolute top-4 right-6 z-30 flex items-center gap-1.5 p-1.5 rounded-xl border shadow-xl transition-colors duration-150 animate-in fade-in slide-in-from-top-2 ${
         isMinimal
           ? 'bg-white border-neutral-300 text-black shadow-neutral-400/30'
           : isLcars
@@ -148,6 +186,21 @@ export const SearchBar: React.FC = () => {
           : 'bg-slate-900/95 border-slate-700/80 text-slate-100 shadow-2xl shadow-black/60 backdrop-blur-md'
       }`}
     >
+      {/* Drag handle */}
+      <div
+        onPointerDown={handleDragStart}
+        onPointerMove={handleDragMove}
+        onPointerUp={handleDragEnd}
+        onPointerCancel={handleDragEnd}
+        className={`self-stretch flex items-center cursor-grab active:cursor-grabbing touch-none ${
+          isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#ff9900]/70' : 'text-slate-500'
+        }`}
+        title={t.search.dragHandle}
+        aria-label={t.search.dragHandle}
+      >
+        <GripVertical className="w-3.5 h-3.5" />
+      </div>
+
       {/* Search Input Container */}
       <div className="relative flex items-center">
         <Search

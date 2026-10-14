@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
+import { COMMAND_SHORTCUTS, PLAIN_SHORTCUTS, ShortcutGroup } from '../../shared/appCommands';
+import { isDesktopApp } from '../../services/desktopBridge';
 import {
   Keyboard,
   X,
@@ -14,85 +16,64 @@ import {
 interface ShortcutItem {
   keys: string[];
   description: string;
+  alternatives?: boolean;
+  desktopOnly?: boolean;
 }
 
-interface ShortcutGroup {
+interface ShortcutGroupView {
   title: string;
   icon: React.ReactNode;
   shortcuts: ShortcutItem[];
 }
 
-interface ShortcutsModalProps {
-  open?: boolean;
-  onClose?: () => void;
-}
-
-export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onClose }) => {
+export const ShortcutsModal: React.FC = () => {
   const { t } = useI18n();
   const { theme } = useTheme();
   const editor = useEditor();
+  const isOpen = editor.isShortcutsModalOpen;
+  const handleClose = () => editor.setIsShortcutsModalOpen(false);
 
-  const isControlled = open !== undefined;
-  const isOpen = isControlled ? open : editor.isShortcutsModalOpen;
-
-  const handleClose = () => {
-    if (onClose) {
-      onClose();
-    } else {
-      editor.setIsShortcutsModalOpen(false);
-    }
-  };
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        editor.setIsShortcutsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, editor]);
 
   if (!isOpen) return null;
 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
   const s = t.shortcutsModal;
+  const isDesktop = isDesktopApp();
 
-  const groups: ShortcutGroup[] = [
-    {
-      title: s.groupDocument,
-      icon: <FileText className="w-4 h-4 text-sky-400" />,
-      shortcuts: [
-        { keys: ['Ctrl', 'O'], description: s.openFile },
-        { keys: ['Ctrl', 'S'], description: s.saveFile },
-        { keys: ['Ctrl', 'Shift', 'S'], description: s.saveAs },
-        { keys: ['Ctrl', 'N'], description: s.newDocument },
-        { keys: ['Ctrl', 'W'], description: s.closeDocument },
-        { keys: ['Ctrl', 'E'], description: s.flattenExport },
-      ],
-    },
-    {
-      title: s.groupEdit,
-      icon: <Edit3 className="w-4 h-4 text-amber-400" />,
-      shortcuts: [
-        { keys: ['Ctrl', 'Z'], description: s.undo },
-        { keys: ['Ctrl', 'Y'], description: s.redo },
-        { keys: ['Ctrl', 'F'], description: s.find },
-        { keys: ['Ctrl', 'A'], description: s.selectAll },
-        { keys: ['Del'], description: s.deleteSelected },
-      ],
-    },
-    {
-      title: s.groupView,
-      icon: <ZoomIn className="w-4 h-4 text-emerald-400" />,
-      shortcuts: [
-        { keys: ['Ctrl', '+'], description: s.zoomIn },
-        { keys: ['Ctrl', '-'], description: s.zoomOut },
-        { keys: ['Ctrl', '0'], description: s.zoomReset },
-        { keys: ['Ctrl', '9'], description: s.fitPage },
-        { keys: ['Ctrl', 'B'], description: s.toggleSidebar },
-      ],
-    },
-    {
-      title: s.groupNavigation,
-      icon: <Navigation className="w-4 h-4 text-purple-400" />,
-      shortcuts: [
-        { keys: ['PageUp', 'PageDown'], description: s.pageNav },
-        { keys: ['Shift', 'Click'], description: s.rangeSelect },
-      ],
-    },
-  ];
+  // Built from the shared command table, so the list always matches what the keys and menus do
+  const groupMeta: Record<ShortcutGroup, { title: string; icon: React.ReactNode }> = {
+    document: { title: s.groupDocument, icon: <FileText className="w-4 h-4 text-sky-400" /> },
+    edit: { title: s.groupEdit, icon: <Edit3 className="w-4 h-4 text-amber-400" /> },
+    view: { title: s.groupView, icon: <ZoomIn className="w-4 h-4 text-emerald-400" /> },
+    navigation: { title: s.groupNavigation, icon: <Navigation className="w-4 h-4 text-purple-400" /> },
+  };
+  const groups: ShortcutGroupView[] = (Object.keys(groupMeta) as ShortcutGroup[]).map((group) => ({
+    ...groupMeta[group],
+    shortcuts: [
+      ...COMMAND_SHORTCUTS.filter((sc) => sc.group === group).map((sc) => ({
+        keys: sc.keys,
+        description: t.commands[sc.command].replace(/…$/, ''),
+        desktopOnly: !sc.web && !isDesktop,
+      })),
+      ...PLAIN_SHORTCUTS.filter((sc) => sc.group === group).map((sc) => ({
+        keys: sc.keys,
+        description: s[sc.id],
+        alternatives: sc.alternatives,
+      })),
+    ],
+  }));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -191,21 +172,22 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onClose })
                     : 'bg-slate-800/40 border-slate-700/50 divide-slate-700/50'
                 }`}
               >
-                {group.shortcuts.map((sc, scIdx) => (
+                {group.shortcuts.map((sc: ShortcutItem, scIdx) => (
                   <div
                     key={scIdx}
                     className="flex items-center justify-between px-4 py-2.5 text-sm"
                   >
                     <span
-                      className={
+                      className={`${
                         isMinimal
                           ? 'text-neutral-700'
                           : isLcars
                           ? 'text-neutral-300 font-mono'
                           : 'text-slate-200'
-                      }
+                      } ${sc.desktopOnly ? 'opacity-50' : ''}`}
                     >
                       {sc.description}
+                      {sc.desktopOnly && <span className="ml-2 text-[10px] italic">({s.desktopOnly})</span>}
                     </span>
                     <div className="flex items-center gap-1">
                       {sc.keys.map((k, kIdx) => (
@@ -220,7 +202,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onClose })
                                   : 'text-slate-500'
                               }`}
                             >
-                              +
+                              {sc.alternatives ? '/' : '+'}
                             </span>
                           )}
                           <kbd

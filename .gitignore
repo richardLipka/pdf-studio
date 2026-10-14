@@ -119,12 +119,17 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-# Vite & Electron cache and build
+# Vite cache & build
 dist
 dist-ssr
+*.local
+
+# Desktop edition (desktop branch): Electron build output and packaged binaries
 dist-electron
 release
-*.local
+desktop/build
+desktop/release
+desktop/node_modules
 
 # Editor / OS files
 .DS_Store

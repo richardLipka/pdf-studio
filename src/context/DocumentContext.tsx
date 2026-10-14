@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { PdfPageModel, SourceDocument, RasterizationSettings, DocumentMetadata, DEFAULT_DOCUMENT_METADATA, PdfOutlineItem } from '../types/document';
 import { Annotation } from '../types/annotations';
+import { PDFDocument } from 'pdf-lib';
 import { exportEditedPdf } from '../services/pdfExporter';
 import { flattenPdfToImages, FlattenOptions } from '../services/pdfFlattener';
 import {
@@ -9,7 +10,6 @@ import {
   rotatePage,
   rotateAnnotationWithPage,
   insertPagesAtPosition,
-  createBlankPage,
   InsertPosition,
 } from '../services/pageManager';
 import {
@@ -75,6 +75,10 @@ interface DocumentContextType {
   canRedo: boolean;
   historyLength: number;
   historyIndex: number;
+  /** True when the document differs from what was opened or last saved (edits or metadata) */
+  isDirty: boolean;
+  /** Marks the current state as saved, after the document was written to disk or downloaded */
+  markSaved: () => void;
 
   // Metadata
   metadata: DocumentMetadata;
@@ -83,10 +87,13 @@ interface DocumentContextType {
 
   // Document Operations
   loadPdfFile: (file: File) => Promise<void>;
+  /** Opens a PDF from bytes (desktop file reads, recent files) */
   loadPdfBuffer: (name: string, buffer: ArrayBuffer) => Promise<void>;
-  loadSamplePdf: (buffer: ArrayBuffer, lang: string) => Promise<void>;
-  createNewBlankDocument: (orientation?: 'portrait' | 'landscape') => void;
+  /** Replaces the document with a new one consisting of a single blank A4 page */
+  createNewBlankDocument: (name: string, orientation?: 'portrait' | 'landscape') => Promise<void>;
+  /** Closes the document and returns to the start screen */
   closeDocument: () => void;
+  loadSamplePdf: (buffer: ArrayBuffer, lang: string) => Promise<void>;
   /** scrollIntoView: false when the page is activated by clicking on it (it is already in view) */
   setActivePageIndex: (index: number, options?: { scrollIntoView?: boolean }) => void;
   /** True once after setActivePageIndex(..., { scrollIntoView: false }) */
@@ -94,6 +101,9 @@ interface DocumentContextType {
   setScale: (scale: number | ((prev: number) => number)) => void;
   zoomToFitPage: (pageIndex?: number) => void;
   zoomToFitWidth: (pageIndex?: number) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  zoomActualSize: () => void;
 
   // Document Outlines (Bookmarks / Table of Contents)
   outlines: PdfOutlineItem[];
@@ -195,8 +205,8 @@ interface DocumentContextType {
     metadataOverride?: DocumentMetadata,
     formExportMode?: FormExportMode
   ) => Promise<boolean>;
+  /** Exports the edited document as PDF bytes without downloading it (the desktop edition writes them to disk) */
   exportPdfBytes: (
-    customName?: string,
     rasterSettings?: RasterizationSettings,
     metadataOverride?: DocumentMetadata,
     formExportMode?: FormExportMode
@@ -355,6 +365,19 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const history = historyState.entries;
   const historyIndex = historyState.index;
 
+  // What was last opened or saved: the history entry and the metadata object at that moment
+  const [savedState, setSavedState] = useState<{ entry: HistorySnapshot | undefined; metadata: DocumentMetadata } | null>(null);
+  const metadataRef = useRef<DocumentMetadata>(metadata);
+  metadataRef.current = metadata;
+  const isDirty =
+    pages.length > 0 &&
+    savedState !== null &&
+    (history[historyIndex] !== savedState.entry || metadata !== savedState.metadata);
+  const markSaved = useCallback(() => {
+    const { entries, index } = historyRef.current;
+    setSavedState({ entry: entries[index], metadata: metadataRef.current });
+  }, []);
+
   const updateMetadata = useCallback((fields: Partial<DocumentMetadata>) => {
     setMetadata((prev) => ({ ...prev, ...fields }));
   }, []);
@@ -421,12 +444,72 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setMetadata(loadedMetadata);
     setFormFields(extractedFormFields);
     setFormValues(initialFormValues);
-    setHistory({ entries: [captureSnapshot()], index: 0 });
+    const initialEntry = captureSnapshot();
+    setHistory({ entries: [initialEntry], index: 0 });
+    setSavedState({ entry: initialEntry, metadata: loadedMetadata });
   };
 
-  const closeDocument = useCallback(() => {
+  const loadPdfBuffer = async (name: string, buffer: ArrayBuffer) => {
     clearPdfCache();
-    setFileName('');
+    const mainSource: SourceDocument = {
+      id: 'main',
+      name,
+      arrayBuffer: buffer,
+      updatedAt: Date.now(),
+    };
+
+    const parsedPages = await parsePdfPages(buffer, 'main');
+    const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
+    const extractedMeta = await extractPdfMetadata('main', buffer);
+    const extractedFormFields = await extractFormFieldsFromPdf(buffer, 'main', parsedPages);
+
+    initializeDocument(name, mainSource, parsedPages, loadedAnnotations, extractedMeta, extractedFormFields);
+    logger.success('load', `Dokument "${name}" připraven k úpravám (${parsedPages.length} stran)`);
+  };
+
+  const loadPdfFile = async (file: File) => {
+    logger.info('load', `Otevřen soubor: "${file.name}" (${(file.size / 1024).toFixed(1)} KB, type: ${file.type || 'unknown'})`, {
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+      lastModified: file.lastModified,
+    });
+    try {
+      await loadPdfBuffer(file.name, await file.arrayBuffer());
+    } catch (e: any) {
+      logger.error('load', `Chyba při otevírání souboru "${file.name}": ${e?.message || e}`, e);
+      console.error('Failed to load PDF file:', e);
+      throw e;
+    }
+  };
+
+  const loadPdfBufferLogged = async (name: string, buffer: ArrayBuffer) => {
+    logger.info('load', `Otevřen soubor: "${name}" (${(buffer.byteLength / 1024).toFixed(1)} KB)`, {
+      fileName: name,
+      fileSize: buffer.byteLength,
+    });
+    try {
+      await loadPdfBuffer(name, buffer);
+    } catch (e: any) {
+      logger.error('load', `Chyba při otevírání souboru "${name}": ${e?.message || e}`, e);
+      throw e;
+    }
+  };
+
+  const createNewBlankDocument = async (name: string, orientation: 'portrait' | 'landscape' = 'portrait') => {
+    const doc = await PDFDocument.create();
+    doc.addPage(orientation === 'portrait' ? [595.28, 841.89] : [841.89, 595.28]);
+    doc.setTitle(name.replace(/\.pdf$/i, ''));
+    doc.setCreator(DEFAULT_DOCUMENT_METADATA.creator);
+    doc.setProducer(DEFAULT_DOCUMENT_METADATA.producer);
+    const bytes = await doc.save();
+    await loadPdfBuffer(name, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    logger.info('system', `Vytvořen nový prázdný dokument "${name}"`);
+  };
+
+  const closeDocument = () => {
+    clearPdfCache();
+    setFileName('document.pdf');
     setSources([]);
     setPages([]);
     setActivePageIndex(0);
@@ -438,72 +521,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setFormFields([]);
     setFormValues({});
     setHistory({ entries: [], index: -1 });
-    setOutlines([]);
-    logger.info('system', 'Dokument byl uzavřen');
-  }, [setPages, setAnnotations, setSources, setFormValues, setActivePageIndex, setHistory]);
-
-  const createNewBlankDocument = useCallback((orientation: 'portrait' | 'landscape' = 'portrait') => {
-    clearPdfCache();
-    const blankPage = createBlankPage(orientation);
-    const defaultMeta: DocumentMetadata = {
-      ...DEFAULT_DOCUMENT_METADATA,
-      title: 'Nový dokument',
-      creationDate: new Date().toISOString(),
-      modificationDate: new Date().toISOString(),
-    };
-    const mainSource: SourceDocument = {
-      id: 'blank',
-      name: 'Novy_dokument.pdf',
-      arrayBuffer: new ArrayBuffer(0),
-      updatedAt: Date.now(),
-    };
-    initializeDocument('Novy_dokument.pdf', mainSource, [blankPage], [], defaultMeta, []);
-    logger.info('system', `Vytvořen nový prázdný dokument (${orientation})`);
-  }, [setPages, setAnnotations, setSources, setFormValues, setActivePageIndex, setHistory]);
-
-  const loadPdfBuffer = async (name: string, buffer: ArrayBuffer) => {
-    logger.info('load', `Otevřen buffer: "${name}" (${(buffer.byteLength / 1024).toFixed(1)} KB)`, {
-      fileName: name,
-      fileSize: buffer.byteLength,
-    });
-    try {
-      clearPdfCache();
-      const mainSource: SourceDocument = {
-        id: 'main',
-        name,
-        arrayBuffer: buffer,
-        updatedAt: Date.now(),
-      };
-
-      const parsedPages = await parsePdfPages(buffer, 'main');
-      const loadedAnnotations = await extractPdfAnnotations(buffer, 'main', parsedPages);
-      const extractedMeta = await extractPdfMetadata('main', buffer);
-      const extractedFormFields = await extractFormFieldsFromPdf(buffer, 'main', parsedPages);
-
-      initializeDocument(name, mainSource, parsedPages, loadedAnnotations, extractedMeta, extractedFormFields);
-      logger.success('load', `Dokument "${name}" připraven k úpravám (${parsedPages.length} stran)`);
-    } catch (e: any) {
-      logger.error('load', `Chyba při otevírání dokumentu "${name}": ${e?.message || e}`, e);
-      console.error('Failed to load PDF buffer:', e);
-      throw e;
-    }
-  };
-
-  const loadPdfFile = async (file: File) => {
-    logger.info('load', `Otevřen soubor: "${file.name}" (${(file.size / 1024).toFixed(1)} KB, type: ${file.type || 'unknown'})`, {
-      fileName: file.name,
-      fileSize: file.size,
-      mimeType: file.type,
-      lastModified: file.lastModified,
-    });
-    try {
-      const buffer = await file.arrayBuffer();
-      await loadPdfBuffer(file.name, buffer);
-    } catch (e: any) {
-      logger.error('load', `Chyba při otevírání souboru "${file.name}": ${e?.message || e}`, e);
-      console.error('Failed to load PDF file:', e);
-      throw e;
-    }
+    setSavedState(null);
+    logger.info('system', 'Dokument byl zavřen');
   };
 
   const loadSamplePdf = async (buffer: ArrayBuffer, _lang: string) => {
@@ -567,6 +586,10 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setScale(targetScale);
     setActivePageIndex(targetIdx);
   };
+
+  const zoomIn = () => setScale((s) => Math.min(3.0, Number((s + 0.15).toFixed(2))));
+  const zoomOut = () => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))));
+  const zoomActualSize = () => setScale(1);
 
   // Multi-Page Selection Logic (Anchor-based Range Selection)
   const togglePageSelection = (pageId: string, isMulti: boolean, isRange: boolean) => {
@@ -1229,7 +1252,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         formValues,
         formExportMode
       );
-      return Boolean(bytes && bytes.length > 0);
+      const saved = Boolean(bytes && bytes.length > 0);
+      if (saved) markSaved();
+      return saved;
     } catch (e: any) {
       logger.error('save', `Chyba při exportu dokumentu: ${e?.message || e}`, e);
       console.error('Failed to export PDF:', e);
@@ -1240,7 +1265,6 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const exportPdfBytes = async (
-    customName?: string,
     rasterSettings?: RasterizationSettings,
     metadataOverride?: DocumentMetadata,
     formExportMode: FormExportMode = 'interactive'
@@ -1248,23 +1272,20 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (pages.length === 0) return null;
     setIsSaving(true);
     try {
-      const baseName = customName || fileName.replace(/\.pdf$/i, '');
-      const outName = baseName.endsWith('.pdf') ? baseName : `${baseName}-edited.pdf`;
-      const metaToApply = metadataOverride || metadata;
       const bytes = await exportEditedPdf(
         sources,
         pages,
         annotations,
-        outName,
+        fileName,
         rasterSettings,
-        metaToApply,
+        metadataOverride || metadata,
         formValues,
         formExportMode,
         false
       );
-      return bytes;
+      return bytes && bytes.length > 0 ? bytes : null;
     } catch (e: any) {
-      logger.error('save', `Chyba při exportu PDF bytů: ${e?.message || e}`, e);
+      logger.error('save', `Chyba při exportu dokumentu: ${e?.message || e}`, e);
       return null;
     } finally {
       setIsSaving(false);
@@ -1362,7 +1383,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
-  // Keyboard shortcut listener for Ctrl+Z / Ctrl+Y / Delete / PageUp / PageDown / Arrows / Ctrl+A.
+  // Keyboard listener for page navigation and selection (Arrows, PageUp / PageDown, Home / End) and Delete.
   // The listener is registered once and always dispatches to the handler from the latest render,
   // so it never acts on stale annotations, pages or history.
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -1378,28 +1399,11 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       return;
     }
 
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      undo();
-    } else if (
-      ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
-      ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'z')
-    ) {
-      e.preventDefault();
-      redo();
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-      e.preventDefault();
-      selectAllPages();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === '0' || e.key === 'NumPad0')) {
-      e.preventDefault();
-      zoomToFitPage();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
-      e.preventDefault();
-      setScale((s) => Math.min(3.0, Number((s + 0.15).toFixed(2))));
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === '-' || e.key === '_')) {
-      e.preventDefault();
-      setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))));
-    } else if (e.shiftKey && (e.key === 'PageDown' || e.key === 'End')) {
+    // Ctrl/Cmd shortcuts (undo, redo, zoom, select all...) are application commands handled by
+    // useAppCommands (src/hooks/useAppCommands.ts)
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.shiftKey && (e.key === 'PageDown' || e.key === 'End')) {
       e.preventDefault();
       selectRangeToEnd();
     } else if (e.shiftKey && (e.key === 'PageUp' || e.key === 'Home')) {
@@ -1451,6 +1455,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     selectedAnnotationId,
     scale,
     isSaving,
+    isDirty,
+    markSaved,
     canUndo: historyIndex > 0,
     canRedo: historyIndex < history.length - 1,
     historyLength: history.length,
@@ -1459,14 +1465,17 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setMetadata,
     updateMetadata,
     loadPdfFile,
-    loadPdfBuffer,
-    loadSamplePdf,
+    loadPdfBuffer: loadPdfBufferLogged,
     createNewBlankDocument,
     closeDocument,
+    loadSamplePdf,
     setActivePageIndex,
     setScale,
     zoomToFitPage,
     zoomToFitWidth,
+    zoomIn,
+    zoomOut,
+    zoomActualSize,
     outlines,
     isLoadingOutlines,
     sidebarTab,

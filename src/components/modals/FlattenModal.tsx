@@ -12,23 +12,16 @@ import {
   FlattenOptions,
 } from '../../services/pdfFlattener';
 
-interface FlattenModalProps {
-  open?: boolean;
-  onClose?: () => void;
-}
-
 const DPI_CHOICES = [100, 150, 200, 300];
 
 const formatSize = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-export const FlattenModal: React.FC<FlattenModalProps> = ({ open, onClose }) => {
+export const FlattenModal: React.FC = () => {
   const { t } = useI18n();
   const { theme } = useTheme();
   const { pages, isSaving, flattenAndDownload } = useDocument();
-  const editor = useEditor();
-  const isControlled = open !== undefined;
-  const isOpen = isControlled ? open : editor.isFlattenModalOpen;
+  const { isFlattenModalOpen: isOpen, setIsFlattenModalOpen } = useEditor();
 
   const [options, setOptions] = useState<FlattenOptions>(DEFAULT_FLATTEN_OPTIONS);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -59,11 +52,7 @@ export const FlattenModal: React.FC<FlattenModalProps> = ({ open, onClose }) => 
     if (running) return;
     setResult(null);
     setProgress(null);
-    if (onClose) {
-      onClose();
-    } else {
-      editor.setIsFlattenModalOpen(false);
-    }
+    setIsFlattenModalOpen(false);
   };
 
   const panelClass = isMinimal

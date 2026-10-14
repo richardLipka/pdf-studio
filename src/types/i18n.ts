@@ -1,3 +1,5 @@
+import type { AppCommandId } from '../shared/appCommands';
+
 export type Language = 'cs' | 'en';
 
 export interface TranslationSchema {
@@ -146,6 +148,7 @@ export interface TranslationSchema {
     noOutlinesDesc: string;
     toggleSidebar: string;
     loadingOutlines: string;
+    untitledOutline: string;
   };
   search: {
     title: string;
@@ -157,6 +160,7 @@ export interface TranslationSchema {
     caseSensitive: string;
     wholeWord: string;
     close: string;
+    dragHandle: string;
   };
   annotations: {
     addNote: string;
@@ -542,20 +546,22 @@ export interface TranslationSchema {
   aboutModal: {
     title: string;
     subtitle: string;
-    appName: string;
+    /** {version} */
     version: string;
+    editionWeb: string;
+    editionDesktop: string;
     description: string;
     authorTitle: string;
     authorName: string;
     authorEmail: string;
     authorInstitution: string;
-    githubTitle: string;
     githubButton: string;
     librariesTitle: string;
     librariesSubtitle: string;
     privacyTitle: string;
     privacyDesc: string;
     licenseTitle: string;
+    shortcutsButton: string;
     close: string;
   };
   shortcutsModal: {
@@ -565,24 +571,74 @@ export interface TranslationSchema {
     groupEdit: string;
     groupView: string;
     groupNavigation: string;
-    openFile: string;
-    saveFile: string;
-    saveAs: string;
-    newDocument: string;
-    closeDocument: string;
-    flattenExport: string;
-    undo: string;
-    redo: string;
-    find: string;
+    desktopOnly: string;
     deleteSelected: string;
-    selectAll: string;
-    zoomIn: string;
-    zoomOut: string;
-    zoomReset: string;
-    fitPage: string;
-    toggleSidebar: string;
+    searchNav: string;
+    escape: string;
     pageNav: string;
-    rangeSelect: string;
+    rangeKeys: string;
+    rangeToEdge: string;
+    rangeClick: string;
     close: string;
+  };
+  /** Names of the application commands (shortcuts dialog, desktop menu) */
+  commands: Record<AppCommandId, string>;
+  files: {
+    /** {name} */
+    savedToDisk: string;
+    saveFailed: string;
+    /** {name} */
+    openFailed: string;
+    discardChanges: string;
+    newDocumentName: string;
+    recentFiles: string;
+    clearRecent: string;
+    saveButton: string;
+    saveTooltip: string;
+    desktopBadge: string;
+    desktopBadgeTooltip: string;
+    privacyBadgeDesktop: string;
+    unsavedMarker: string;
+  };
+  /** Native menu and dialogs of the desktop edition (Electron main process) */
+  desktopMenu: {
+    file: string;
+    edit: string;
+    view: string;
+    settings: string;
+    help: string;
+    openRecent: string;
+    noRecent: string;
+    clearRecent: string;
+    exit: string;
+    cut: string;
+    copy: string;
+    paste: string;
+    fullscreen: string;
+    reload: string;
+    devTools: string;
+    autoReopen: string;
+    confirmOverwrite: string;
+    theme: string;
+    language: string;
+    github: string;
+    unsavedTitle: string;
+    unsavedMessage: string;
+    unsavedDetail: string;
+    saveAndClose: string;
+    discard: string;
+    cancel: string;
+    overwriteTitle: string;
+    /** {name} */
+    overwriteMessage: string;
+    /** {path} */
+    overwriteDetail: string;
+    overwrite: string;
+    dontAskAgain: string;
+    openDialogTitle: string;
+    saveDialogTitle: string;
+    pdfFilter: string;
+    allFilesFilter: string;
+    fileNotFound: string;
   };
 }

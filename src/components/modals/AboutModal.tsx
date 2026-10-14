@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
@@ -10,8 +10,10 @@ import {
   Mail,
   ShieldCheck,
   Award,
+  Keyboard,
 } from 'lucide-react';
 import { isDesktopApp } from '../../services/desktopBridge';
+import { APP_VERSION } from '../../utils/appInfo';
 
 export interface InternalLibraryInfo {
   name: string;
@@ -89,26 +91,25 @@ export const INTERNAL_LIBRARIES: InternalLibraryInfo[] = [
   },
 ];
 
-interface AboutModalProps {
-  open?: boolean;
-  onClose?: () => void;
-}
-
-export const AboutModal: React.FC<AboutModalProps> = ({ open, onClose }) => {
+export const AboutModal: React.FC = () => {
   const { t, language } = useI18n();
   const { theme } = useTheme();
   const editor = useEditor();
 
-  const isControlled = open !== undefined;
-  const isOpen = isControlled ? open : editor.isAboutModalOpen;
+  const isOpen = editor.isAboutModalOpen;
+  const handleClose = () => editor.setIsAboutModalOpen(false);
 
-  const handleClose = () => {
-    if (onClose) {
-      onClose();
-    } else {
-      editor.setIsAboutModalOpen(false);
-    }
-  };
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        editor.setIsAboutModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, editor]);
 
   if (!isOpen) return null;
 
@@ -213,7 +214,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ open, onClose }) => {
                       : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
                   }`}
                 >
-                  v2.0.0
+                  v{APP_VERSION}
                 </span>
                 <span
                   className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
@@ -230,13 +231,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ open, onClose }) => {
                       : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
                   }`}
                 >
-                  {isDesktopApp()
-                    ? language === 'cs'
-                      ? 'Desktopová verze (Offline)'
-                      : 'Desktop Edition (Offline)'
-                    : language === 'cs'
-                    ? 'Webová verze (Online)'
-                    : 'Web Edition (Online)'}
+                  {isDesktopApp() ? tAbout.editionDesktop : tAbout.editionWeb}
                 </span>
               </div>
               <p
@@ -408,6 +403,23 @@ export const AboutModal: React.FC<AboutModalProps> = ({ open, onClose }) => {
             <span>Faculty of Applied Sciences (FAV ZČU)</span>
           </div>
 
+          <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              handleClose();
+              editor.setIsShortcutsModalOpen(true);
+            }}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              isMinimal
+                ? 'bg-white hover:bg-neutral-100 text-black border border-neutral-300'
+                : isLcars
+                ? 'bg-black hover:bg-[#222] text-[#ff9900] border border-[#ff9900] font-mono'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700'
+            }`}
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+            {tAbout.shortcutsButton}
+          </button>
           <button
             onClick={handleClose}
             className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
@@ -420,6 +432,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ open, onClose }) => {
           >
             {tAbout.close}
           </button>
+          </div>
         </div>
       </div>
     </div>

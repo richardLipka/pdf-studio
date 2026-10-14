@@ -272,20 +272,20 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsSearchOpen((prev) => !prev);
   }, []);
 
+  // State updaters must stay pure (StrictMode runs them twice), so the match count comes from a ref
+  const searchResultCountRef = React.useRef(0);
+  searchResultCountRef.current = searchResults.length;
+
   const nextSearchMatch = useCallback(() => {
-    setSearchResults((current) => {
-      if (current.length === 0) return current;
-      setActiveSearchMatchIndex((prev) => (prev + 1) % current.length);
-      return current;
-    });
+    const count = searchResultCountRef.current;
+    if (count === 0) return;
+    setActiveSearchMatchIndex((prev) => (prev + 1) % count);
   }, []);
 
   const prevSearchMatch = useCallback(() => {
-    setSearchResults((current) => {
-      if (current.length === 0) return current;
-      setActiveSearchMatchIndex((prev) => (prev - 1 + current.length) % current.length);
-      return current;
-    });
+    const count = searchResultCountRef.current;
+    if (count === 0) return;
+    setActiveSearchMatchIndex((prev) => (prev - 1 + count) % count);
   }, []);
 
   const setIsEditSidePanelOpen = (open: boolean) => {
