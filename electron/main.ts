@@ -8,6 +8,49 @@ import { buildAppMenu } from './menu';
 // Resolve directory path safely across CJS and ESM
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
+/**
+ * Extracts a valid PDF file path from command line arguments (e.g. electron app.exe filename.pdf)
+ */
+function extractFilePathFromCommandLine(argv: string[]): string | null {
+  if (!Array.isArray(argv)) return null;
+
+  // In packaged app, argv[0] is executable. In dev, argv[0] is electron and argv[1] is '.'
+  const startIndex = app.isPackaged ? 1 : 2;
+  const candidates = argv.slice(startIndex);
+
+  for (const candidate of candidates) {
+    if (!candidate || candidate.startsWith('-')) continue;
+    const cleaned = candidate.replace(/^["'](.*)["']$/, '$1').trim();
+    if (!cleaned) continue;
+
+    const resolved = path.isAbsolute(cleaned) ? cleaned : path.resolve(process.cwd(), cleaned);
+    try {
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile() && resolved.toLowerCase().endsWith('.pdf')) {
+        return resolved;
+      }
+    } catch {
+      // Ignore filesystem access exceptions
+    }
+  }
+
+  // Fallback: check any argument in argv (ignoring electron/node binary, flags, etc.)
+  for (const raw of argv) {
+    if (!raw || raw.startsWith('-') || raw.toLowerCase().endsWith('.exe') || raw === '.') continue;
+    const cleaned = raw.replace(/^["'](.*)["']$/, '$1').trim();
+    const resolved = path.isAbsolute(cleaned) ? cleaned : path.resolve(process.cwd(), cleaned);
+    try {
+      if (fs.existsSync(resolved) && fs.statSync(resolved).isFile() && resolved.toLowerCase().endsWith('.pdf')) {
+        return resolved;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  return null;
+}
+
+let initialLaunchFilePath: string | null = extractFilePathFromCommandLine(process.argv);
 let mainWindow: BrowserWindow | null = null;
 let settingsStore: SettingsStore;
 let currentDocumentState = {
@@ -134,12 +177,11 @@ async function createWindow() {
     await mainWindow.loadFile(indexPath);
   }
 
-  // Check if launched with a file argument (e.g. double-click on PDF in Windows Explorer)
-  const args = process.argv.slice(app.isPackaged ? 1 : 2);
-  const fileArg = args.find((arg) => arg.toLowerCase().endsWith('.pdf') && fs.existsSync(arg));
-  if (fileArg) {
+  // Check if launched with a file argument (e.g. double-click or CLI argument)
+  if (initialLaunchFilePath && fs.existsSync(initialLaunchFilePath)) {
+    const launchPath = initialLaunchFilePath;
     mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow?.webContents.send('menu:action', 'open-file-path', path.resolve(fileArg));
+      mainWindow?.webContents.send('menu:action', 'open-file-path', launchPath);
     });
   } else if (settingsStore.get('reopenLastFileOnStartup')) {
     const lastFile = settingsStore.get('lastOpenFilePath');
@@ -157,9 +199,9 @@ app.on('second-instance', (_event, commandLine) => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
 
-    const fileArg = commandLine.find((arg) => arg.toLowerCase().endsWith('.pdf') && fs.existsSync(arg));
+    const fileArg = extractFilePathFromCommandLine(commandLine);
     if (fileArg) {
-      mainWindow.webContents.send('menu:action', 'open-file-path', path.resolve(fileArg));
+      mainWindow.webContents.send('menu:action', 'open-file-path', fileArg);
     }
   }
 });
@@ -169,6 +211,8 @@ app.on('open-file', (event, filePath) => {
   event.preventDefault();
   if (mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send('menu:action', 'open-file-path', filePath);
+  } else {
+    initialLaunchFilePath = filePath;
   }
 });
 
@@ -190,6 +234,13 @@ app.on('window-all-closed', () => {
 });
 
 function registerIpcHandlers() {
+  // 0. App Launch File Handler (for CLI argument file opening)
+  ipcMain.handle('app:getLaunchFile', () => {
+    const file = initialLaunchFilePath;
+    initialLaunchFilePath = null;
+    return file;
+  });
+
   // 1. Open File Dialog
   ipcMain.handle('dialog:openFile', async () => {
     if (!mainWindow) return { cancelled: true };
@@ -275,11 +326,35 @@ function registerIpcHandlers() {
     }
   });
 
-  // 4. Save File Direct (Overwrite existing disk file without prompt)
-  ipcMain.handle('file:saveDirect', async (_event, filePath: string, data: Uint8Array) => {
+  // 4. Save File Direct (Overwrite existing disk file with localized warning prompt)
+  ipcMain.handle('file:saveDirect', async (_event, filePath: string, data: Uint8Array, skipConfirm?: boolean) => {
     if (!filePath) {
       return { success: false, error: 'Cesta k souboru nebyla zadána / Path missing' };
     }
+
+    // Warn user before rewriting the file on disk unless explicitly skipped (e.g. during save-and-close)
+    if (!skipConfirm && mainWindow) {
+      const isEn = settingsStore.get('language') === 'en';
+      const fileName = path.basename(filePath);
+      const choice = dialog.showMessageBoxSync(mainWindow, {
+        type: 'warning',
+        buttons: isEn ? ['Overwrite File', 'Cancel'] : ['Přepsat soubor', 'Zrušit'],
+        defaultId: 0,
+        cancelId: 1,
+        title: isEn ? 'Confirm File Overwrite' : 'Potvrdit přepsání souboru',
+        message: isEn
+          ? `Do you want to overwrite "${fileName}" on disk?`
+          : `Chcete přepsat soubor "${fileName}" na disku?`,
+        detail: isEn
+          ? `File: ${filePath}\n\nThis action will replace the original file with your modified PDF. Are you sure you want to proceed?`
+          : `Cesta: ${filePath}\n\nTato akce nahradí původní soubor vaší upravenou verzí PDF. Opravdu si přejete pokračovat?`,
+      });
+
+      if (choice !== 0) {
+        return { success: false, cancelled: true };
+      }
+    }
+
     try {
       await fs.promises.writeFile(filePath, Buffer.from(data));
       settingsStore.addRecentFile(filePath, path.basename(filePath));

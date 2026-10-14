@@ -15,8 +15,9 @@ export interface ElectronAPI {
   // Native File Dialogs & Direct Disk Access
   openFileDialog: () => Promise<FileDataResult>;
   saveFileDialog: (defaultFileName: string, data: Uint8Array) => Promise<{ cancelled: boolean; filePath?: string; error?: string }>;
-  saveFileDirect: (filePath: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  saveFileDirect: (filePath: string, data: Uint8Array, skipConfirm?: boolean) => Promise<{ success: boolean; cancelled?: boolean; filePath?: string; error?: string }>;
   readFileDirect: (filePath: string) => Promise<FileDataResult>;
+  getLaunchFilePath: () => Promise<string | null>;
 
   // Recent Files & Last File
   getRecentFiles: () => Promise<Array<{ path: string; name: string; lastOpened: number; size?: number }>>;
@@ -43,9 +44,10 @@ const electronAPI: ElectronAPI = {
   openFileDialog: () => ipcRenderer.invoke('dialog:openFile'),
   saveFileDialog: (defaultFileName: string, data: Uint8Array) =>
     ipcRenderer.invoke('dialog:saveFile', defaultFileName, data),
-  saveFileDirect: (filePath: string, data: Uint8Array) =>
-    ipcRenderer.invoke('file:saveDirect', filePath, data),
+  saveFileDirect: (filePath: string, data: Uint8Array, skipConfirm?: boolean) =>
+    ipcRenderer.invoke('file:saveDirect', filePath, data, skipConfirm),
   readFileDirect: (filePath: string) => ipcRenderer.invoke('file:readDirect', filePath),
+  getLaunchFilePath: () => ipcRenderer.invoke('app:getLaunchFile'),
 
   getRecentFiles: () => ipcRenderer.invoke('recent:get'),
   addRecentFile: (filePath: string, name?: string) =>

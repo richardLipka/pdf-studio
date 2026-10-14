@@ -9,6 +9,7 @@ import {
   desktopReadFileDirect,
   desktopSaveDirect,
   desktopSaveFileDialog,
+  desktopGetLaunchFilePath,
   getDesktopRecentFiles,
   addDesktopRecentFile,
   clearDesktopRecentFiles,
@@ -25,7 +26,7 @@ export interface UseDesktopIntegrationResult {
   recentFiles: RecentFileItem[];
   openRecentFile: (filePath: string) => Promise<boolean>;
   clearRecent: () => Promise<void>;
-  saveCurrentDocument: () => Promise<boolean>;
+  saveCurrentDocument: (skipConfirm?: boolean) => Promise<boolean>;
   saveCurrentDocumentAs: () => Promise<boolean>;
 }
 
@@ -108,6 +109,9 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
   const openRecentFile = useCallback(
     async (filePath: string): Promise<boolean> => {
       if (!isDesktop) return false;
+      if (desktopFilePathRef.current === filePath && pages.length > 0) {
+        return true;
+      }
       try {
         const res = await desktopReadFileDirect(filePath);
         if (res && !res.cancelled && res.data) {
@@ -127,8 +131,19 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
       }
       return false;
     },
-    [isDesktop, loadPdfBuffer]
+    [isDesktop, loadPdfBuffer, pages.length]
   );
+
+  // 3b. Initial Load: Open CLI argument file if launched with a parameter
+  useEffect(() => {
+    if (!isDesktop) return;
+
+    desktopGetLaunchFilePath().then((launchPath) => {
+      if (launchPath) {
+        openRecentFile(launchPath);
+      }
+    });
+  }, [isDesktop, openRecentFile]);
 
   // 4. Clear recent files list
   const clearRecent = useCallback(async () => {
@@ -138,42 +153,49 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
   }, [isDesktop]);
 
   // 5. Save Current Document (Direct disk write if filePath known, else Save Dialog)
-  const saveCurrentDocument = useCallback(async (): Promise<boolean> => {
-    if (!isDesktop || pages.length === 0) return false;
+  const saveCurrentDocument = useCallback(
+    async (skipConfirm: boolean = false): Promise<boolean> => {
+      if (!isDesktop || pages.length === 0) return false;
 
-    const bytes = await exportPdfBytes(fileName, rasterSettings);
-    if (!bytes || bytes.length === 0) return false;
+      const bytes = await exportPdfBytes(fileName, rasterSettings);
+      if (!bytes || bytes.length === 0) return false;
 
-    const currentPath = desktopFilePathRef.current;
-    if (currentPath) {
-      // Overwrite file directly on disk without dialog prompt
-      const res = await desktopSaveDirect(currentPath, bytes);
-      if (res?.success) {
+      const currentPath = desktopFilePathRef.current;
+      if (currentPath) {
+        // Overwrite file directly on disk (prompts user with warning dialog unless skipConfirm)
+        const res = await desktopSaveDirect(currentPath, bytes, skipConfirm);
+        if (res?.success) {
+          notifyDesktopDocumentState({
+            hasUnsavedChanges: false,
+            filePath: currentPath,
+            fileName,
+          });
+          return true;
+        }
+        if (res?.cancelled) {
+          // User explicitly cancelled the overwrite confirmation dialog
+          return false;
+        }
+      }
+
+      // Fallback to Save As dialog
+      const res = await desktopSaveFileDialog(fileName, bytes);
+      if (res && !res.cancelled && res.filePath) {
+        setDesktopFilePath(res.filePath);
+        await addDesktopRecentFile(res.filePath);
+        const updated = await getDesktopRecentFiles();
+        setRecentFiles(updated);
         notifyDesktopDocumentState({
           hasUnsavedChanges: false,
-          filePath: currentPath,
+          filePath: res.filePath,
           fileName,
         });
         return true;
       }
-    }
-
-    // Fallback to Save As dialog
-    const res = await desktopSaveFileDialog(fileName, bytes);
-    if (res && !res.cancelled && res.filePath) {
-      setDesktopFilePath(res.filePath);
-      await addDesktopRecentFile(res.filePath);
-      const updated = await getDesktopRecentFiles();
-      setRecentFiles(updated);
-      notifyDesktopDocumentState({
-        hasUnsavedChanges: false,
-        filePath: res.filePath,
-        fileName,
-      });
-      return true;
-    }
-    return false;
-  }, [isDesktop, pages.length, exportPdfBytes, fileName, rasterSettings]);
+      return false;
+    },
+    [isDesktop, pages.length, exportPdfBytes, fileName, rasterSettings]
+  );
 
   // 6. Save Current Document As...
   const saveCurrentDocumentAs = useCallback(async (): Promise<boolean> => {
@@ -249,8 +271,8 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
         }
 
         case 'trigger-save-and-close': {
-          await saveCurrentDocument();
-          if (typeof window !== 'undefined') {
+          const saved = await saveCurrentDocument(true);
+          if (saved && typeof window !== 'undefined') {
             window.close();
           }
           break;

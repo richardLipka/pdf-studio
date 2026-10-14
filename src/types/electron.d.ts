@@ -20,8 +20,9 @@ export interface ElectronAPI {
   // Native File Dialogs & Direct Disk Access
   openFileDialog: () => Promise<FileDataResult>;
   saveFileDialog: (defaultFileName: string, data: Uint8Array) => Promise<{ cancelled: boolean; filePath?: string; error?: string }>;
-  saveFileDirect: (filePath: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  saveFileDirect: (filePath: string, data: Uint8Array, skipConfirm?: boolean) => Promise<{ success: boolean; cancelled?: boolean; filePath?: string; error?: string }>;
   readFileDirect: (filePath: string) => Promise<FileDataResult>;
+  getLaunchFilePath: () => Promise<string | null>;
 
   // Recent Files & Last File
   getRecentFiles: () => Promise<RecentFileItem[]>;

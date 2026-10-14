@@ -35,14 +35,23 @@ export const desktopSaveFileDialog = async (
 };
 
 /**
- * Directly writes PDF bytes to the existing disk file (Quick Save)
+ * Directly writes PDF bytes to the existing disk file (with user overwrite warning prompt)
  */
 export const desktopSaveDirect = async (
   filePath: string,
-  data: Uint8Array
-): Promise<{ success: boolean; filePath?: string; error?: string } | null> => {
+  data: Uint8Array,
+  skipConfirm?: boolean
+): Promise<{ success: boolean; cancelled?: boolean; filePath?: string; error?: string } | null> => {
   if (!isDesktopApp() || !window.electronAPI) return null;
-  return await window.electronAPI.saveFileDirect(filePath, data);
+  return await window.electronAPI.saveFileDirect(filePath, data, skipConfirm);
+};
+
+/**
+ * Retrieves the CLI argument launch file path if the app was started with a file parameter
+ */
+export const desktopGetLaunchFilePath = async (): Promise<string | null> => {
+  if (!isDesktopApp() || !window.electronAPI) return null;
+  return await window.electronAPI.getLaunchFilePath();
 };
 
 /**
