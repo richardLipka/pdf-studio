@@ -49,6 +49,8 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     setIsSidebarOpen,
     isSidebarOpen,
     pages,
+    createNewBlankDocument,
+    closeDocument,
   } = useDocument();
 
   const {
@@ -58,6 +60,11 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     openSignatureModal,
     stamps,
     setStamps,
+    setIsFlattenModalOpen,
+    setIsAboutModalOpen,
+    setIsShortcutsModalOpen,
+    setIsSettingsModalOpen,
+    toggleSearch,
   } = useEditor();
 
   const { theme, setTheme } = useTheme();
@@ -394,6 +401,43 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
           break;
         }
 
+        case 'new-blank-document': {
+          createNewBlankDocument();
+          setDesktopFilePath(null);
+          break;
+        }
+
+        case 'close-document': {
+          closeDocument();
+          setDesktopFilePath(null);
+          break;
+        }
+
+        case 'trigger-flatten-export': {
+          setIsFlattenModalOpen(true);
+          break;
+        }
+
+        case 'toggle-search': {
+          toggleSearch();
+          break;
+        }
+
+        case 'show-settings-modal': {
+          setIsSettingsModalOpen(true);
+          break;
+        }
+
+        case 'show-shortcuts-modal': {
+          setIsShortcutsModalOpen(true);
+          break;
+        }
+
+        case 'show-about-modal': {
+          setIsAboutModalOpen(true);
+          break;
+        }
+
         case 'show-log-modal': {
           setIsLogModalOpen(true);
           break;
@@ -441,6 +485,13 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     setIsLogModalOpen,
     setTheme,
     setLanguage,
+    createNewBlankDocument,
+    closeDocument,
+    setIsFlattenModalOpen,
+    toggleSearch,
+    setIsSettingsModalOpen,
+    setIsShortcutsModalOpen,
+    setIsAboutModalOpen,
   ]);
 
   return {

@@ -24,7 +24,6 @@ import {
   PanelLeft,
   Search,
 } from 'lucide-react';
-import { FlattenModal } from '../modals/FlattenModal';
 import { logger } from '../../services/logger';
 import { isDesktopApp, desktopOpenFile } from '../../services/desktopBridge';
 
@@ -64,9 +63,9 @@ export const Header: React.FC = () => {
     rasterSettings,
     isSearchOpen,
     toggleSearch,
+    setIsFlattenModalOpen,
   } = useEditor();
 
-  const [isFlattenOpen, setIsFlattenOpen] = React.useState(false);
   const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
     warns: 0,
     errors: 0,
@@ -624,7 +623,7 @@ export const Header: React.FC = () => {
         {/* Flatten to images ("as scanned") */}
         <button
           type="button"
-          onClick={() => setIsFlattenOpen(true)}
+          onClick={() => setIsFlattenModalOpen(true)}
           disabled={isSaving || !hasDoc}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
             isMinimal
@@ -639,7 +638,6 @@ export const Header: React.FC = () => {
           <ScanLine className="w-4 h-4" />
           <span className="hidden xl:inline">{t.flattenModal.buttonLabel}</span>
         </button>
-        <FlattenModal open={isFlattenOpen} onClose={() => setIsFlattenOpen(false)} />
 
         {/* Save & Download button */}
         <div className="relative">

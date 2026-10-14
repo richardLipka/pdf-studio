@@ -69,6 +69,15 @@ interface EditorContextType {
   isExportFormModalOpen: boolean;
   setIsExportFormModalOpen: (open: boolean) => void;
   toggleExportFormModal: () => void;
+  isAboutModalOpen: boolean;
+  setIsAboutModalOpen: (open: boolean) => void;
+  toggleAboutModal: () => void;
+  isShortcutsModalOpen: boolean;
+  setIsShortcutsModalOpen: (open: boolean) => void;
+  toggleShortcutsModal: () => void;
+  isFlattenModalOpen: boolean;
+  setIsFlattenModalOpen: (open: boolean) => void;
+  toggleFlattenModal: () => void;
   streamReplaceTargetText: string;
   setStreamReplaceTargetText: (text: string) => void;
   streamReplaceTargetPosition: { x: number; y: number } | null;
@@ -231,6 +240,22 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpenState] = useState<boolean>(false);
   const [isRemoveElementsModalOpen, setIsRemoveElementsModalOpenState] = useState<boolean>(false);
   const [isExportFormModalOpen, setIsExportFormModalOpen] = useState<boolean>(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState<boolean>(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
+  const [isFlattenModalOpen, setIsFlattenModalOpen] = useState<boolean>(false);
+
+  const toggleAboutModal = useCallback(() => {
+    setIsAboutModalOpen((prev) => !prev);
+  }, []);
+
+  const toggleShortcutsModal = useCallback(() => {
+    setIsShortcutsModalOpen((prev) => !prev);
+  }, []);
+
+  const toggleFlattenModal = useCallback(() => {
+    setIsFlattenModalOpen((prev) => !prev);
+  }, []);
+
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
   const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
 
@@ -560,6 +585,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isExportFormModalOpen,
     setIsExportFormModalOpen,
     toggleExportFormModal,
+    isAboutModalOpen,
+    setIsAboutModalOpen,
+    toggleAboutModal,
+    isShortcutsModalOpen,
+    setIsShortcutsModalOpen,
+    toggleShortcutsModal,
+    isFlattenModalOpen,
+    setIsFlattenModalOpen,
+    toggleFlattenModal,
     streamReplaceTargetText,
     setStreamReplaceTargetText,
     streamReplaceTargetPosition,

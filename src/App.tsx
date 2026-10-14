@@ -18,6 +18,9 @@ import { LogModal } from './components/modals/LogModal';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { MetadataModal } from './components/modals/MetadataModal';
 import { ExportFormModal } from './components/modals/ExportFormModal';
+import { AboutModal } from './components/modals/AboutModal';
+import { ShortcutsModal } from './components/modals/ShortcutsModal';
+import { FlattenModal } from './components/modals/FlattenModal';
 import { SearchBar } from './components/viewer/SearchBar';
 import { useDesktopIntegration } from './hooks/useDesktopIntegration';
 
@@ -123,6 +126,9 @@ const MainWorkspace: React.FC = () => {
       <SettingsModal />
       <MetadataModal />
       <ExportFormModal />
+      <AboutModal />
+      <ShortcutsModal />
+      <FlattenModal />
     </div>
   );
 };

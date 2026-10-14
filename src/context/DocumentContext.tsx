@@ -9,6 +9,7 @@ import {
   rotatePage,
   rotateAnnotationWithPage,
   insertPagesAtPosition,
+  createBlankPage,
   InsertPosition,
 } from '../services/pageManager';
 import {
@@ -84,6 +85,8 @@ interface DocumentContextType {
   loadPdfFile: (file: File) => Promise<void>;
   loadPdfBuffer: (name: string, buffer: ArrayBuffer) => Promise<void>;
   loadSamplePdf: (buffer: ArrayBuffer, lang: string) => Promise<void>;
+  createNewBlankDocument: (orientation?: 'portrait' | 'landscape') => void;
+  closeDocument: () => void;
   /** scrollIntoView: false when the page is activated by clicking on it (it is already in view) */
   setActivePageIndex: (index: number, options?: { scrollIntoView?: boolean }) => void;
   /** True once after setActivePageIndex(..., { scrollIntoView: false }) */
@@ -420,6 +423,43 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setFormValues(initialFormValues);
     setHistory({ entries: [captureSnapshot()], index: 0 });
   };
+
+  const closeDocument = useCallback(() => {
+    clearPdfCache();
+    setFileName('');
+    setSources([]);
+    setPages([]);
+    setActivePageIndex(0);
+    rangeAnchorIndexRef.current = 0;
+    setSelectedPageIds([]);
+    setAnnotations([]);
+    setSelectedAnnotationId(null);
+    setMetadata(DEFAULT_DOCUMENT_METADATA);
+    setFormFields([]);
+    setFormValues({});
+    setHistory({ entries: [], index: -1 });
+    setOutlines([]);
+    logger.info('system', 'Dokument byl uzavřen');
+  }, [setPages, setAnnotations, setSources, setFormValues, setActivePageIndex, setHistory]);
+
+  const createNewBlankDocument = useCallback((orientation: 'portrait' | 'landscape' = 'portrait') => {
+    clearPdfCache();
+    const blankPage = createBlankPage(orientation);
+    const defaultMeta: DocumentMetadata = {
+      ...DEFAULT_DOCUMENT_METADATA,
+      title: 'Nový dokument',
+      creationDate: new Date().toISOString(),
+      modificationDate: new Date().toISOString(),
+    };
+    const mainSource: SourceDocument = {
+      id: 'blank',
+      name: 'Novy_dokument.pdf',
+      arrayBuffer: new ArrayBuffer(0),
+      updatedAt: Date.now(),
+    };
+    initializeDocument('Novy_dokument.pdf', mainSource, [blankPage], [], defaultMeta, []);
+    logger.info('system', `Vytvořen nový prázdný dokument (${orientation})`);
+  }, [setPages, setAnnotations, setSources, setFormValues, setActivePageIndex, setHistory]);
 
   const loadPdfBuffer = async (name: string, buffer: ArrayBuffer) => {
     logger.info('load', `Otevřen buffer: "${name}" (${(buffer.byteLength / 1024).toFixed(1)} KB)`, {
@@ -1421,6 +1461,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     loadPdfFile,
     loadPdfBuffer,
     loadSamplePdf,
+    createNewBlankDocument,
+    closeDocument,
     setActivePageIndex,
     setScale,
     zoomToFitPage,

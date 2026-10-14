@@ -1,4 +1,4 @@
-import { app, Menu, MenuItemConstructorOptions, BrowserWindow, dialog } from 'electron';
+import { app, Menu, MenuItemConstructorOptions, BrowserWindow, dialog, shell } from 'electron';
 import { SettingsStore, RecentFileItem } from './settingsStore';
 
 export interface MenuActionEmitter {
@@ -25,6 +25,7 @@ interface MenuLocale {
     menu: string;
     undo: string;
     redo: string;
+    find: string;
     cut: string;
     copy: string;
     paste: string;
@@ -45,6 +46,7 @@ interface MenuLocale {
   settings: {
     menu: string;
     autoReopen: string;
+    rasterSettings: string;
     themeStudio: string;
     themeMinimal: string;
     themeLcars: string;
@@ -55,6 +57,7 @@ interface MenuLocale {
     menu: string;
     shortcuts: string;
     eventLog: string;
+    github: string;
     about: string;
     aboutTitle: string;
     aboutHeading: string;
@@ -83,6 +86,7 @@ const locales: Record<'cs' | 'en', MenuLocale> = {
       menu: 'Úpravy',
       undo: 'Zpět',
       redo: 'Znovu',
+      find: 'Hledat v dokumentu...',
       cut: 'Vyjmout',
       copy: 'Kopírovat',
       paste: 'Vložit',
@@ -103,6 +107,7 @@ const locales: Record<'cs' | 'en', MenuLocale> = {
     settings: {
       menu: 'Nastavení',
       autoReopen: 'Automaticky otevřít poslední soubor při spuštění',
+      rasterSettings: 'Nastavení rastrování a exportu...',
       themeStudio: 'Vzhled: Studio (Tmavý)',
       themeMinimal: 'Vzhled: Minimal (Světlý)',
       themeLcars: 'Vzhled: LCARS (Sci-Fi)',
@@ -113,6 +118,7 @@ const locales: Record<'cs' | 'en', MenuLocale> = {
       menu: 'Nápověda',
       shortcuts: 'Klávesové zkratky',
       eventLog: 'Diagnostický protokol',
+      github: 'Zdrojový kód na GitHubu',
       about: 'O aplikaci PDF Studio',
       aboutTitle: 'O aplikaci PDF Studio',
       aboutHeading: 'PDF Studio Desktop',
@@ -143,6 +149,7 @@ const locales: Record<'cs' | 'en', MenuLocale> = {
       menu: 'Edit',
       undo: 'Undo',
       redo: 'Redo',
+      find: 'Find in Document...',
       cut: 'Cut',
       copy: 'Copy',
       paste: 'Paste',
@@ -163,6 +170,7 @@ const locales: Record<'cs' | 'en', MenuLocale> = {
     settings: {
       menu: 'Settings',
       autoReopen: 'Auto-reopen last file on startup',
+      rasterSettings: 'Export & Rasterization Settings...',
       themeStudio: 'Theme: Studio (Dark)',
       themeMinimal: 'Theme: Minimal (Light)',
       themeLcars: 'Theme: LCARS (Sci-Fi)',
@@ -173,6 +181,7 @@ const locales: Record<'cs' | 'en', MenuLocale> = {
       menu: 'Help',
       shortcuts: 'Keyboard Shortcuts',
       eventLog: 'Event Log & Diagnostics',
+      github: 'GitHub Source Repository',
       about: 'About PDF Studio',
       aboutTitle: 'About PDF Studio',
       aboutHeading: 'PDF Studio Desktop',
@@ -316,6 +325,12 @@ export const buildAppMenu = (
           click: () => emitter.sendAction('trigger-redo'),
         },
         { type: 'separator' },
+        {
+          label: loc.edit.find,
+          accelerator: 'CmdOrCtrl+F',
+          click: () => emitter.sendAction('toggle-search'),
+        },
+        { type: 'separator' },
         { role: 'cut' as const, label: loc.edit.cut },
         { role: 'copy' as const, label: loc.edit.copy },
         { role: 'paste' as const, label: loc.edit.paste },
@@ -372,6 +387,10 @@ export const buildAppMenu = (
           click: (menuItem) => {
             settingsStore.set('reopenLastFileOnStartup', menuItem.checked);
           },
+        },
+        {
+          label: loc.settings.rasterSettings,
+          click: () => emitter.sendAction('show-settings-modal'),
         },
         { type: 'separator' },
         {
@@ -437,6 +456,7 @@ export const buildAppMenu = (
       submenu: [
         {
           label: loc.help.shortcuts,
+          accelerator: 'CmdOrCtrl+/',
           click: () => emitter.sendAction('show-shortcuts-modal'),
         },
         {
@@ -445,15 +465,15 @@ export const buildAppMenu = (
         },
         { type: 'separator' },
         {
+          label: loc.help.github,
+          click: () => {
+            shell.openExternal('https://github.com/richardLipka/pdf-studio');
+          },
+        },
+        {
           label: loc.help.about,
           click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: loc.help.aboutTitle,
-              message: loc.help.aboutHeading,
-              detail: loc.help.aboutDetail,
-              buttons: ['OK'],
-            });
+            emitter.sendAction('show-about-modal');
           },
         },
       ],
