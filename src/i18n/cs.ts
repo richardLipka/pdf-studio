@@ -649,6 +649,7 @@ export const cs: TranslationSchema = {
     overwriteMessage: 'Přepsat soubor „{name}“ upravenou verzí?',
     overwriteDetail: 'Cesta: {path}',
     overwrite: 'Přepsat',
+    dontAskAgain: 'Příště se neptat',
     openDialogTitle: 'Otevřít PDF dokument',
     saveDialogTitle: 'Uložit PDF dokument',
     pdfFilter: 'Dokumenty PDF',

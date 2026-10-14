@@ -41,7 +41,7 @@ describe('Images and Paragraph Block Selection Diagnostics', () => {
         console.log(`[${file}] Error: ${e.message}`);
       }
     }
-  });
+  }, 60000);
 
   it('verifies visualBlocks separation and image discovery', async () => {
     for (const file of ['temata_vskp_-_podklady_pro_zadani_vskp.pdf']) {

@@ -634,6 +634,7 @@ export interface TranslationSchema {
     /** {path} */
     overwriteDetail: string;
     overwrite: string;
+    dontAskAgain: string;
     openDialogTitle: string;
     saveDialogTitle: string;
     pdfFilter: string;

@@ -649,6 +649,7 @@ export const en: TranslationSchema = {
     overwriteMessage: 'Overwrite "{name}" with the edited version?',
     overwriteDetail: 'Path: {path}',
     overwrite: 'Overwrite',
+    dontAskAgain: 'Do not ask again',
     openDialogTitle: 'Open PDF Document',
     saveDialogTitle: 'Save PDF Document',
     pdfFilter: 'PDF Documents',
