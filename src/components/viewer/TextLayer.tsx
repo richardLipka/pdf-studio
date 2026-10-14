@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { PdfPageModel, SourceDocument } from '../../types/document';
 import { renderPdfTextLayer, getPageTextBlocks, getPageTextModel } from '../../services/pdfLoader';
 import { renderQueue, RenderPriority } from '../../services/renderQueue';
@@ -62,6 +62,9 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     setHoveredBlockId,
     setHoveredBlockText,
     activeTab,
+    isSearchOpen,
+    searchResults,
+    activeSearchMatchIndex,
   } = useEditor();
   const {
     addAnnotation,
@@ -101,6 +104,12 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   // page, or to the active page when it came from the edit panel (which lists the active page)
   const selectionOnThisPage = selectedStreamBlockPageId ? selectedStreamBlockPageId === page.id : isActivePage;
   const hoverOnThisPage = hoveredBlockPageId ? hoveredBlockPageId === page.id : isActivePage;
+
+  // Search matches belonging to this page
+  const pageSearchMatches = useMemo(() => {
+    if (!isSearchOpen || !searchResults || searchResults.length === 0) return [];
+    return searchResults.filter((m) => m.pageId === page.id || m.pageIndex === pageIndex);
+  }, [isSearchOpen, searchResults, page.id, pageIndex]);
 
   /** Makes this page the active one (the edit panel lists the active page) without scrolling it */
   const activateThisPage = () => {
@@ -658,8 +667,39 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
         }`}
       />
 
-      {/* 2. React Overlay Container (Blocks & Floating Toolbar) */}
+      {/* 2. React Overlay Container (Blocks, Search Highlights & Floating Toolbar) */}
       <div className="absolute inset-0 pointer-events-none z-30">
+        {/* In-Document Search Highlights */}
+        {isSearchOpen &&
+          pageSearchMatches.map((match) => {
+            const isActiveMatch = match.globalIndex === activeSearchMatchIndex;
+            return match.rects.map((rect, rIdx) => (
+              <div
+                key={`search-${match.id}-${rIdx}`}
+                id={isActiveMatch && rIdx === 0 ? 'active-search-match' : undefined}
+                style={{
+                  left: `${rect.x * scale}px`,
+                  top: `${rect.y * scale}px`,
+                  width: `${rect.width * scale}px`,
+                  height: `${rect.height * scale}px`,
+                }}
+                className={`absolute pointer-events-none transition-all duration-150 rounded-sm ${
+                  isActiveMatch
+                    ? isLcars
+                      ? 'bg-[#ffcc00]/60 ring-2 ring-[#ffcc00] shadow-[0_0_12px_#ffcc00] z-30'
+                      : isMinimal
+                      ? 'bg-amber-400/60 ring-2 ring-amber-600 shadow-md z-30'
+                      : 'bg-amber-400/50 ring-2 ring-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.8)] z-30'
+                    : isLcars
+                    ? 'bg-[#ff9900]/30 border border-[#ff9900]/60 z-20'
+                    : isMinimal
+                    ? 'bg-yellow-300/40 border border-yellow-400/70 z-20'
+                    : 'bg-yellow-400/35 border border-yellow-400/50 z-20'
+                }`}
+              />
+            ));
+          })}
+
         {/* Visual Block Highlight Overlay for Remove Elements & Stream Mode */}
         {isRemoveActive &&
           [...visualBlocks]

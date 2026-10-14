@@ -18,6 +18,7 @@ import { LogModal } from './components/modals/LogModal';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { MetadataModal } from './components/modals/MetadataModal';
 import { ExportFormModal } from './components/modals/ExportFormModal';
+import { SearchBar } from './components/viewer/SearchBar';
 
 const MainWorkspace: React.FC = () => {
   const { theme } = useTheme();
@@ -26,6 +27,7 @@ const MainWorkspace: React.FC = () => {
     setIsDeleteConfirmModalOpen,
     setDeleteTargetPageId,
     setDeleteMode,
+    setIsSearchOpen,
   } = useEditor();
 
   const hasDoc = pages.length > 0;
@@ -35,6 +37,14 @@ const MainWorkspace: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Already handled, e.g. the edit panel deleted the image or text block selected on the page
       if (e.defaultPrevented) return;
+
+      // Ctrl+F / Cmd+F: toggle search
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+        return;
+      }
+
       // Do not trigger deletion shortcuts if user is typing inside an input/textarea
       const target = e.target as HTMLElement;
       if (
@@ -67,7 +77,7 @@ const MainWorkspace: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedAnnotationId, selectedPageIds, pages.length, setDeleteTargetPageId, setDeleteMode, setIsDeleteConfirmModalOpen]);
+  }, [selectedAnnotationId, selectedPageIds, pages.length, setDeleteTargetPageId, setDeleteMode, setIsDeleteConfirmModalOpen, setIsSearchOpen]);
 
   const bgClass =
     theme === 'minimal'
@@ -90,6 +100,7 @@ const MainWorkspace: React.FC = () => {
           <div className="flex-1 flex overflow-hidden relative">
             <Sidebar />
             <PdfViewer />
+            <SearchBar />
             <NotesPanel />
             <EditSidePanel />
           </div>

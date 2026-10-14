@@ -140,6 +140,23 @@ export interface TranslationSchema {
     deleteSelected: string;
     rotateSelected: string;
     selectRangeHelp: string;
+    outlinesTab: string;
+    thumbnailsTab: string;
+    noOutlines: string;
+    noOutlinesDesc: string;
+    toggleSidebar: string;
+    loadingOutlines: string;
+  };
+  search: {
+    title: string;
+    placeholder: string;
+    noMatches: string;
+    matchCount: string;
+    next: string;
+    previous: string;
+    caseSensitive: string;
+    wholeWord: string;
+    close: string;
   };
   annotations: {
     addNote: string;

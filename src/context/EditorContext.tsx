@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { ToolType, ShapeType, EditorTab } from '../types/annotations';
 import { SignatureStamp, StampExportPackage } from '../types/stamp';
 import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
+import { SearchMatch } from '../services/pdfSearchService';
 
 export type SignatureModalTab = 'draw' | 'type' | 'upload' | 'saved' | 'certificate';
 
@@ -103,6 +104,25 @@ interface EditorContextType {
   removeStamp: (id: string) => void;
   exportStampsToJson: () => void;
   importStampsFromJson: (file: File) => Promise<{ success: boolean; count: number; error?: string }>;
+
+  // In-Document Search (Ctrl + F)
+  isSearchOpen: boolean;
+  setIsSearchOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleSearch: () => void;
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  searchCaseSensitive: boolean;
+  setSearchCaseSensitive: React.Dispatch<React.SetStateAction<boolean>>;
+  searchWholeWord: boolean;
+  setSearchWholeWord: React.Dispatch<React.SetStateAction<boolean>>;
+  searchResults: SearchMatch[];
+  setSearchResults: React.Dispatch<React.SetStateAction<SearchMatch[]>>;
+  activeSearchMatchIndex: number;
+  setActiveSearchMatchIndex: (idx: number) => void;
+  isSearching: boolean;
+  setIsSearching: (isSearching: boolean) => void;
+  nextSearchMatch: () => void;
+  prevSearchMatch: () => void;
 }
 
 const EditorContext = createContext<EditorContextType | null>(null);
@@ -212,6 +232,35 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isExportFormModalOpen, setIsExportFormModalOpen] = useState<boolean>(false);
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
   const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
+
+  // In-Document Search State
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState<boolean>(false);
+  const [searchWholeWord, setSearchWholeWord] = useState<boolean>(false);
+  const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
+  const [activeSearchMatchIndex, setActiveSearchMatchIndex] = useState<number>(0);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+
+  const toggleSearch = useCallback(() => {
+    setIsSearchOpen((prev) => !prev);
+  }, []);
+
+  const nextSearchMatch = useCallback(() => {
+    setSearchResults((current) => {
+      if (current.length === 0) return current;
+      setActiveSearchMatchIndex((prev) => (prev + 1) % current.length);
+      return current;
+    });
+  }, []);
+
+  const prevSearchMatch = useCallback(() => {
+    setSearchResults((current) => {
+      if (current.length === 0) return current;
+      setActiveSearchMatchIndex((prev) => (prev - 1 + current.length) % current.length);
+      return current;
+    });
+  }, []);
 
   const setIsEditSidePanelOpen = (open: boolean) => {
     setIsEditSidePanelOpenState(open);
@@ -535,6 +584,23 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     removeStamp,
     exportStampsToJson,
     importStampsFromJson,
+    isSearchOpen,
+    setIsSearchOpen,
+    toggleSearch,
+    searchQuery,
+    setSearchQuery,
+    searchCaseSensitive,
+    setSearchCaseSensitive,
+    searchWholeWord,
+    setSearchWholeWord,
+    searchResults,
+    setSearchResults,
+    activeSearchMatchIndex,
+    setActiveSearchMatchIndex,
+    isSearching,
+    setIsSearching,
+    nextSearchMatch,
+    prevSearchMatch,
   };
 
   return <EditorContext.Provider value={value}>{children}</EditorContext.Provider>;

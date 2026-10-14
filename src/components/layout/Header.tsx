@@ -21,6 +21,8 @@ import {
   Sliders,
   Info,
   ScanLine,
+  PanelLeft,
+  Search,
 } from 'lucide-react';
 import { FlattenModal } from '../modals/FlattenModal';
 import { logger } from '../../services/logger';
@@ -41,6 +43,8 @@ export const Header: React.FC = () => {
     loadSamplePdf,
     saveAndDownload,
     hasFormFields,
+    isSidebarOpen,
+    toggleSidebar,
   } = useDocument();
 
   const {
@@ -54,6 +58,8 @@ export const Header: React.FC = () => {
     toggleMetadataModal,
     setIsExportFormModalOpen,
     rasterSettings,
+    isSearchOpen,
+    toggleSearch,
   } = useEditor();
 
   const [isFlattenOpen, setIsFlattenOpen] = React.useState(false);
@@ -248,6 +254,48 @@ export const Header: React.FC = () => {
               isMinimal ? 'border-neutral-200' : isLcars ? 'border-[#333333]' : 'border-slate-800'
             }`}
           >
+            <button
+              onClick={toggleSidebar}
+              className={`p-1.5 border transition-colors ${
+                isMinimal
+                  ? isSidebarOpen
+                    ? 'rounded-md bg-black text-white border-black'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                  : isLcars
+                  ? isSidebarOpen
+                    ? 'rounded-full bg-[#ff9900] text-black border-[#ff9900]'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
+                  : isSidebarOpen
+                  ? 'rounded-lg bg-sky-600/20 text-sky-300 border-sky-500/40'
+                  : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+              title={t.sidebar.toggleSidebar}
+              aria-label={t.sidebar.toggleSidebar}
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={toggleSearch}
+              className={`p-1.5 border transition-colors ${
+                isMinimal
+                  ? isSearchOpen
+                    ? 'rounded-md bg-black text-white border-black'
+                    : 'rounded-md bg-white hover:bg-neutral-100 text-black border-neutral-300'
+                  : isLcars
+                  ? isSearchOpen
+                    ? 'rounded-full bg-[#ff9900] text-black border-[#ff9900]'
+                    : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9900] border-[#ff9900]'
+                  : isSearchOpen
+                  ? 'rounded-lg bg-sky-600/20 text-sky-300 border-sky-500/40'
+                  : 'rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+              }`}
+              title={`${t.search.title} (Ctrl+F)`}
+              aria-label={`${t.search.title} (Ctrl+F)`}
+            >
+              <Search className="w-4 h-4" />
+            </button>
+
             <button
               onClick={undo}
               disabled={!canUndo}

@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-168%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-233%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
@@ -143,6 +143,17 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 - **Overlapping Elements**: Any element, including one covered by another, can be selected from the panel; it is raised above the others and scrolled into view.
 - **Smallest-Area-First Stacking**: Guarantees 100% clickability and hit-testing for nested and overlapping blocks on the canvas.
 
+### 18. 📑 Document Outlines & Collapsible Sidebar Navigation
+- **Hierarchical Bookmarks Tree**: Automatically parses and resolves PDF document outline trees (`/Outlines`) with multi-level nesting, expansion toggles, and direct click page navigation.
+- **Collapsible Sidebar Rail**: Left sidebar can be completely collapsed down to a compact 48px rail view via header button (`PanelLeft`) or sidebar toggle, maximizing screen real estate for editing.
+- **Tabbed Sidebar Navigation**: Instantly toggle between **Stránky (Thumbnails)** and **Obsah (Outlines)** with responsive badge counters and empty-state indicators.
+
+### 19. 🔍 Global In-Document Search & Canvas Highlights (`Ctrl + F`)
+- **High-Performance Document Search**: Scans character streams and bounding boxes across all document pages via `pdfSearchService.ts`.
+- **Search Controls & Filters**: Floating modal toolbar draggable with input debounce, match index counter (`X z Y`), case-sensitive (`Aa`), and whole-word (`\b`) match toggles.
+- **Navigation & Shortcuts**: Smooth cycling with `Enter` (next match), `Shift + Enter` (previous match), and `Esc` (dismiss).
+- **Canvas Visual Overlays**: Non-destructive search highlight overlays rendered directly over `TextLayer.tsx` with active-match focus rings and full support for Studio (dark), Minimal (light), and LCARS themes.
+
 ---
 
 ## 🔒 Privacy & Security
@@ -167,12 +178,14 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 
 | Shortcut | Action |
 | :--- | :--- |
+| <kbd>Ctrl</kbd> + <kbd>F</kbd> | Open in-document search (Hledat v dokumentu) |
+| <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | Next / Previous search match (when search bar is active) |
 | <kbd>Ctrl</kbd> + <kbd>Z</kbd> | Undo (Zpět) |
 | <kbd>Ctrl</kbd> + <kbd>Y</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> | Redo (Znovu) |
 | <kbd>Delete</kbd> / <kbd>Backspace</kbd> | Delete selected annotation or trigger page deletion |
 | <kbd>Enter</kbd> | Confirm modals & dialogs / Save note |
 | <kbd>Shift</kbd> + <kbd>Enter</kbd> | Insert newline in note editor |
-| <kbd>Escape</kbd> | Cancel & close modal dialogs |
+| <kbd>Escape</kbd> | Close search bar / Cancel & close modal dialogs |
 | <kbd>↓</kbd> / <kbd>→</kbd> | Next page (scrolling viewport) |
 | <kbd>↑</kbd> / <kbd>←</kbd> | Previous page (scrolling viewport) |
 | <kbd>Shift</kbd> + <kbd>↓</kbd> / <kbd>→</kbd> | Expand page selection downwards |
@@ -196,13 +209,13 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (35 test files, 170 tests) |
+| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (37 test files, 233 tests) |
 
 ---
 
 ## 🧪 Automated Testing
 
-PDF Studio includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, the page text model and block text rewriting, geometric shapes, and PDF export:
+PDF Studio includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, document outlines, full-text search, the page text model and block text rewriting, geometric shapes, and PDF export:
 
 ```bash
 # Run all unit tests

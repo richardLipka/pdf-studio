@@ -11,13 +11,115 @@ import {
   Trash2,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   GripVertical,
   Plus,
   CheckSquare,
   Square,
   Layers,
   X,
+  ListTree,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Bookmark,
+  Loader2,
 } from 'lucide-react';
+import { PdfOutlineItem } from '../../types/document';
+
+interface OutlineNodeProps {
+  item: PdfOutlineItem;
+  level: number;
+  activePageIndex: number;
+  onSelect: (pageIndex: number) => void;
+  theme: string;
+}
+
+const OutlineNode: React.FC<OutlineNodeProps> = ({ item, level, activePageIndex, onSelect, theme }) => {
+  const [isExpanded, setIsExpanded] = useState<boolean>(true);
+  const hasChildren = Boolean(item.items && item.items.length > 0);
+  const isSelected = item.pageIndex !== null && item.pageIndex === activePageIndex;
+  const isMinimal = theme === 'minimal';
+  const isLcars = theme === 'lcars';
+
+  return (
+    <div className="flex flex-col select-none text-xs">
+      <div
+        className={`group flex items-center py-1.5 px-2 rounded cursor-pointer transition-colors ${
+          isSelected
+            ? isMinimal
+              ? 'bg-neutral-200 font-semibold text-black'
+              : isLcars
+              ? 'bg-[#222222] font-semibold text-[#ffcc00] border-l-2 border-[#ff9900]'
+              : 'bg-sky-950/80 font-semibold text-sky-300 border-l-2 border-sky-500'
+            : isMinimal
+            ? 'hover:bg-neutral-100 text-neutral-700'
+            : isLcars
+            ? 'hover:bg-[#111111] text-[#99ccff]'
+            : 'hover:bg-slate-800/70 text-slate-300'
+        }`}
+        style={{ paddingLeft: `${Math.max(8, level * 14 + 6)}px` }}
+        onClick={() => {
+          if (item.pageIndex !== null) {
+            onSelect(item.pageIndex);
+          } else if (hasChildren) {
+            setIsExpanded((prev) => !prev);
+          }
+        }}
+        title={item.title}
+      >
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded((prev) => !prev);
+            }}
+            className="mr-1 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-inherit"
+          >
+            {isExpanded ? (
+              <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />
+            )}
+          </button>
+        ) : (
+          <span className="w-3.5 mr-1" />
+        )}
+
+        <span
+          className={`flex-1 truncate ${item.bold ? 'font-bold' : ''} ${item.italic ? 'italic' : ''}`}
+        >
+          {item.title || '(Bez názvu)'}
+        </span>
+
+        {item.pageIndex !== null && (
+          <span
+            className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono opacity-70 flex-shrink-0 ${
+              isMinimal ? 'bg-neutral-100' : isLcars ? 'bg-black text-[#ff9900]' : 'bg-slate-800'
+            }`}
+          >
+            {item.pageIndex + 1}
+          </span>
+        )}
+      </div>
+
+      {hasChildren && isExpanded && (
+        <div className="flex flex-col">
+          {item.items.map((child) => (
+            <OutlineNode
+              key={child.id}
+              item={child}
+              level={level + 1}
+              activePageIndex={activePageIndex}
+              onSelect={onSelect}
+              theme={theme}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const Sidebar: React.FC = () => {
   const { t } = useI18n();
@@ -26,6 +128,7 @@ export const Sidebar: React.FC = () => {
     pages,
     sources,
     activePageIndex,
+    setActivePageIndex,
     selectedPageIds,
     togglePageSelection,
     selectAllPages,
@@ -33,6 +136,12 @@ export const Sidebar: React.FC = () => {
     rotatePageById,
     rotateSelectedPages,
     reorderPagesByIndex,
+    outlines,
+    isLoadingOutlines,
+    sidebarTab,
+    setSidebarTab,
+    isSidebarOpen,
+    toggleSidebar,
   } = useDocument();
 
   const {
@@ -141,6 +250,85 @@ export const Sidebar: React.FC = () => {
 
   const isMultipleSelected = selectedPageIds.length > 1;
 
+  if (!isSidebarOpen) {
+    return (
+      <aside
+        className={`w-12 border-r flex flex-col items-center py-2 z-10 select-none transition-colors ${
+          isMinimal
+            ? 'bg-white border-neutral-200 text-black'
+            : isLcars
+            ? 'bg-black border-[#cc99cc] text-[#ff9900]'
+            : 'bg-slate-900/95 border-slate-800 text-slate-300'
+        }`}
+      >
+        <button
+          onClick={toggleSidebar}
+          className={`p-2 rounded-lg transition-colors mb-3 ${
+            isMinimal
+              ? 'hover:bg-neutral-100 text-black'
+              : isLcars
+              ? 'hover:bg-[#222222] text-[#ff9900]'
+              : 'hover:bg-slate-800 text-slate-300 hover:text-sky-400'
+          }`}
+          title={t.sidebar.toggleSidebar}
+        >
+          <PanelLeftOpen className="w-4 h-4" />
+        </button>
+
+        <div className="flex flex-col gap-2 items-center w-full px-1">
+          <button
+            onClick={() => {
+              setSidebarTab('thumbnails');
+              toggleSidebar();
+            }}
+            className={`p-2 rounded-lg relative transition-colors ${
+              sidebarTab === 'thumbnails'
+                ? isMinimal
+                  ? 'bg-black text-white'
+                  : isLcars
+                  ? 'bg-[#ff9900] text-black font-bold'
+                  : 'bg-sky-600 text-white'
+                : isMinimal
+                ? 'hover:bg-neutral-100 text-neutral-600'
+                : isLcars
+                ? 'hover:bg-[#111111] text-[#99ccff]'
+                : 'hover:bg-slate-800 text-slate-400'
+            }`}
+            title={`${t.sidebar.thumbnailsTab} (${pages.length})`}
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={() => {
+              setSidebarTab('outlines');
+              toggleSidebar();
+            }}
+            className={`p-2 rounded-lg relative transition-colors ${
+              sidebarTab === 'outlines'
+                ? isMinimal
+                  ? 'bg-black text-white'
+                  : isLcars
+                  ? 'bg-[#ff9900] text-black font-bold'
+                  : 'bg-sky-600 text-white'
+                : isMinimal
+                ? 'hover:bg-neutral-100 text-neutral-600'
+                : isLcars
+                ? 'hover:bg-[#111111] text-[#99ccff]'
+                : 'hover:bg-slate-800 text-slate-400'
+            }`}
+            title={`${t.sidebar.outlinesTab} (${outlines.length})`}
+          >
+            <ListTree className="w-4 h-4" />
+            {outlines.length > 0 && (
+              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-sky-400" />
+            )}
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside
       className={`w-64 border-r flex flex-col h-full select-none transition-colors ${
@@ -151,16 +339,99 @@ export const Sidebar: React.FC = () => {
           : 'bg-slate-900/95 border-slate-800 text-white'
       }`}
     >
-      {/* Sidebar Header */}
+      {/* Top Tab Bar: Pages vs Outlines + Collapse Button */}
       <div
-        className={`p-3 border-b flex items-center justify-between ${
+        className={`p-2 border-b flex items-center justify-between gap-1.5 ${
           isMinimal
-            ? 'border-neutral-200 bg-white'
+            ? 'border-neutral-200 bg-neutral-50'
             : isLcars
-            ? 'border-[#333333] bg-black'
-            : 'border-slate-800'
+            ? 'border-[#333333] bg-[#0a0a0a]'
+            : 'border-slate-800 bg-slate-950/50'
         }`}
       >
+        <div
+          className={`flex items-center gap-1 p-0.5 rounded-lg flex-1 text-xs ${
+            isMinimal
+              ? 'bg-neutral-200/70'
+              : isLcars
+              ? 'bg-[#1a1a1a]'
+              : 'bg-slate-800/80'
+          }`}
+        >
+          <button
+            onClick={() => setSidebarTab('thumbnails')}
+            className={`flex-1 py-1 px-2 rounded-md flex items-center justify-center gap-1 font-medium transition-all ${
+              sidebarTab === 'thumbnails'
+                ? isMinimal
+                  ? 'bg-white text-black shadow-sm'
+                  : isLcars
+                  ? 'bg-[#ff9900] text-black font-bold'
+                  : 'bg-sky-600 text-white shadow'
+                : isMinimal
+                ? 'text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'text-[#99ccff] hover:text-[#ff9900]'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.sidebar.thumbnailsTab}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>{t.sidebar.thumbnailsTab}</span>
+            <span className="text-[10px] opacity-75 font-mono">({pages.length})</span>
+          </button>
+
+          <button
+            onClick={() => setSidebarTab('outlines')}
+            className={`flex-1 py-1 px-2 rounded-md flex items-center justify-center gap-1 font-medium transition-all ${
+              sidebarTab === 'outlines'
+                ? isMinimal
+                  ? 'bg-white text-black shadow-sm'
+                  : isLcars
+                  ? 'bg-[#ff9900] text-black font-bold'
+                  : 'bg-sky-600 text-white shadow'
+                : isMinimal
+                ? 'text-neutral-600 hover:text-black'
+                : isLcars
+                ? 'text-[#99ccff] hover:text-[#ff9900]'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={t.sidebar.outlinesTab}
+          >
+            <ListTree className="w-3.5 h-3.5" />
+            <span>{t.sidebar.outlinesTab}</span>
+            {outlines.length > 0 && (
+              <span className="text-[10px] opacity-75 font-mono">({outlines.length})</span>
+            )}
+          </button>
+        </div>
+
+        <button
+          onClick={toggleSidebar}
+          className={`p-1.5 rounded-md transition-colors ${
+            isMinimal
+              ? 'hover:bg-neutral-200 text-neutral-600 hover:text-black'
+              : isLcars
+              ? 'hover:bg-[#222222] text-[#ff9900]'
+              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+          }`}
+          title={t.sidebar.toggleSidebar}
+        >
+          <PanelLeftClose className="w-4 h-4" />
+        </button>
+      </div>
+
+      {sidebarTab === 'thumbnails' ? (
+        <>
+          {/* Sidebar Header (Thumbnails mode) */}
+          <div
+            className={`p-3 border-b flex items-center justify-between ${
+              isMinimal
+                ? 'border-neutral-200 bg-white'
+                : isLcars
+                ? 'border-[#333333] bg-black'
+                : 'border-slate-800'
+            }`}
+          >
         <div className="flex items-center gap-2">
           <span
             className={`text-xs font-semibold uppercase tracking-wider ${
@@ -523,6 +794,85 @@ export const Sidebar: React.FC = () => {
           );
         })}
       </div>
+      </>
+      ) : (
+        /* Outlines Tab Content */
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <div
+            className={`p-3 border-b flex items-center justify-between text-xs font-semibold ${
+              isMinimal
+                ? 'border-neutral-200 bg-white text-neutral-700'
+                : isLcars
+                ? 'border-[#333333] bg-black text-[#ff9900]'
+                : 'border-slate-800 text-slate-300'
+            }`}
+          >
+            <div className="flex items-center gap-1.5">
+              <Bookmark className="w-3.5 h-3.5" />
+              <span>{t.sidebar.outlinesTab}</span>
+            </div>
+            {outlines.length > 0 && (
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  isMinimal
+                    ? 'bg-neutral-100 text-black border border-neutral-300'
+                    : isLcars
+                    ? 'bg-black text-[#ff9900] border border-[#ff9900]'
+                    : 'bg-slate-800 text-sky-400 border border-slate-700'
+                }`}
+              >
+                {outlines.length}
+              </span>
+            )}
+          </div>
+
+          {isLoadingOutlines ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+              <Loader2 className="w-6 h-6 animate-spin text-sky-400 mb-2" />
+              <span className="text-xs text-slate-400">{t.sidebar.loadingOutlines}</span>
+            </div>
+          ) : outlines.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+              <Bookmark
+                className={`w-10 h-10 mb-2 opacity-30 ${
+                  isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#ff9900]' : 'text-slate-500'
+                }`}
+              />
+              <span
+                className={`text-xs font-semibold mb-1 ${
+                  isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-slate-200'
+                }`}
+              >
+                {t.sidebar.noOutlines}
+              </span>
+              <p
+                className={`text-[11px] leading-relaxed max-w-[200px] ${
+                  isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#99ccff]' : 'text-slate-400'
+                }`}
+              >
+                {t.sidebar.noOutlinesDesc}
+              </p>
+            </div>
+          ) : (
+            <div
+              className={`flex-1 overflow-y-auto p-2 space-y-0.5 ${
+                isMinimal ? 'bg-white' : ''
+              }`}
+            >
+              {outlines.map((item) => (
+                <OutlineNode
+                  key={item.id}
+                  item={item}
+                  level={0}
+                  activePageIndex={activePageIndex}
+                  onSelect={(idx) => setActivePageIndex(idx)}
+                  theme={theme}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 };

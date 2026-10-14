@@ -86,3 +86,16 @@ export const DEFAULT_DOCUMENT_METADATA: DocumentMetadata = {
   creator: 'PDF Studio',
   producer: 'PDF Studio (https://richardlipka.github.io/pdf-studio/)',
 };
+
+/** A document outline (bookmark) item with hierarchy and target page */
+export interface PdfOutlineItem {
+  id: string;
+  title: string;
+  pageIndex: number | null;
+  dest?: any;
+  items: PdfOutlineItem[];
+  bold?: boolean;
+  italic?: boolean;
+  color?: number[];
+}
+

@@ -121,6 +121,17 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - Zero file upload to servers. All operations happen in-memory via Web Workers and Web APIs.
    - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
+17. **Document Outlines & Collapsible Sidebar Navigation**:
+   - **Table of Contents / Bookmarks Tree**: Automatically parses and resolves PDF document outline trees (`/Outlines`) using `pdfjs-dist` with multi-level nesting, expansion toggles, and direct click page navigation.
+   - **Collapsible Sidebar Rail**: Left sidebar can be completely collapsed down to a compact 48px rail view via header button (`PanelLeft`) or sidebar toggle, maximizing screen real estate for editing.
+   - **Tabbed Sidebar Navigation**: Instantly toggle between **Stránky (Thumbnails)** and **Obsah (Outlines)** with responsive badge counters and empty-state indicators.
+
+18. **Global In-Document Search & Canvas Highlights (`Ctrl + F`)**:
+   - **High-Performance Document Search**: Scans character streams and bounding boxes across all document pages via `pdfSearchService.ts`.
+   - **Search Controls & Filters**: Floating modal toolbar draggable with input debounce, match index counter (`X z Y`), case-sensitive (`Aa`), and whole-word (`\b`) match toggles.
+   - **Navigation & Shortcuts**: Smooth cycling with `Enter` (next match), `Shift + Enter` (previous match), and `Esc` (dismiss).
+   - **Canvas Visual Overlays**: Non-destructive search highlight overlays rendered directly over `TextLayer.tsx` with active-match focus rings and full support for Studio (dark), Minimal (light), and LCARS themes.
+
 ---
 
 ## 🛠 Technology Stack
@@ -151,10 +162,10 @@ pdf-editor/
 │   │   ├── common/         # Dropzone, Toast, Icons
 │   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel, EditSidePanel
 │   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal, FlattenModal
-│   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer
+│   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer, SearchBar
 │   ├── context/
-│   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom
-│   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library, modal states, raster settings
+│   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom, outlines, sidebar
+│   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library, search state, modal states, raster settings
 │   │   └── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
 │   ├── i18n/
 │   │   ├── cs.ts           # Czech translations
@@ -163,7 +174,8 @@ pdf-editor/
 │   ├── services/
 │   │   ├── logger.ts       # Structured logging, safe serialization, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures/shapes)
-│   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with WebWorker memory cleanup
+│   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with outlines extraction & WebWorker cleanup
+│   │   ├── pdfSearchService.ts # Full-text document search with character bounding box calculation
 │   │   ├── pdfjsAssets.ts  # URLs of pdf.js runtime assets (wasm decoders, fonts, CMaps) served under pdfjs/
 │   │   ├── pdfFonts.ts     # Standard vs. embedded Unicode (Liberation Sans) font selection for exported text
 │   │   ├── renderQueue.ts  # Prioritized lazy rendering queue for viewport & large files

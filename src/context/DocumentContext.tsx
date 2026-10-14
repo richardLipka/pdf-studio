@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { PdfPageModel, SourceDocument, RasterizationSettings, DocumentMetadata, DEFAULT_DOCUMENT_METADATA } from '../types/document';
+import { PdfPageModel, SourceDocument, RasterizationSettings, DocumentMetadata, DEFAULT_DOCUMENT_METADATA, PdfOutlineItem } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { exportEditedPdf } from '../services/pdfExporter';
 import { flattenPdfToImages, FlattenOptions } from '../services/pdfFlattener';
@@ -17,6 +17,7 @@ import {
   extractPdfMetadata,
   clearPdfCache,
   getPageTextModel,
+  getDocumentOutlines,
 } from '../services/pdfLoader';
 import { replaceTextBlockContent, replaceTextLineContent } from '../services/pdfTextEditor';
 import { logger } from '../services/logger';
@@ -89,6 +90,15 @@ interface DocumentContextType {
   setScale: (scale: number | ((prev: number) => number)) => void;
   zoomToFitPage: (pageIndex?: number) => void;
   zoomToFitWidth: (pageIndex?: number) => void;
+
+  // Document Outlines (Bookmarks / Table of Contents)
+  outlines: PdfOutlineItem[];
+  isLoadingOutlines: boolean;
+  sidebarTab: 'thumbnails' | 'outlines';
+  setSidebarTab: (tab: 'thumbnails' | 'outlines') => void;
+  isSidebarOpen: boolean;
+  setIsSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleSidebar: () => void;
 
   // Multi-Page Selection & Navigation Operations
   setSelectedPageIds: (ids: string[]) => void;
@@ -240,6 +250,43 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [scale, setScale] = useState<number>(1.2);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [metadata, setMetadata] = useState<DocumentMetadata>(DEFAULT_DOCUMENT_METADATA);
+
+  // Document Outlines (TOC) & Sidebar Navigation
+  const [outlines, setOutlines] = useState<PdfOutlineItem[]>([]);
+  const [isLoadingOutlines, setIsLoadingOutlines] = useState<boolean>(false);
+  const [sidebarTab, setSidebarTab] = useState<'thumbnails' | 'outlines'>('thumbnails');
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarOpen((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    const primarySource = sources[0];
+    if (!primarySource?.arrayBuffer) {
+      setOutlines([]);
+      return;
+    }
+    let isMounted = true;
+    setIsLoadingOutlines(true);
+    getDocumentOutlines(primarySource)
+      .then((items) => {
+        if (isMounted) {
+          setOutlines(items);
+          setIsLoadingOutlines(false);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          console.warn('Failed to load outlines:', err);
+          setOutlines([]);
+          setIsLoadingOutlines(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [sources]);
 
   // Interactive Form Fields State
   const [formFields, setFormFields] = useState<FormFieldModel[]>([]);
@@ -1322,6 +1369,13 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setScale,
     zoomToFitPage,
     zoomToFitWidth,
+    outlines,
+    isLoadingOutlines,
+    sidebarTab,
+    setSidebarTab,
+    isSidebarOpen,
+    setIsSidebarOpen,
+    toggleSidebar,
     setSelectedPageIds,
     togglePageSelection,
     navigatePage,

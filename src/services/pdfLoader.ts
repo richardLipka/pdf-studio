@@ -1,7 +1,7 @@
 // The legacy build bundles polyfills: the modern build of pdf.js 6 needs very recent JS features
 // (e.g. Uint8Array.prototype.toHex) and fails to open any document in older browsers
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { PdfPageModel, SourceDocument, DocumentMetadata } from '../types/document';
+import { PdfPageModel, SourceDocument, DocumentMetadata, PdfOutlineItem } from '../types/document';
 import { Annotation } from '../types/annotations';
 import { logger } from './logger';
 import { getPdfjsAssetOptions } from './pdfjsAssets';
@@ -93,13 +93,103 @@ export const toViewportRect = (viewport: pdfjsLib.PageViewport, rect: ArrayLike<
   ...viewport.convertToViewportPoint(rect[2], rect[3]),
 ];
 
+const outlineCache = new Map<string, Promise<PdfOutlineItem[]>>();
+
 export const clearPdfCache = () => {
   for (const entry of docCache.values()) {
     destroyDocument(entry);
   }
   docCache.clear();
+  outlineCache.clear();
   retiredDocs.splice(0).forEach(destroyDocument);
 };
+
+let outlineIdCounter = 0;
+
+const resolveDestinationPageIndex = async (
+  pdfDoc: pdfjsLib.PDFDocumentProxy,
+  dest: any
+): Promise<number | null> => {
+  if (!dest) return null;
+  try {
+    let explicitDest = dest;
+    if (typeof dest === 'string') {
+      explicitDest = await pdfDoc.getDestination(dest);
+    }
+    if (Array.isArray(explicitDest) && explicitDest.length > 0) {
+      const pageRef = explicitDest[0];
+      if (typeof pageRef === 'number') {
+        return pageRef;
+      }
+      if (pageRef && typeof pageRef === 'object') {
+        const pageIdx = await pdfDoc.getPageIndex(pageRef);
+        return typeof pageIdx === 'number' && pageIdx >= 0 ? pageIdx : null;
+      }
+    }
+  } catch (err) {
+    // Unresolvable named destination or external link
+    return null;
+  }
+  return null;
+};
+
+const mapOutlineNodes = async (
+  pdfDoc: pdfjsLib.PDFDocumentProxy,
+  rawItems: any[],
+  prefix = 'outline'
+): Promise<PdfOutlineItem[]> => {
+  const result: PdfOutlineItem[] = [];
+  for (let i = 0; i < rawItems.length; i++) {
+    const raw = rawItems[i];
+    const itemId = `${prefix}_${i}_${++outlineIdCounter}`;
+    const pageIndex = await resolveDestinationPageIndex(pdfDoc, raw.dest);
+    const children =
+      raw.items && raw.items.length > 0
+        ? await mapOutlineNodes(pdfDoc, raw.items, itemId)
+        : [];
+    result.push({
+      id: itemId,
+      title: raw.title ? String(raw.title).trim() : '',
+      pageIndex,
+      dest: raw.dest,
+      items: children,
+      bold: Boolean(raw.bold),
+      italic: Boolean(raw.italic),
+      color: raw.color ? Array.from(raw.color) : undefined,
+    });
+  }
+  return result;
+};
+
+/**
+ * Extracts and maps hierarchical document outlines (bookmarks / TOC) with page indices
+ */
+export const getDocumentOutlines = async (
+  sourceDoc: SourceDocument
+): Promise<PdfOutlineItem[]> => {
+  if (!sourceDoc?.arrayBuffer || sourceDoc.arrayBuffer.byteLength === 0) return [];
+  const cacheKey = `${sourceDoc.id}_${sourceDoc.updatedAt || 0}`;
+  const cached = outlineCache.get(cacheKey);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    try {
+      const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
+      const rawOutline = await pdfDoc.getOutline();
+      if (!rawOutline || !Array.isArray(rawOutline) || rawOutline.length === 0) {
+        return [];
+      }
+      return await mapOutlineNodes(pdfDoc, rawOutline);
+    } catch (err) {
+      console.warn('Failed to parse document outlines:', err);
+      return [];
+    }
+  })();
+
+  outlineCache.set(cacheKey, promise);
+  return promise;
+};
+
 
 export const parsePdfPages = async (
   arrayBuffer: ArrayBuffer,
