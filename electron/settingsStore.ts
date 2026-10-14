@@ -9,12 +9,23 @@ export interface RecentFileItem {
   size?: number;
 }
 
+export interface SignatureStamp {
+  id: string;
+  title: string;
+  imageDataUrl: string;
+  createdAt: number;
+  width?: number;
+  height?: number;
+  category?: string;
+}
+
 export interface DesktopAppSettings {
   theme?: 'default' | 'minimal' | 'lcars';
   language?: 'cs' | 'en';
   reopenLastFileOnStartup?: boolean;
   lastOpenFilePath?: string;
   recentFiles?: RecentFileItem[];
+  stamps?: SignatureStamp[];
   windowBounds?: {
     x?: number;
     y?: number;
@@ -35,6 +46,7 @@ const DEFAULT_SETTINGS: DesktopAppSettings = {
   reopenLastFileOnStartup: true,
   lastOpenFilePath: '',
   recentFiles: [],
+  stamps: [],
   windowBounds: {
     width: 1400,
     height: 900,
@@ -128,5 +140,29 @@ export class SettingsStore {
   public clearRecentFiles(): void {
     this.settings.recentFiles = [];
     this.save();
+  }
+
+  public getStamps(): SignatureStamp[] {
+    return this.settings.stamps || [];
+  }
+
+  public setStamps(stamps: SignatureStamp[]): void {
+    this.settings.stamps = stamps;
+    this.save();
+  }
+
+  public addStamp(stamp: SignatureStamp): SignatureStamp[] {
+    const list = (this.settings.stamps || []).filter((s) => s.id !== stamp.id);
+    list.unshift(stamp);
+    this.settings.stamps = list;
+    this.save();
+    return list;
+  }
+
+  public removeStamp(stampId: string): SignatureStamp[] {
+    const list = (this.settings.stamps || []).filter((s) => s.id !== stampId);
+    this.settings.stamps = list;
+    this.save();
+    return list;
   }
 }

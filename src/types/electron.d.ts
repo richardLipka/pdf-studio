@@ -34,6 +34,8 @@ export interface ElectronAPI {
   getSettings: () => Promise<any>;
   getSetting: (key: string) => Promise<any>;
   setSetting: (key: string, value: any) => Promise<void>;
+  getSignatures: () => Promise<any[]>;
+  saveSignatures: (stamps: any[]) => Promise<void>;
 
   // Document State Notification
   notifyDocumentState: (state: { hasUnsavedChanges: boolean; filePath?: string; fileName?: string }) => void;

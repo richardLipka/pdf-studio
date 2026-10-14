@@ -19,6 +19,7 @@ import {
   onDesktopMenuAction,
 } from '../services/desktopBridge';
 import { RecentFileItem } from '../types/electron';
+import { SignatureStamp } from '../types/stamp';
 
 export interface UseDesktopIntegrationResult {
   isDesktop: boolean;
@@ -55,6 +56,8 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     setIsLogModalOpen,
     setActiveTool,
     openSignatureModal,
+    stamps,
+    setStamps,
   } = useEditor();
 
   const { theme, setTheme } = useTheme();
@@ -64,24 +67,75 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
   desktopFilePathRef.current = desktopFilePath;
   const initialSettingsLoadedRef = useRef(false);
 
-  // 1. Initial Load: Read recent files and persistent settings from OS AppData
+  // 1. Initial Load: Read recent files, preferred language, theme, and saved signatures from OS AppData / LocalStorage
   useEffect(() => {
-    if (!isDesktop) return;
+    if (isDesktop) {
+      getDesktopRecentFiles().then((list) => {
+        setRecentFiles(list);
+      });
 
-    getDesktopRecentFiles().then((list) => {
-      setRecentFiles(list);
-    });
-
-    getDesktopSettings().then((settings) => {
-      if (settings?.theme && ['default', 'minimal', 'lcars'].includes(settings.theme)) {
-        setTheme(settings.theme as AppTheme);
-      }
-      if (settings?.language && ['cs', 'en'].includes(settings.language)) {
-        setLanguage(settings.language as 'cs' | 'en');
-      }
+      getDesktopSettings().then((settings) => {
+        if (settings?.theme && ['default', 'minimal', 'lcars'].includes(settings.theme)) {
+          setTheme(settings.theme as AppTheme);
+        }
+        if (settings?.language && ['cs', 'en'].includes(settings.language)) {
+          setLanguage(settings.language as 'cs' | 'en');
+        }
+        if (settings?.stamps && Array.isArray(settings.stamps) && settings.stamps.length > 0) {
+          // Automatically restore created signatures/stamps from persistent desktop storage
+          setStamps((currentStamps) => {
+            const map = new Map<string, SignatureStamp>();
+            currentStamps.forEach((s) => map.set(s.id, s));
+            settings.stamps.forEach((s: SignatureStamp) => map.set(s.id, s));
+            return Array.from(map.values());
+          });
+        } else {
+          // If desktop storage has no stamps yet, migrate any existing localStorage stamps to desktop storage
+          try {
+            const localItem = localStorage.getItem('pdf_studio_stamps_library_v2');
+            if (localItem) {
+              const parsed = JSON.parse(localItem);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setDesktopSetting('stamps', parsed);
+              }
+            }
+          } catch {}
+        }
+        initialSettingsLoadedRef.current = true;
+      });
+    } else {
+      // In web browser: restore recent files from localStorage
+      try {
+        const saved = localStorage.getItem('pdf_studio_web_recent_files');
+        if (saved) {
+          setRecentFiles(JSON.parse(saved));
+        }
+      } catch {}
       initialSettingsLoadedRef.current = true;
-    });
-  }, [isDesktop, setTheme, setLanguage]);
+    }
+  }, [isDesktop, setTheme, setLanguage, setStamps]);
+
+  // 1a. In Web mode: auto-save opened documents to recent files history
+  useEffect(() => {
+    if (!isDesktop && fileName && pages.length > 0 && fileName !== 'document.pdf') {
+      try {
+        const currentList: RecentFileItem[] = JSON.parse(
+          localStorage.getItem('pdf_studio_web_recent_files') || '[]'
+        );
+        const filtered = currentList.filter((item) => item.name !== fileName);
+        const updated: RecentFileItem[] = [
+          {
+            path: fileName,
+            name: fileName,
+            lastOpened: Date.now(),
+          },
+          ...filtered,
+        ].slice(0, 15);
+        localStorage.setItem('pdf_studio_web_recent_files', JSON.stringify(updated));
+        setRecentFiles(updated);
+      } catch {}
+    }
+  }, [isDesktop, fileName, pages.length]);
 
   // 1b. Sync Language & Theme from Basic App to Desktop Main Process & Menu
   useEffect(() => {
@@ -93,6 +147,12 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     if (!isDesktop || !initialSettingsLoadedRef.current) return;
     setDesktopSetting('theme', theme);
   }, [isDesktop, theme]);
+
+  // 1c. Auto-sync created signatures / stamps to Desktop Settings Storage
+  useEffect(() => {
+    if (!isDesktop || !initialSettingsLoadedRef.current) return;
+    setDesktopSetting('stamps', stamps);
+  }, [isDesktop, stamps]);
 
   // 2. Notify Desktop Main Process about dirty/clean document state
   useEffect(() => {
@@ -134,21 +194,32 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     [isDesktop, loadPdfBuffer, pages.length]
   );
 
-  // 3b. Initial Load: Open CLI argument file if launched with a parameter
+  // 3b. Initial Load: Open CLI argument file if launched with a parameter, OR automatically reopen last file
   useEffect(() => {
     if (!isDesktop) return;
 
-    desktopGetLaunchFilePath().then((launchPath) => {
+    desktopGetLaunchFilePath().then(async (launchPath) => {
       if (launchPath) {
         openRecentFile(launchPath);
+      } else {
+        // If no CLI argument, check if reopenLastFileOnStartup is enabled and reopen last open file
+        const settings = await getDesktopSettings();
+        if (settings?.reopenLastFileOnStartup !== false && settings?.lastOpenFilePath) {
+          openRecentFile(settings.lastOpenFilePath);
+        }
       }
     });
   }, [isDesktop, openRecentFile]);
 
   // 4. Clear recent files list
   const clearRecent = useCallback(async () => {
-    if (!isDesktop) return;
-    await clearDesktopRecentFiles();
+    if (isDesktop) {
+      await clearDesktopRecentFiles();
+    } else {
+      try {
+        localStorage.removeItem('pdf_studio_web_recent_files');
+      } catch {}
+    }
     setRecentFiles([]);
   }, [isDesktop]);
 

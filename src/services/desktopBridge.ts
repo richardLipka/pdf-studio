@@ -1,4 +1,5 @@
 import { RecentFileItem, FileDataResult } from '../types/electron';
+import { SignatureStamp } from '../types/stamp';
 
 /**
  * Returns true if running inside the Electron Desktop application
@@ -100,6 +101,30 @@ export const getDesktopSettings = async (): Promise<Record<string, any>> => {
 export const setDesktopSetting = async (key: string, value: any): Promise<void> => {
   if (!isDesktopApp() || !window.electronAPI) return;
   await window.electronAPI.setSetting(key, value);
+};
+
+/**
+ * Retrieves saved signatures/stamps from desktop persistent settings
+ */
+export const getDesktopSignatures = async (): Promise<SignatureStamp[]> => {
+  if (!isDesktopApp() || !window.electronAPI) return [];
+  if (window.electronAPI.getSignatures) {
+    return (await window.electronAPI.getSignatures()) || [];
+  }
+  const settings = await window.electronAPI.getSettings();
+  return Array.isArray(settings?.stamps) ? settings.stamps : [];
+};
+
+/**
+ * Saves created signatures/stamps to desktop persistent settings
+ */
+export const saveDesktopSignatures = async (stamps: SignatureStamp[]): Promise<void> => {
+  if (!isDesktopApp() || !window.electronAPI) return;
+  if (window.electronAPI.saveSignatures) {
+    await window.electronAPI.saveSignatures(stamps);
+  } else {
+    await window.electronAPI.setSetting('stamps', stamps);
+  }
 };
 
 /**

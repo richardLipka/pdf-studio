@@ -100,6 +100,7 @@ interface EditorContextType {
 
   // Stamps & Signatures Library
   stamps: SignatureStamp[];
+  setStamps: React.Dispatch<React.SetStateAction<SignatureStamp[]>>;
   addStamp: (stampData: { title: string; imageDataUrl: string; width?: number; height?: number }) => void;
   removeStamp: (id: string) => void;
   exportStampsToJson: () => void;
@@ -580,6 +581,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRasterSettings,
     resetRasterSettings,
     stamps,
+    setStamps,
     addStamp,
     removeStamp,
     exportStampsToJson,

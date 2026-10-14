@@ -399,6 +399,15 @@ function registerIpcHandlers() {
     updateApplicationMenu();
   });
 
+  // 6b. Signatures / Stamps Handlers
+  ipcMain.handle('stamps:get', () => {
+    return settingsStore.getStamps();
+  });
+
+  ipcMain.handle('stamps:save', (_event, stamps: any[]) => {
+    settingsStore.setStamps(stamps);
+  });
+
   // 7. Document State Changed Notification
   ipcMain.on('document:stateChanged', (_event, state) => {
     currentDocumentState = { ...currentDocumentState, ...state };

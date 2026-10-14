@@ -29,6 +29,8 @@ export interface ElectronAPI {
   getSettings: () => Promise<any>;
   getSetting: (key: string) => Promise<any>;
   setSetting: (key: string, value: any) => Promise<void>;
+  getSignatures: () => Promise<any[]>;
+  saveSignatures: (stamps: any[]) => Promise<void>;
 
   // Document State Notification (e.g. for window title & close guard)
   notifyDocumentState: (state: { hasUnsavedChanges: boolean; filePath?: string; fileName?: string }) => void;
@@ -58,6 +60,8 @@ const electronAPI: ElectronAPI = {
   getSettings: () => ipcRenderer.invoke('settings:getAll'),
   getSetting: (key: string) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
+  getSignatures: () => ipcRenderer.invoke('stamps:get'),
+  saveSignatures: (stamps: any[]) => ipcRenderer.invoke('stamps:save', stamps),
 
   notifyDocumentState: (state) => ipcRenderer.send('document:stateChanged', state),
 
