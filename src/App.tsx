@@ -99,8 +99,11 @@ const MainWorkspace: React.FC = () => {
           {/* Core Body: Left Thumbnail Sidebar + Center PDF Canvas + Right Docked Panels */}
           <div className="flex-1 flex overflow-hidden relative">
             <Sidebar />
-            <PdfViewer />
-            <SearchBar />
+            {/* The search bar floats over the page view only, never over the side panels */}
+            <div className="flex-1 min-w-0 flex relative">
+              <PdfViewer />
+              <SearchBar />
+            </div>
             <NotesPanel />
             <EditSidePanel />
           </div>

@@ -85,10 +85,11 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Minimal (Light)**: Pure white background, clean black lines, monochrome aesthetic (`?theme=minimal`).
    - **LCARS (Star Trek: TNG)**: 24th-century LCARS interface with amber, lilac, cyan palette and pill buttons (`?theme=lcars`).
 
-11. **Prioritized Lazy Page Rendering & Canvas Error Recovery**:
-   - **Prioritized Lazy Rendering Queue**: For large documents (> 5 pages), renders the first 5 pages and active viewport pages with highest priority without blocking CPU/GPU.
-   - **Dynamic Viewport Priority Elevation**: `IntersectionObserver` elevates offscreen pages to the front of the queue (`VIEWPORT` priority) when scrolled into view.
-   - **WebWorker Resource Cleanup**: Calls `pdfPage.cleanup()` across all renderers and annotation parsers to release operator lists and decoded bitmaps immediately.
+11. **On-Demand Rendering & Memory**:
+   - **Page zones** (`hooks/usePageZones.ts`): pages within 1.5 screen heights render (canvas at the device pixel ratio, text layer, edit overlays), pages beyond 5 screen heights drop their bitmaps, far pages are placeholders without layers; the page list renders cards and JPEG thumbnails only near its visible part. Never mount per-page layers for every page again: each page change would re-render the whole document.
+   - **Undo budget**: `trimHistory` keeps at most 384 MB of distinct PDF versions in the undo stack.
+   - **WebWorker Resource Cleanup**: `pdfPage.cleanup()` after every render; `scheduleIdleDocumentCleanup` drops the pdf.js document caches after 8 s without rendering.
+   - **Damaged scan repair** (`services/pdfRepair.ts`): CCITT images with `/Rows` larger than the image are fixed on open / merge (pdf.js 6 renders them blank).
    - **Concurrent Load Deduplication**: In-flight `getCachedPdfDocument` tasks are deduplicated via shared loading promises.
    - **Interactive Canvas Failure Recovery**: If a page fails to render, a non-blocking error overlay provides a clear description and an interactive "Zkusit znovu / Retry" button that cleanly resets state and re-enqueues render.
 
@@ -136,11 +137,13 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - `FileContext` opens and saves documents: file picker / download in the browser, native dialogs and in-place saving in the desktop edition. Form documents ask for interactive or flattened fields first (also for *Save as*).
    - Dirty tracking (`isDirty` / `markSaved` in `DocumentContext`): `●` marker, confirmation before discarding changes, `beforeunload` warning in the browser.
    - Application commands and shortcuts come from one table (`shared/appCommands.ts`) used by the keyboard handler (`hooks/useAppCommands.ts`), the shortcuts dialog and the desktop menu.
+   - Settings backup (`services/settingsBackup.ts`): language, theme, raster settings and signatures in one JSON file; restore merges signatures; stamp library exports are accepted.
 
 20. **Desktop Edition (branch `desktop`, Electron)**:
    - The `desktop` branch is `master` plus `desktop/` (self-contained npm project: main process, preload, menu, settings store) and the release workflow; merging `master` never conflicts and `.github/workflows/sync-desktop.yml` does it after every push to `master` (type-check + tests first).
    - Contract between the web app and the shell: `shared/desktopApi.ts` (`window.electronAPI`); without it (browser) all desktop code paths are inert.
-   - Native dialogs, atomic in-place saving with overwrite confirmation, recent files, command line / "Open with", persistent settings (portable build: next to the exe), close guard, localized native menu.
+   - Native dialogs, atomic in-place saving with overwrite confirmation, recent files (also in the Windows jump list), command line / "Open with", close guard, localized native menu, *Show in Folder*, reload offer when another program changes the opened file.
+   - Settings file with every configuration (incl. raster settings and signatures), a last-working copy (`.bak`) used when the file is damaged, and backup / restore through native dialogs.
 
 ---
 
@@ -155,7 +158,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (40 test files, 197 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (41 test files, 208 tests) |
 
 ---
 
@@ -180,6 +183,7 @@ pdf-editor/
 │   │   └── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
 │   ├── hooks/
 │   │   ├── useAppCommands.ts    # Keyboard shortcuts and desktop menu commands
+│   │   ├── usePageZones.ts      # Which pages / thumbnails are near the viewport (render, keep, release)
 │   │   └── useEscapeKey.ts      # Esc closes dialogs
 │   ├── i18n/
 │   │   ├── cs.ts           # Czech translations
@@ -187,6 +191,8 @@ pdf-editor/
 │   │   └── context.tsx     # i18n Provider and translation hooks
 │   ├── services/
 │   │   ├── desktopBridge.ts # window.electronAPI access (no-op in the browser)
+│   │   ├── pdfRepair.ts    # Repairs damaged PDFs pdf.js cannot display (CCITT /Rows)
+│   │   ├── settingsBackup.ts # Settings / signatures backup file format
 │   │   ├── logger.ts       # Structured logging, safe serialization, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures/shapes)
 │   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with outlines extraction & WebWorker cleanup
@@ -213,7 +219,7 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (197 tests)
+├── tests/                  # Automated Vitest test suite (208 tests)
 ├── scripts/verify-dist.mjs # Checks the build is self-contained (Pages, offline bundle, desktop)
 ├── desktop/                # (desktop branch only) Electron shell, see desktop/README.md
 ├── package.json

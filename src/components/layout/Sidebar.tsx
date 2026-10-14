@@ -179,6 +179,9 @@ export const Sidebar: React.FC = () => {
   const showsThumbnails = isSidebarOpen && sidebarTab === 'thumbnails';
   const { zoneOf: thumbZoneOf } = usePageZones(thumbListRef, showsThumbnails ? pages.map((p) => p.id) : []);
   const thumbPixelRatio = useCanvasPixelRatio();
+  // Height of a page card, measured from rendered cards; cards far from the visible part of the
+  // list are empty boxes of this height (a full card per page made long documents slow)
+  const cardHeightRef = useRef<number>(262);
 
   // Scroll active thumbnail into view when active page changes
   useEffect(() => {
@@ -647,11 +650,26 @@ export const Sidebar: React.FC = () => {
           const isDragging = draggedIndex === index;
           const isOver = dragOverIndex === index;
 
+          if (thumbZoneOf(page.id) === 'far') {
+            return (
+              <div
+                key={page.id}
+                data-page-id={page.id}
+                ref={(el) => (thumbnailRefs.current[page.id] = el)}
+                style={{ height: cardHeightRef.current }}
+                aria-hidden
+              />
+            );
+          }
+
           return (
             <div
               key={page.id}
               data-page-id={page.id}
-              ref={(el) => (thumbnailRefs.current[page.id] = el)}
+              ref={(el) => {
+                thumbnailRefs.current[page.id] = el;
+                if (el && el.offsetHeight > 0) cardHeightRef.current = el.offsetHeight;
+              }}
               draggable
               onDragStart={(e) => handleDragStart(e, index)}
               onDragOver={(e) => handleDragOver(e, index)}
