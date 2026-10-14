@@ -22,10 +22,9 @@ import { AboutModal } from './components/modals/AboutModal';
 import { ShortcutsModal } from './components/modals/ShortcutsModal';
 import { FlattenModal } from './components/modals/FlattenModal';
 import { SearchBar } from './components/viewer/SearchBar';
-import { useDesktopIntegration } from './hooks/useDesktopIntegration';
+import { DesktopProvider } from './context/DesktopContext';
 
 const MainWorkspace: React.FC = () => {
-  useDesktopIntegration();
   const { theme } = useTheme();
   const { pages, selectedPageIds, selectedAnnotationId } = useDocument();
   const {
@@ -139,7 +138,9 @@ export const App: React.FC = () => {
       <I18nProvider>
         <DocumentProvider>
           <EditorProvider>
-            <MainWorkspace />
+            <DesktopProvider>
+              <MainWorkspace />
+            </DesktopProvider>
           </EditorProvider>
         </DocumentProvider>
       </I18nProvider>

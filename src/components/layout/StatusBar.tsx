@@ -15,6 +15,7 @@ import {
   Sliders,
   Info,
 } from 'lucide-react';
+import { isDesktopApp } from '../../services/desktopBridge';
 
 export const StatusBar: React.FC = () => {
   const { t } = useI18n();
@@ -287,7 +288,7 @@ export const StatusBar: React.FC = () => {
           title={t.aboutModal.title}
         >
           <Info className="w-3 h-3" />
-          <span>v2.0.0</span>
+          <span>v2.0.0 ({isDesktopApp() ? 'Desktop' : 'Web'})</span>
         </button>
       </div>
 

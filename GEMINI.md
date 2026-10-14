@@ -154,7 +154,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated test suite (40 test files, 262 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated test suite (41 test files, 274 tests) |
 
 ---
 
@@ -184,7 +184,8 @@ pdf-editor/
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom, outlines, sidebar
 │   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library, search state, modal states, raster settings
-│   │   └── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
+│   │   ├── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
+│   │   └── DesktopContext.tsx   # Cross-platform desktop integration state provider & online/offline bridge
 │   ├── hooks/
 │   │   └── useDesktopIntegration.ts # Bi-directional desktop IPC integration hook
 │   ├── i18n/
@@ -217,7 +218,7 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (40 test files, 262 tests)
+├── tests/                  # Automated Vitest test suite (41 test files, 274 tests)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts

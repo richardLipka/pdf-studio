@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   Award,
 } from 'lucide-react';
+import { isDesktopApp } from '../../services/desktopBridge';
 
 export interface InternalLibraryInfo {
   name: string;
@@ -201,7 +202,7 @@ export const AboutModal: React.FC<AboutModalProps> = ({ open, onClose }) => {
             }`}
           >
             <div className="space-y-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xl font-bold tracking-tight">PDF Studio</span>
                 <span
                   className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
@@ -213,6 +214,29 @@ export const AboutModal: React.FC<AboutModalProps> = ({ open, onClose }) => {
                   }`}
                 >
                   v2.0.0
+                </span>
+                <span
+                  className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                    isDesktopApp()
+                      ? isMinimal
+                        ? 'bg-neutral-100 text-neutral-700 border border-neutral-300'
+                        : isLcars
+                        ? 'bg-[#111111] text-[#ff9900] border border-[#ff9900]'
+                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : isMinimal
+                      ? 'bg-neutral-100 text-neutral-700 border border-neutral-300'
+                      : isLcars
+                      ? 'bg-[#111111] text-[#99ccff] border border-[#99ccff]'
+                      : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                  }`}
+                >
+                  {isDesktopApp()
+                    ? language === 'cs'
+                      ? 'Desktopová verze (Offline)'
+                      : 'Desktop Edition (Offline)'
+                    : language === 'cs'
+                    ? 'Webová verze (Online)'
+                    : 'Web Edition (Online)'}
                 </span>
               </div>
               <p

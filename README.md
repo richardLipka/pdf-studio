@@ -273,7 +273,7 @@ npm run dev
 # Start desktop app in development mode (with hot-reload)
 npm run electron:dev
 
-# Run automated Vitest test suite (40 test files, 262 tests)
+# Run automated Vitest test suite (41 test files, 274 tests)
 npm test
 
 # Run local build & asset content visibility test suite

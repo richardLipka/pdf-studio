@@ -25,7 +25,7 @@ import {
   Search,
 } from 'lucide-react';
 import { logger } from '../../services/logger';
-import { isDesktopApp, desktopOpenFile } from '../../services/desktopBridge';
+import { useDesktop } from '../../context/DesktopContext';
 
 export const Header: React.FC = () => {
   const { language, setLanguage, t } = useI18n();
@@ -40,7 +40,6 @@ export const Header: React.FC = () => {
     undo,
     redo,
     loadPdfFile,
-    loadPdfBuffer,
     loadSamplePdf,
     saveAndDownload,
     hasFormFields,
@@ -48,7 +47,7 @@ export const Header: React.FC = () => {
     toggleSidebar,
   } = useDocument();
 
-  const isDesktop = isDesktopApp();
+  const { isDesktop, openFileDialog, saveCurrentDocument } = useDesktop();
 
   const {
     isNotesPanelOpen,
@@ -106,11 +105,7 @@ export const Header: React.FC = () => {
   const handleOpenClick = async () => {
     if (isDesktop) {
       try {
-        const res = await desktopOpenFile();
-        if (res && !res.cancelled && res.data) {
-          const buffer = (res.data.buffer as ArrayBuffer).slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength);
-          await loadPdfBuffer(res.fileName || 'document.pdf', buffer);
-        }
+        await openFileDialog();
       } catch {
         showError(t.notifications.errorLoadingPdf);
       }
@@ -132,6 +127,15 @@ export const Header: React.FC = () => {
     if (pages.length === 0) return;
     if (hasFormFields) {
       setIsExportFormModalOpen(true);
+      return;
+    }
+    if (isDesktop) {
+      const success = await saveCurrentDocument();
+      if (success) {
+        setShowSuccessToast(true);
+        setShowErrorToast(false);
+        setTimeout(() => setShowSuccessToast(false), 3500);
+      }
       return;
     }
     const success = await saveAndDownload(undefined, rasterSettings);
@@ -651,7 +655,13 @@ export const Header: React.FC = () => {
                 ? 'rounded-full bg-[#ff9900] hover:bg-[#ffcc00] text-black uppercase font-bold border-2 border-[#ff9900]'
                 : 'rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-md shadow-sky-500/20'
             }`}
-            title={!hasDoc ? (language === 'cs' ? 'Nejprve otevřete dokument' : 'Open a document first') : t.app.savePdf}
+            title={
+              !hasDoc
+                ? (language === 'cs' ? 'Nejprve otevřete dokument' : 'Open a document first')
+                : isDesktop
+                ? (language === 'cs' ? 'Uložit změny na disk (Ctrl+S)' : 'Save changes to disk (Ctrl+S)')
+                : t.app.savePdf
+            }
           >
             {isSaving ? (
               <>

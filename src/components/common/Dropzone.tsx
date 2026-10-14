@@ -15,27 +15,15 @@ import {
   Clock,
   FileText,
 } from 'lucide-react';
-import {
-  isDesktopApp,
-  getDesktopRecentFiles,
-  desktopReadFileDirect,
-  clearDesktopRecentFiles,
-} from '../../services/desktopBridge';
-import { RecentFileItem } from '../../types/electron';
+import { useDesktop } from '../../context/DesktopContext';
+import { addDesktopRecentFile } from '../../services/desktopBridge';
 
 export const Dropzone: React.FC = () => {
   const { language, t } = useI18n();
   const { theme } = useTheme();
-  const { loadPdfFile, loadPdfBuffer, loadSamplePdf } = useDocument();
+  const { loadPdfFile, loadSamplePdf } = useDocument();
 
-  const isDesktop = isDesktopApp();
-  const [recentFiles, setRecentFiles] = useState<RecentFileItem[]>([]);
-
-  React.useEffect(() => {
-    if (isDesktop) {
-      getDesktopRecentFiles().then(setRecentFiles);
-    }
-  }, [isDesktop]);
+  const { isDesktop, recentFiles, openRecentFile, clearRecent, setDesktopFilePath } = useDesktop();
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -75,6 +63,11 @@ export const Dropzone: React.FC = () => {
     if (!file) return;
     // Some systems report an empty MIME type for dragged files, so accept the extension too
     if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      const diskPath = (file as any).path;
+      if (isDesktop && diskPath) {
+        setDesktopFilePath(diskPath);
+        addDesktopRecentFile(diskPath, file.name);
+      }
       await runLoad(() => loadPdfFile(file));
     } else {
       setLoadError(t.notifications.invalidFile);
@@ -86,6 +79,11 @@ export const Dropzone: React.FC = () => {
     // Reset so that picking the same file again (e.g. after an error) fires onChange
     e.target.value = '';
     if (file) {
+      const diskPath = (file as any).path;
+      if (isDesktop && diskPath) {
+        setDesktopFilePath(diskPath);
+        addDesktopRecentFile(diskPath, file.name);
+      }
       await runLoad(() => loadPdfFile(file));
     }
   };
@@ -99,11 +97,8 @@ export const Dropzone: React.FC = () => {
 
   const handleOpenRecent = async (filePath: string) => {
     await runLoad(async () => {
-      const res = await desktopReadFileDirect(filePath);
-      if (res && !res.cancelled && res.data) {
-        const buffer = (res.data.buffer as ArrayBuffer).slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength);
-        await loadPdfBuffer(res.fileName || 'document.pdf', buffer);
-      } else {
+      const ok = await openRecentFile(filePath);
+      if (!ok) {
         throw new Error('Could not open recent file');
       }
     });
@@ -277,7 +272,7 @@ export const Dropzone: React.FC = () => {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  clearDesktopRecentFiles().then(() => setRecentFiles([]));
+                  clearRecent();
                 }}
                 className={`text-[10px] hover:underline cursor-pointer ${
                   isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#cc99cc]' : 'text-slate-500'

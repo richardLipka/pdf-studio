@@ -25,10 +25,12 @@ export interface UseDesktopIntegrationResult {
   isDesktop: boolean;
   desktopFilePath: string | null;
   recentFiles: RecentFileItem[];
+  openFileDialog: () => Promise<boolean>;
   openRecentFile: (filePath: string) => Promise<boolean>;
   clearRecent: () => Promise<void>;
   saveCurrentDocument: (skipConfirm?: boolean) => Promise<boolean>;
   saveCurrentDocumentAs: () => Promise<boolean>;
+  setDesktopFilePath: (path: string | null) => void;
 }
 
 export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
@@ -200,6 +202,31 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     },
     [isDesktop, loadPdfBuffer, pages.length]
   );
+
+  // 3a. Native OS File Open Dialog
+  const openFileDialog = useCallback(async (): Promise<boolean> => {
+    if (!isDesktop) return false;
+    try {
+      const res = await desktopOpenFile();
+      if (res && !res.cancelled && res.data) {
+        const buffer = (res.data.buffer as ArrayBuffer).slice(
+          res.data.byteOffset,
+          res.data.byteOffset + res.data.byteLength
+        );
+        await loadPdfBuffer(res.fileName || 'document.pdf', buffer);
+        if (res.filePath) {
+          setDesktopFilePath(res.filePath);
+          await addDesktopRecentFile(res.filePath, res.fileName);
+          const updated = await getDesktopRecentFiles();
+          setRecentFiles(updated);
+        }
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to open file via desktop dialog:', err);
+    }
+    return false;
+  }, [isDesktop, loadPdfBuffer]);
 
   // 3b. Initial Load: Open CLI argument file if launched with a parameter, OR automatically reopen last file
   useEffect(() => {
@@ -498,9 +525,11 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     isDesktop,
     desktopFilePath,
     recentFiles,
+    openFileDialog,
     openRecentFile,
     clearRecent,
     saveCurrentDocument,
     saveCurrentDocumentAs,
+    setDesktopFilePath,
   };
 };
