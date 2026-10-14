@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
@@ -12,6 +12,7 @@ import {
   ZoomIn,
   Navigation,
 } from 'lucide-react';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 interface ShortcutItem {
   keys: string[];
@@ -33,17 +34,7 @@ export const ShortcutsModal: React.FC = () => {
   const isOpen = editor.isShortcutsModalOpen;
   const handleClose = () => editor.setIsShortcutsModalOpen(false);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        editor.setIsShortcutsModalOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, editor]);
+  useEscapeKey(isOpen, handleClose);
 
   if (!isOpen) return null;
 

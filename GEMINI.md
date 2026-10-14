@@ -1,4 +1,4 @@
-# PDF Studio (Web PDF Editor)
+# PDF Studio (Web & Desktop PDF Editor)
 
 A client-side, privacy-first web application for editing, annotating, signing, and managing PDF documents directly in the browser without any backend or database requirements.
 
@@ -122,15 +122,25 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - Native vector streams, fonts, and image compressions are preserved on export without unnecessary rasterization.
 
 17. **Document Outlines & Collapsible Sidebar Navigation**:
-   - **Table of Contents / Bookmarks Tree**: Automatically parses and resolves PDF document outline trees (`/Outlines`) using `pdfjs-dist` with multi-level nesting, expansion toggles, and direct click page navigation.
+   - **Table of Contents / Bookmarks Tree**: Automatically parses and resolves PDF document outline trees (`/Outlines`) using `pdfjs-dist` with multi-level nesting, expansion toggles, and direct click page navigation. Destinations are mapped to the current page order (`utils/outlineTargets.ts`), so they survive moved, inserted and deleted pages.
    - **Collapsible Sidebar Rail**: Left sidebar can be completely collapsed down to a compact 48px rail view via header button (`PanelLeft`) or sidebar toggle, maximizing screen real estate for editing.
    - **Tabbed Sidebar Navigation**: Instantly toggle between **Stránky (Thumbnails)** and **Obsah (Outlines)** with responsive badge counters and empty-state indicators.
 
 18. **Global In-Document Search & Canvas Highlights (`Ctrl + F`)**:
    - **High-Performance Document Search**: Scans character streams and bounding boxes across all document pages via `pdfSearchService.ts`.
-   - **Search Controls & Filters**: Floating modal toolbar draggable with input debounce, match index counter (`X z Y`), case-sensitive (`Aa`), and whole-word (`\b`) match toggles.
+   - **Search Controls & Filters**: Floating toolbar (drag handle) with input debounce, match index counter (`X z Y`), case-sensitive (`Aa`), and whole-word (`\b`) match toggles; only the latest search publishes results and the active match is scrolled into view.
    - **Navigation & Shortcuts**: Smooth cycling with `Enter` (next match), `Shift + Enter` (previous match), and `Esc` (dismiss).
    - **Canvas Visual Overlays**: Non-destructive search highlight overlays rendered directly over `TextLayer.tsx` with active-match focus rings and full support for Studio (dark), Minimal (light), and LCARS themes.
+
+19. **Opening, Saving & Unsaved Changes (both editions)**:
+   - `FileContext` opens and saves documents: file picker / download in the browser, native dialogs and in-place saving in the desktop edition. Form documents ask for interactive or flattened fields first (also for *Save as*).
+   - Dirty tracking (`isDirty` / `markSaved` in `DocumentContext`): `●` marker, confirmation before discarding changes, `beforeunload` warning in the browser.
+   - Application commands and shortcuts come from one table (`shared/appCommands.ts`) used by the keyboard handler (`hooks/useAppCommands.ts`), the shortcuts dialog and the desktop menu.
+
+20. **Desktop Edition (branch `desktop`, Electron)**:
+   - The `desktop` branch is `master` plus `desktop/` (self-contained npm project: main process, preload, menu, settings store) and the release workflow; merging `master` never conflicts and `.github/workflows/sync-desktop.yml` does it after every push to `master` (type-check + tests first).
+   - Contract between the web app and the shell: `shared/desktopApi.ts` (`window.electronAPI`); without it (browser) all desktop code paths are inert.
+   - Native dialogs, atomic in-place saving with overwrite confirmation, recent files, command line / "Open with", persistent settings (portable build: next to the exe), close guard, localized native menu.
 
 ---
 
@@ -145,7 +155,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (35 test files, 170 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (40 test files, 197 tests) |
 
 ---
 
@@ -161,17 +171,22 @@ pdf-editor/
 │   ├── components/
 │   │   ├── common/         # Dropzone, Toast, Icons
 │   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel, EditSidePanel
-│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal, FlattenModal
+│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal, FlattenModal, ExportFormModal, AboutModal, ShortcutsModal
 │   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer, SearchBar
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom, outlines, sidebar
 │   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library, search state, modal states, raster settings
+│   │   ├── FileContext.tsx      # Open / save / recent files / unsaved changes for the web and desktop editions
 │   │   └── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
+│   ├── hooks/
+│   │   ├── useAppCommands.ts    # Keyboard shortcuts and desktop menu commands
+│   │   └── useEscapeKey.ts      # Esc closes dialogs
 │   ├── i18n/
 │   │   ├── cs.ts           # Czech translations
 │   │   ├── en.ts           # English translations
 │   │   └── context.tsx     # i18n Provider and translation hooks
 │   ├── services/
+│   │   ├── desktopBridge.ts # window.electronAPI access (no-op in the browser)
 │   │   ├── logger.ts       # Structured logging, safe serialization, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures/shapes)
 │   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with outlines extraction & WebWorker cleanup
@@ -182,6 +197,9 @@ pdf-editor/
 │   │   ├── contentStreamEditor.ts # Direct stream parser, token replacer, and structural segment tree
 │   │   ├── formService.ts  # AcroForm detection, widget mapping, and value persistence
 │   │   └── pageManager.ts  # Adds, deletes, reorders, and rotates pages
+│   ├── shared/             # Shared with the Electron shell of the desktop edition (no browser / Node APIs)
+│   │   ├── appCommands.ts  # Commands and keyboard shortcuts (keyboard, shortcuts dialog, desktop menu)
+│   │   └── desktopApi.ts   # Web app <-> desktop shell contract, IPC channels, settings model
 │   ├── types/
 │   │   ├── annotations.ts  # Types for highlights, notes, lines, shapes, signatures
 │   │   ├── document.ts     # Document and page data models
@@ -195,7 +213,9 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (170 tests)
+├── tests/                  # Automated Vitest test suite (197 tests)
+├── scripts/verify-dist.mjs # Checks the build is self-contained (Pages, offline bundle, desktop)
+├── desktop/                # (desktop branch only) Electron shell, see desktop/README.md
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
@@ -216,11 +236,13 @@ npm install
 npm run dev
 
 # Run automated tests
-npm run test
+npm test
 
-# Build for production
-npm run build
+# Build for production and verify the bundle is self-contained
+npm run build && npm run verify:dist
 ```
+
+Desktop edition (on the `desktop` branch, in `desktop/`): `npm ci`, `npm run dev`, `npm run e2e`, `npm run dist` — see `desktop/README.md`. Shared code changes go to `master`; the desktop branch only adds `desktop/` and the release workflow.
 
 ---
 

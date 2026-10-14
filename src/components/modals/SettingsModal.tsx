@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
 import { Sliders, X, RotateCcw, Check, Sparkles, Image, Cpu } from 'lucide-react';
 import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../../types/document';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 export const SettingsModal: React.FC = () => {
   const { t } = useI18n();
@@ -18,6 +19,8 @@ export const SettingsModal: React.FC = () => {
       setTempSettings(rasterSettings);
     }
   }, [isSettingsModalOpen, rasterSettings]);
+
+  useEscapeKey(isSettingsModalOpen, () => setIsSettingsModalOpen(false));
 
   if (!isSettingsModalOpen) return null;
 

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { isDesktopApp } from '../../services/desktopBridge';
 import { APP_VERSION } from '../../utils/appInfo';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 export interface InternalLibraryInfo {
   name: string;
@@ -99,17 +100,7 @@ export const AboutModal: React.FC = () => {
   const isOpen = editor.isAboutModalOpen;
   const handleClose = () => editor.setIsAboutModalOpen(false);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        editor.setIsAboutModalOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, editor]);
+  useEscapeKey(isOpen, handleClose);
 
   if (!isOpen) return null;
 
