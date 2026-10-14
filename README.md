@@ -344,6 +344,12 @@ desktop  ── master + desktop/ (Electron shell) + release workflow
 
 ---
 
+## 🗺️ Roadmap
+
+Open work for both editions is tracked in [TODO.md](TODO.md).
+
+---
+
 ## 👤 Author & Acknowledgments
 
 - **Author**: [Richard Lipka](https://home.zcu.cz/~lipka/) ([lipka@fav.zcu.cz](mailto:lipka@fav.zcu.cz))
