@@ -1,0 +1,164 @@
+name: Release & Publish (Desktop & Web)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Publish as a draft release'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Publish as a prerelease'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'release-${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------
+  # Job 1: Build & Verify Web Release (and zip offline bundle)
+  # -------------------------------------------------------------
+  build-web:
+    name: Build & Verify Web Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run automated test suite
+        run: npm test
+
+      - name: Build web application bundle
+        run: npm run build
+
+      - name: Package offline web bundle (ZIP)
+        run: |
+          cd dist
+          zip -r ../pdf-studio-web.zip .
+          cd ..
+
+      - name: Upload Web Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-release-bundle
+          path: pdf-studio-web.zip
+          if-no-files-found: error
+
+      - name: Setup GitHub Pages deployment
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './dist'
+
+      - name: Deploy to GitHub Pages (Live Web)
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # -------------------------------------------------------------
+  # Job 2: Build Windows Desktop Binaries (NSIS, Portable, ZIP)
+  # -------------------------------------------------------------
+  build-windows-desktop:
+    name: Build Windows Desktop Release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile web app & Electron scripts
+        run: npm run electron:build
+
+      - name: Package Windows Binaries (Installer, Portable, ZIP)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: |
+          npx electron-builder --win nsis portable zip
+
+      - name: Upload Windows Binaries Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-desktop-binaries
+          path: |
+            release/*.exe
+            release/*.zip
+          if-no-files-found: error
+
+  # -------------------------------------------------------------
+  # Job 3: Publish GitHub Release with all Assets
+  # -------------------------------------------------------------
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-web, build-windows-desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten and list release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name "*.exe" -o -name "*.zip" \) -exec cp {} release-assets/ \;
+          echo "=== Release assets to upload ==="
+          ls -lah release-assets
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          generate_release_notes: true
+          name: PDF Studio ${{ github.ref_name }}
+          body: |
+            ## 📄 PDF Studio ${{ github.ref_name }} Release
+
+            ### 💻 Windows Desktop Edition
+            Download the desktop application for offline privacy, direct file overwriting without browser re-downloads, persistent preferences, and command-line file opening:
+            - **Installer (Recommended)**: `PDF Studio-Setup-${{ github.ref_name }}.exe` (Full NSIS setup with Start Menu and Desktop shortcuts)
+            - **Portable Executable**: `PDF Studio-Portable-${{ github.ref_name }}.exe` (Zero-install standalone single executable; runs from any folder or USB stick)
+            - **ZIP Archive**: `PDF Studio-win-x64-${{ github.ref_name }}.zip` (Unpacked portable Windows application)
+
+            ### 🌐 Web Edition
+            - **Live Web Application**: [https://richardlipka.github.io/pdf-studio/](https://richardlipka.github.io/pdf-studio/)
+            - **Self-Hosted / Offline Web Bundle**: `pdf-studio-web.zip` (Extract into any web server or static host)
+
+            ---
+            *All PDF processing, rendering, cryptographical PAdES signing, and content edits occur strictly in-memory on your local machine with 100% privacy.*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

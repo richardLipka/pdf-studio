@@ -132,6 +132,13 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Navigation & Shortcuts**: Smooth cycling with `Enter` (next match), `Shift + Enter` (previous match), and `Esc` (dismiss).
    - **Canvas Visual Overlays**: Non-destructive search highlight overlays rendered directly over `TextLayer.tsx` with active-match focus rings and full support for Studio (dark), Minimal (light), and LCARS themes.
 
+19. **Windows Desktop Edition & Dual Web/Desktop Release**:
+   - **Native Electron Runtime (v44)**: Runs completely offline with native menu bar localized in Czech and English, synchronizing with the in-app language and theme settings.
+   - **Direct Disk Save with Overwrite Protection**: `Ctrl + S` directly updates the file on disk without re-downloading, displaying an explicit overwrite confirmation dialog in both languages.
+   - **Persistent OS AppData Storage**: Automatically stores and restores user preferences (language, theme), created signatures & stamps library, and last open file across application restarts.
+   - **CLI & Parameter Launch**: Directly open files passed via command line parameter (`"PDF Studio.exe" document.pdf`).
+   - **Automated Dual CI/CD Pipeline**: GitHub Actions (`.github/workflows/release.yml`) builds Windows installer (`.exe`), standalone portable (`.exe`), and portable zip (`.zip`), while simultaneously deploying the live web version to GitHub Pages and generating an offline `pdf-studio-web.zip`.
+
 ---
 
 ## 🛠 Technology Stack
@@ -139,13 +146,15 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
 | **Build & Bundler** | [Vite](https://vitejs.dev/) + React 18 + TypeScript | Fast development, strong type safety, and component ecosystem |
+| **Desktop Runtime** | [Electron 44](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) | Cross-platform desktop runtime, AppData persistence, and binary packaging |
 | **PDF Manipulation** | [`pdf-lib`](https://pdf-lib.js.org/) | Merging, splitting, modifying pages, PageTree repair, drawing annotations & signatures onto PDF |
 | **PDF Rendering** | [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) | Fast canvas rendering of pages, viewport calculation |
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
+| **Typography & Subsetting** | [`fontkit`](https://github.com/foliojs/fontkit) | Font glyph parsing, Unicode diacritics mapping, and font subsetting |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (35 test files, 170 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated test suite (39 test files, 242 tests) |
 
 ---
 
@@ -153,6 +162,15 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 
 ```text
 pdf-editor/
+├── .github/
+│   └── workflows/          # deploy.yml (Pages) & release.yml (Dual Releases CI/CD)
+├── electron/               # Electron desktop process
+│   ├── main.ts             # Main process, window creation & CLI argument handling
+│   ├── preload.ts          # Secure contextBridge IPC layer
+│   ├── menu.ts             # Localized native menu bar (CS & EN)
+│   ├── settingsStore.ts    # Persistent AppData settings & recent files store
+│   └── ipcHandlers.ts      # Native file dialogs & disk I/O handlers
+├── scripts/                # Build scripts (build-electron.cjs, wait-for-vite.cjs)
 ├── public/
 │   ├── favicon.svg
 │   └── fonts/              # Custom cursive fonts for typed signatures
@@ -161,17 +179,20 @@ pdf-editor/
 │   ├── components/
 │   │   ├── common/         # Dropzone, Toast, Icons
 │   │   ├── layout/         # Header, Toolbar, Sidebar, StatusBar, NotesPanel, EditSidePanel
-│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal, FlattenModal
+│   │   ├── modals/         # SignatureModal, AddPageModal, ConfirmModal, LogModal, SettingsModal, MetadataModal, FlattenModal, AboutModal, ShortcutsModal
 │   │   └── viewer/         # PdfViewer, PageCanvas, TextLayer, AnnotationLayer, SearchBar
 │   ├── context/
 │   │   ├── DocumentContext.tsx  # Document state, pages, selection, undo/redo history, zoom, outlines, sidebar
 │   │   ├── EditorContext.tsx    # Active tool, stroke color, font size, stamps library, search state, modal states, raster settings
 │   │   └── ThemeContext.tsx     # Dynamic URL-encoded themes (studio, minimal, lcars)
+│   ├── hooks/
+│   │   └── useDesktopIntegration.ts # Bi-directional desktop IPC integration hook
 │   ├── i18n/
 │   │   ├── cs.ts           # Czech translations
 │   │   ├── en.ts           # English translations
 │   │   └── context.tsx     # i18n Provider and translation hooks
 │   ├── services/
+│   │   ├── desktopBridge.ts # Type-safe window.electron API wrapper
 │   │   ├── logger.ts       # Structured logging, safe serialization, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures/shapes)
 │   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with outlines extraction & WebWorker cleanup
@@ -185,6 +206,7 @@ pdf-editor/
 │   ├── types/
 │   │   ├── annotations.ts  # Types for highlights, notes, lines, shapes, signatures
 │   │   ├── document.ts     # Document and page data models
+│   │   ├── electron.ts     # Desktop IPC schemas & settings models
 │   │   ├── i18n.ts         # Translation schema
 │   │   └── stamp.ts        # Stamp data model & JSON export schema
 │   ├── utils/
@@ -195,7 +217,7 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (170 tests)
+├── tests/                  # Automated Vitest test suite (39 test files, 242 tests)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
@@ -212,14 +234,20 @@ pdf-editor/
 # Install dependencies
 npm install
 
-# Start development server
+# Start web development server
 npm run dev
 
-# Run automated tests
+# Start desktop app in development mode
+npm run electron:dev
+
+# Run automated test suite
 npm run test
 
-# Build for production
+# Build web application bundle
 npm run build
+
+# Build Windows desktop binaries (NSIS, Portable, ZIP in release/)
+npm run electron:dist
 ```
 
 ---
@@ -228,3 +256,4 @@ npm run build
 
 - **Author**: [Richard Lipka](https://home.zcu.cz/~lipka/) ([lipka@fav.zcu.cz](mailto:lipka@fav.zcu.cz))
 - **Institution**: [Faculty of Applied Sciences (FAV), University of West Bohemia](https://www.fav.zcu.cz/cs/)
+- **Repository**: [https://github.com/richardLipka/pdf-studio](https://github.com/richardLipka/pdf-studio)
