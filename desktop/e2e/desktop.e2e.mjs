@@ -22,6 +22,7 @@ const docs = path.join(work, 'Dokumenty s mezerou');
 fs.mkdirSync(docs, { recursive: true });
 
 let failures = 0;
+let currentApp = null;
 const check = (ok, message) => {
   console.log(`${ok ? '  ✓' : '  ✗'} ${message}`);
   if (!ok) failures++;
@@ -61,12 +62,41 @@ if (usePackaged && !fs.existsSync(packagedExe)) {
   process.exit(1);
 }
 
+/**
+ * A "scan": an 8x8 black CCITT G3 (1-D) image drawn as a square, with a corrupt /DecodeParms /Rows
+ * like real scans that pdf.js 6 rendered blank. Each row is white run 0 + black run 8.
+ */
+async function makeBrokenScan(file) {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([300, 300]);
+  const bits = '00110101000101'.repeat(8);
+  const bytes = new Uint8Array(Math.ceil(bits.length / 8));
+  for (let i = 0; i < bits.length; i++) if (bits[i] === '1') bytes[i >> 3] |= 0x80 >> (i & 7);
+  const ctx = doc.context;
+  const image = ctx.register(
+    ctx.stream(bytes, {
+      Type: 'XObject',
+      Subtype: 'Image',
+      Width: 8,
+      Height: 8,
+      BitsPerComponent: 1,
+      ColorSpace: 'DeviceGray',
+      Filter: ['CCITTFaxDecode'],
+      DecodeParms: [ctx.obj({ K: 0, Columns: 8, Rows: 1084690432 })],
+    })
+  );
+  page.node.Resources().set(PDFName.of('XObject'), ctx.obj({ Scan: image }));
+  page.node.set(PDFName.of('Contents'), ctx.register(ctx.stream('q 200 0 0 200 50 50 cm /Scan Do Q')));
+  fs.writeFileSync(file, await doc.save());
+}
+
 const launch = async (args = []) => {
   const app = await electron.launch({
     executablePath: usePackaged ? packagedExe : electronBinary,
     args: [...(usePackaged ? [] : [desktopDir]), `--user-data-dir=${profile}`, ...args],
     cwd: work,
   });
+  currentApp = app;
   const win = await app.firstWindow();
   const problems = [];
   win.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
@@ -118,7 +148,7 @@ const main = async () => {
   console.log('1. Start with a file on the command line');
   let { app, win, problems } = await launch([fileA]);
   check(await waitFor(async () => (await title(app)) === 'kniha s osnovou.pdf — PDF Studio'), `window title shows the file (${await title(app)})`);
-  check(await waitFor(() => win.locator('aside canvas').count().then((n) => n === 4)), 'four page thumbnails');
+  check(await waitFor(() => win.locator('aside [data-page-id]').count().then((n) => n === 4)), 'four page thumbnails');
   const s1 = settings();
   check(s1.recentFiles[0]?.path === fileA && s1.lastOpenFilePath === fileA, 'opened file recorded in recent files');
   check(['cs', 'en'].includes(s1.language), `language default from the system locale (${s1.language})`);
@@ -128,10 +158,10 @@ const main = async () => {
   check(await waitFor(() => win.locator('aside').getByText('Chapter 3', { exact: true }).isVisible()), 'outline lists the chapters');
   await win.getByRole('button', { name: /Stránky|Pages/ }).first().click();
   // Delete page 1 with the Delete key and confirm
-  await win.locator('aside canvas').first().click();
+  await win.locator('aside [data-page-id]').first().click();
   await win.keyboard.press('Delete');
   await win.getByRole('button', { name: /^(Smazat|Delete|Odstranit)/ }).last().click();
-  check(await waitFor(() => win.locator('aside canvas').count().then((n) => n === 3)), 'page 1 deleted');
+  check(await waitFor(() => win.locator('aside [data-page-id]').count().then((n) => n === 3)), 'page 1 deleted');
   check(await waitFor(async () => (await title(app)).startsWith('● ')), 'title marks unsaved changes');
   await win.getByRole('button', { name: /Osnova|Outline/ }).first().click();
   const outline = win.locator('aside');
@@ -212,7 +242,69 @@ const main = async () => {
   await win.getByRole('button', { name: /kopie\.pdf/ }).click();
   check(await waitFor(async () => (await title(app)) === 'kopie.pdf — PDF Studio'), 'recent file opened from the start screen');
 
-  console.log('8. External links open in the system browser');
+  console.log('8. A scan with corrupt CCITT parameters is displayed');
+  const scanFile = path.join(docs, 'scan.pdf');
+  await makeBrokenScan(scanFile);
+  await app.evaluate(({ dialog }, target) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
+  }, scanFile);
+  await pressShortcut(win, 'Control+O');
+  check(await waitFor(async () => (await title(app)) === 'scan.pdf — PDF Studio'), 'scan opened');
+  const darkCenter = await waitFor(() =>
+    win.evaluate(() => {
+      const canvas = document.querySelector('canvas[data-page-canvas]');
+      if (!canvas || canvas.width < 10) return false;
+      const ctx = canvas.getContext('2d');
+      const [r, g, b] = ctx.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data;
+      return r + g + b < 120;
+    })
+  );
+  check(darkCenter, 'the black scanned square is drawn (it rendered white before the repair)');
+
+  console.log('9. Settings: automatic file, backup and restore');
+  const s9 = settings();
+  check(s9.rasterSettings && s9.rasterSettings.scale > 0, 'raster settings are kept in the settings file');
+  check(fs.existsSync(path.join(profile, 'pdf-studio-settings.json.bak')), 'last working copy of the settings file exists');
+  const backupFile = path.join(work, 'zaloha.json');
+  await app.evaluate(({ dialog }, target) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: target });
+  }, backupFile);
+  await clickMenu(app, 'Back Up Settings & Signatures…');
+  check(await waitFor(() => fs.existsSync(backupFile)), 'backup written through the native save dialog');
+  const backup = JSON.parse(fs.readFileSync(backupFile, 'utf-8'));
+  check(
+    backup.format === 'pdf-studio-backup' && backup.settings.theme === 'minimal' && backup.settings.language === 'en' && backup.app.edition === 'desktop',
+    'backup holds the theme, language and edition'
+  );
+  // Change the theme, then restore the backup (the confirmation dialog is accepted)
+  await win.getByTitle(/Studio \(/).first().click();
+  check(await waitFor(() => settings().theme === 'default'), 'theme changed after the backup');
+  await app.evaluate(({ dialog }, target) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
+  }, backupFile);
+  await clickMenu(app, 'Restore Settings from Backup…');
+  check(await waitFor(() => settings().theme === 'minimal'), 'restoring the backup brought the theme back');
+
+  console.log('10. A file changed by another program is reloaded');
+  await app.evaluate(({ dialog }, target) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
+  }, fileB);
+  await pressShortcut(win, 'Control+O');
+  check(await waitFor(async () => (await title(app)) === 'druhy.pdf — PDF Studio'), 'file opened');
+  await new Promise((r) => setTimeout(r, 2500));
+  await makePdf(fileB, 3, false); // another program saves a 3-page version
+  check(
+    await waitFor(() => win.locator('aside [data-page-id]').count().then((n) => n === 3), 15000),
+    'the new 3-page version was loaded after confirming'
+  );
+  await app.evaluate(({ shell }) => {
+    globalThis.__shown = [];
+    shell.showItemInFolder = (p) => globalThis.__shown.push(p);
+  });
+  await clickMenu(app, 'Show in Folder');
+  check((await app.evaluate(() => globalThis.__shown[0])) === fileB, '"Show in folder" reveals the opened file');
+
+  console.log('11. External links open in the system browser');
   await app.evaluate(({ shell }) => {
     globalThis.__opened = [];
     shell.openExternal = async (url) => {
@@ -236,6 +328,7 @@ try {
   console.error(err);
   failures++;
 } finally {
-  fs.rmSync(work, { recursive: true, force: true });
+  await currentApp?.close().catch(() => {});
+  fs.rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 }
 process.exit(failures === 0 ? 0 : 1);

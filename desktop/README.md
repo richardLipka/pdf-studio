@@ -13,12 +13,17 @@ What the shell adds to the web app:
 | Unsaved changes guard | `●` in the window title; closing asks *Save & close / Discard / Cancel* |
 | Recent files | File → *Open recent*, the start screen, `Ctrl+Shift+T` reopens the previous file |
 | Command line and "Open with" | `"PDF Studio.exe" document.pdf`; a second launch passes the file to the running window |
-| Persistent settings | language, theme, signatures/stamps, window size, *Reopen last file on startup* |
+| Persistent settings | language, theme, rasterization settings, signatures/stamps, window size, *Reopen last file on startup*, *Ask before overwriting files* — saved automatically |
+| Settings backup | Settings → *Back Up Settings & Signatures…* / *Restore Settings from Backup…* (JSON; same format as the web edition's settings dialog) |
+| Files changed elsewhere | the opened file is polled every 2 s; when another program saves it, the app offers to load the new version (its own saves do not trigger this) |
+| Windows integration | recent files in the taskbar jump list, File → *Show in Folder*, PDFs dropped anywhere on the window open |
 | Native menu | localized (Czech / English), labels from `src/i18n`, shortcuts from `src/shared/appCommands.ts` |
 
 Settings are stored in `pdf-studio-settings.json` in the user data folder
 (`%APPDATA%\PDF Studio` on Windows). The portable executable keeps them in a `PDF Studio Data`
-folder next to itself.
+folder next to itself. Every start that reads the file successfully copies it to
+`pdf-studio-settings.json.bak`; if the settings file is ever damaged, that last working copy is used
+(the damaged file is kept as `.corrupt`) instead of starting from the defaults.
 
 ## How the two editions stay compatible
 
@@ -51,7 +56,11 @@ npm run build          # web app + main/preload bundles into desktop/build
 npm start              # run desktop/build (after npm run build)
 npm run typecheck      # Electron shell + shared contract
 npm test               # unit tests of the shell (also part of the root npm test)
-npm run e2e            # end-to-end run with real files and a temporary profile (after npm run build)
+npm run e2e            # end-to-end run with real files and a temporary profile (after npm run build):
+                       # command line, outline after page edits, Save / Save As / save on close,
+                       # restart with reopened file and settings, menu, Ctrl+O, recent files,
+                       # damaged scan display, settings file + backup / restore, reload after an
+                       # external change, Show in Folder, external links
 npm run audit          # local build / private PDF corpus audit (src/assets/testfiles)
 ```
 

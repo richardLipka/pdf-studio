@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   DEFAULT_DESKTOP_SETTINGS,
+  DesktopRasterSettings,
   DesktopSettings,
   DesktopSettingsPatch,
   DesktopWindowBounds,
@@ -39,6 +40,17 @@ const sanitizeBounds = (value: unknown, fallback: DesktopWindowBounds): DesktopW
   return { x: num(value.x), y: num(value.y), width, height, isMaximized: value.isMaximized === true };
 };
 
+const RASTER_SCALES = [1, 1.5, 2, 3];
+
+const sanitizeRaster = (value: unknown): DesktopRasterSettings | null => {
+  if (!isRecord(value)) return null;
+  const { scale, format, jpegQuality } = value;
+  if (typeof scale !== 'number' || !RASTER_SCALES.includes(scale)) return null;
+  if (format !== 'image/jpeg' && format !== 'image/png') return null;
+  if (typeof jpegQuality !== 'number' || jpegQuality < 0.5 || jpegQuality > 1) return null;
+  return { scale, format, jpegQuality };
+};
+
 /** Turns whatever is in the settings file into valid settings (unknown keys dropped, bad values defaulted) */
 export const sanitizeSettings = (raw: unknown, defaults: DesktopSettings): DesktopSettings => {
   const source = isRecord(raw) ? raw : {};
@@ -51,6 +63,7 @@ export const sanitizeSettings = (raw: unknown, defaults: DesktopSettings): Deskt
     lastOpenFilePath: typeof source.lastOpenFilePath === 'string' ? source.lastOpenFilePath : defaults.lastOpenFilePath,
     recentFiles: sanitizeRecent(source.recentFiles),
     stamps: Array.isArray(source.stamps) ? source.stamps : defaults.stamps,
+    rasterSettings: sanitizeRaster(source.rasterSettings) ?? defaults.rasterSettings,
     windowBounds: sanitizeBounds(source.windowBounds, defaults.windowBounds),
   };
 };
@@ -58,33 +71,62 @@ export const sanitizeSettings = (raw: unknown, defaults: DesktopSettings): Deskt
 /**
  * Settings of the desktop edition in a JSON file (pdf-studio-settings.json in the user data folder,
  * next to the executable for the portable build). Writes are atomic, so a crash never leaves a
- * truncated file behind. Pure Node: no Electron imports, so it is unit-tested directly.
+ * truncated file behind, and every successful start keeps a copy of the file as it was
+ * (pdf-studio-settings.json.bak): when the settings file is unreadable, that last working version
+ * is used instead of the defaults. Pure Node: no Electron imports, so it is unit-tested directly.
  */
 export class SettingsStore {
   private settings: DesktopSettings;
+  /** Where the settings came from on startup (logged by the main process) */
+  readonly loadedFrom: 'file' | 'backup' | 'defaults';
 
   constructor(
     private readonly filePath: string,
     private readonly defaults: DesktopSettings = DEFAULT_DESKTOP_SETTINGS
   ) {
-    this.settings = this.load();
+    const { settings, from } = this.load();
+    this.settings = settings;
+    this.loadedFrom = from;
+    if (from === 'file') {
+      // Last working version for the next start
+      this.copyQuietly(this.filePath, this.backupPath);
+    } else if (from === 'backup') {
+      this.save();
+    }
   }
 
-  private load(): DesktopSettings {
+  get backupPath(): string {
+    return `${this.filePath}.bak`;
+  }
+
+  private copyQuietly(from: string, to: string) {
     try {
-      if (fs.existsSync(this.filePath)) {
-        return sanitizeSettings(JSON.parse(fs.readFileSync(this.filePath, 'utf-8')), this.defaults);
-      }
-    } catch (err) {
-      console.warn('[settings] Cannot read settings, using defaults:', err);
-      try {
-        // Keep the unreadable file for inspection instead of overwriting it silently
-        fs.copyFileSync(this.filePath, `${this.filePath}.corrupt`);
-      } catch {
-        // ignore
-      }
+      fs.copyFileSync(from, to);
+    } catch {
+      // ignore
     }
-    return sanitizeSettings({}, this.defaults);
+  }
+
+  private readJson(file: string): unknown | undefined {
+    try {
+      if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch {
+      // unreadable
+    }
+    return undefined;
+  }
+
+  private load(): { settings: DesktopSettings; from: 'file' | 'backup' | 'defaults' } {
+    const main = this.readJson(this.filePath);
+    if (main !== undefined) return { settings: sanitizeSettings(main, this.defaults), from: 'file' };
+    if (fs.existsSync(this.filePath)) {
+      console.warn('[settings] Settings file is unreadable, trying the last working copy');
+      // Keep the unreadable file for inspection instead of overwriting it silently
+      this.copyQuietly(this.filePath, `${this.filePath}.corrupt`);
+    }
+    const backup = this.readJson(this.backupPath);
+    if (backup !== undefined) return { settings: sanitizeSettings(backup, this.defaults), from: 'backup' };
+    return { settings: sanitizeSettings({}, this.defaults), from: 'defaults' };
   }
 
   private save(): void {

@@ -12,6 +12,7 @@ import {
   FileOpenResult,
   FileSaveResult,
   IPC_CHANNELS,
+  TextFileOpenResult,
 } from '../../src/shared/desktopApi';
 import { findPdfArgument } from './cli';
 import { buildMenuTemplate } from './menu';
@@ -55,8 +56,13 @@ const refreshMenu = () => {
     appName: app.getName(),
     command: (command) => send({ type: 'command', command }),
     openPath: (filePath) => send({ type: 'open-path', path: filePath }),
+    openedFilePath: documentState.filePath,
+    showInFolder: () => {
+      if (documentState.filePath) shell.showItemInFolder(documentState.filePath);
+    },
     clearRecentFiles: () => {
       send({ type: 'recent-files', files: store.clearRecentFiles() });
+      app.clearRecentDocuments();
       refreshMenu();
     },
     updateSettings: (patch) => {
@@ -102,6 +108,8 @@ const readPdf = async (filePath: string): Promise<FileOpenResult> => {
     if (!stat.isFile()) throw Object.assign(new Error(strings().desktopMenu.fileNotFound), { code: 'ENOENT' });
     const data = await fs.promises.readFile(filePath);
     store.addRecentFile(filePath, stat.size);
+    app.addRecentDocument(filePath);
+    rememberFileVersion(filePath, stat);
     recentFilesChanged();
     return {
       cancelled: false,
@@ -135,13 +143,46 @@ const writeFileAtomic = async (filePath: string, data: Uint8Array) => {
 const writePdf = async (filePath: string, data: Uint8Array): Promise<FileSaveResult> => {
   try {
     await writeFileAtomic(filePath, data);
+    rememberFileVersion(filePath, await fs.promises.stat(filePath));
     store.addRecentFile(filePath, data.byteLength);
+    app.addRecentDocument(filePath);
     recentFilesChanged();
     return { cancelled: false, filePath };
   } catch (err: any) {
     return { cancelled: false, filePath, error: err?.message || String(err) };
   }
 };
+
+// ---------------------------------------------------------------------------------------------------
+// The opened file changed on disk (another program saved it): the web app offers to reload it
+// ---------------------------------------------------------------------------------------------------
+
+const WATCH_INTERVAL_MS = 2000;
+let watchedPath: string | null = null;
+// Size and modification time of the version the app last read or wrote, per path
+const knownVersions = new Map<string, { size: number; mtimeMs: number }>();
+
+function rememberFileVersion(filePath: string, stat: fs.Stats) {
+  knownVersions.set(filePath, { size: stat.size, mtimeMs: stat.mtimeMs });
+}
+
+const onWatchedFileChange = (current: fs.Stats) => {
+  const filePath = watchedPath;
+  if (!filePath || current.mtimeMs === 0) return; // deleted or not there (yet): nothing to reload
+  const known = knownVersions.get(filePath);
+  if (known && known.size === current.size && known.mtimeMs === current.mtimeMs) return; // our own write
+  rememberFileVersion(filePath, current);
+  send({ type: 'file-changed', path: filePath });
+};
+
+const watchOpenedFile = (filePath: string | null) => {
+  if (filePath === watchedPath) return;
+  if (watchedPath) fs.unwatchFile(watchedPath, onWatchedFileChange);
+  watchedPath = filePath;
+  if (filePath) fs.watchFile(filePath, { interval: WATCH_INTERVAL_MS, persistent: false }, onWatchedFileChange);
+};
+
+const TEXT_FILE_LIMIT = 64 * 1024 * 1024;
 
 const assertString = (value: unknown, name: string): string => {
   if (typeof value !== 'string' || value.length === 0) throw new Error(`Invalid ${name}`);
@@ -210,6 +251,47 @@ const registerIpcHandlers = () => {
     return writePdf(result.filePath, bytes);
   });
 
+  // Settings backups (JSON)
+  ipcMain.handle(IPC_CHANNELS.saveTextFile, async (_event, defaultName: unknown, content: unknown): Promise<FileSaveResult> => {
+    if (!mainWindow) return { cancelled: true };
+    if (typeof content !== 'string') throw new Error('Invalid file content');
+    const suggested = typeof defaultName === 'string' && defaultName ? path.basename(defaultName) : 'pdf-studio-settings.json';
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: strings().commands.backupSettings.replace(/…$/, ''),
+      defaultPath: path.join(app.getPath('documents'), suggested),
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePath) return { cancelled: true };
+    try {
+      await writeFileAtomic(result.filePath, new TextEncoder().encode(content));
+      return { cancelled: false, filePath: result.filePath };
+    } catch (err: any) {
+      return { cancelled: false, filePath: result.filePath, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.openTextFile, async (): Promise<TextFileOpenResult> => {
+    if (!mainWindow) return { cancelled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: strings().commands.restoreSettings.replace(/…$/, ''),
+      defaultPath: app.getPath('documents'),
+      filters: [
+        { name: 'JSON', extensions: ['json'] },
+        { name: strings().desktopMenu.allFilesFilter, extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { cancelled: true };
+    const filePath = result.filePaths[0];
+    try {
+      const stat = await fs.promises.stat(filePath);
+      if (stat.size > TEXT_FILE_LIMIT) return { cancelled: false, filePath, error: 'File too large' };
+      return { cancelled: false, filePath, content: await fs.promises.readFile(filePath, 'utf-8') };
+    } catch (err: any) {
+      return { cancelled: false, filePath, error: err?.message || String(err) };
+    }
+  });
+
   // The command-line file (once), otherwise the last document when reopening it is enabled
   ipcMain.handle(IPC_CHANNELS.getLaunchFile, () => {
     if (launchFileServed) return null;
@@ -236,12 +318,17 @@ const registerIpcHandlers = () => {
   });
 
   ipcMain.on(IPC_CHANNELS.documentState, (_event, state: DesktopDocumentState) => {
+    const previousPath = documentState.filePath;
     documentState = {
       hasUnsavedChanges: Boolean(state?.hasUnsavedChanges),
       filePath: typeof state?.filePath === 'string' ? state.filePath : null,
       fileName: typeof state?.fileName === 'string' ? state.fileName : '',
     };
     updateWindowTitle();
+    if (documentState.filePath !== previousPath) {
+      watchOpenedFile(documentState.filePath);
+      refreshMenu(); // "Show in folder"
+    }
   });
 
   ipcMain.on(IPC_CHANNELS.saveBeforeCloseDone, (_event, saved: unknown) => {
@@ -396,6 +483,9 @@ if (!app.requestSingleInstanceLock()) {
       ...DEFAULT_DESKTOP_SETTINGS,
       language: locale.startsWith('cs') || locale.startsWith('sk') ? 'cs' : 'en',
     });
+    if (store.loadedFrom === 'backup') {
+      console.warn('[settings] The settings file was unreadable; restored the last working copy');
+    }
     registerIpcHandlers();
     refreshMenu();
     await createWindow();
@@ -406,6 +496,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.on('window-all-closed', () => {
+    watchOpenedFile(null);
     if (process.platform !== 'darwin') app.quit();
   });
 }

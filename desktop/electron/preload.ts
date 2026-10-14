@@ -14,6 +14,8 @@ const api: ElectronAPI = {
   readFile: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.readFile, filePath),
   saveFile: (filePath, data, skipConfirm) => ipcRenderer.invoke(IPC_CHANNELS.saveFile, filePath, data, skipConfirm === true),
   saveFileAs: (defaultFileName, data) => ipcRenderer.invoke(IPC_CHANNELS.saveFileAs, defaultFileName, data),
+  saveTextFile: (defaultFileName, content) => ipcRenderer.invoke(IPC_CHANNELS.saveTextFile, defaultFileName, content),
+  openTextFile: () => ipcRenderer.invoke(IPC_CHANNELS.openTextFile),
   getPathForFile: (file) => webUtils.getPathForFile(file),
   getLaunchFile: () => ipcRenderer.invoke(IPC_CHANNELS.getLaunchFile),
   getRecentFiles: () => ipcRenderer.invoke(IPC_CHANNELS.getRecentFiles),

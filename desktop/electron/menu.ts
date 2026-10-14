@@ -14,6 +14,9 @@ export interface MenuContext {
   /** Runs an application command in the web app */
   command: (command: AppCommandId) => void;
   openPath: (filePath: string) => void;
+  /** Disk path of the opened document (enables "Show in folder") */
+  openedFilePath: string | null;
+  showInFolder: () => void;
   clearRecentFiles: () => void;
   updateSettings: (patch: DesktopSettingsPatch) => void;
   openExternal: (url: string) => void;
@@ -94,6 +97,7 @@ export const buildMenuTemplate = (ctx: MenuContext): MenuItemConstructorOptions[
         item('signCertificate'),
         item('metadata'),
         { type: 'separator' },
+        { label: t.commands.showInFolder, enabled: Boolean(ctx.openedFilePath), click: () => ctx.showInFolder() },
         item('closeDocument'),
         { type: 'separator' },
         ctx.isMac ? { role: 'close' } : { role: 'quit', label: m.exit },
@@ -145,6 +149,9 @@ export const buildMenuTemplate = (ctx: MenuContext): MenuItemConstructorOptions[
           click: (menuItem) => ctx.updateSettings({ confirmOverwrite: menuItem.checked }),
         },
         item('settings'),
+        { type: 'separator' },
+        item('backupSettings'),
+        item('restoreSettings'),
         { type: 'separator' },
         {
           label: m.theme,

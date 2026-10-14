@@ -84,6 +84,33 @@ describe('Settings store', () => {
     expect(sanitized.windowBounds).toEqual(DEFAULT_DESKTOP_SETTINGS.windowBounds);
   });
 
+  it('keeps raster settings and rejects invalid ones', () => {
+    const store = new SettingsStore(file);
+    expect(store.get('rasterSettings')).toBeNull();
+    store.update({ rasterSettings: { scale: 3, format: 'image/png', jpegQuality: 0.8 } });
+    expect(new SettingsStore(file).get('rasterSettings')).toEqual({ scale: 3, format: 'image/png', jpegQuality: 0.8 });
+    store.update({ rasterSettings: { scale: 9, format: 'image/gif', jpegQuality: 2 } as never });
+    expect(store.get('rasterSettings')).toBeNull();
+  });
+
+  it('falls back to the last working copy when the settings file is damaged', () => {
+    const first = new SettingsStore(file);
+    first.update({ theme: 'minimal', language: 'en' });
+    // A start with a readable file keeps it as the last working copy
+    const second = new SettingsStore(file);
+    expect(second.loadedFrom).toBe('file');
+    expect(fs.existsSync(`${file}.bak`)).toBe(true);
+
+    fs.writeFileSync(file, '{"theme": "minimal", "lang');
+    const recovered = new SettingsStore(file);
+    expect(recovered.loadedFrom).toBe('backup');
+    expect(recovered.get('theme')).toBe('minimal');
+    expect(recovered.get('language')).toBe('en');
+    expect(fs.existsSync(`${file}.corrupt`)).toBe(true);
+    // The recovered settings are written back, so the next start reads the file again
+    expect(new SettingsStore(file).loadedFrom).toBe('file');
+  });
+
   it('keeps a bounded, de-duplicated recent files list and the last opened file', () => {
     const store = new SettingsStore(file);
     const fileN = (i: number) => path.join(docs, `file${i}.pdf`);
@@ -123,6 +150,8 @@ describe('Native menu', () => {
     appName: 'PDF Studio',
     command: vi.fn(),
     openPath: vi.fn(),
+    openedFilePath: null,
+    showInFolder: vi.fn(),
     clearRecentFiles: vi.fn(),
     updateSettings: vi.fn(),
     openExternal: vi.fn(),
@@ -174,5 +203,21 @@ describe('Native menu', () => {
     const items = flatten(buildMenuTemplate(makeContext()));
     expect(items.find((i) => i.label === cs.commands.reopenLast).enabled).toBe(false);
     expect(items.find((i) => i.label === cs.desktopMenu.noRecent).enabled).toBe(false);
+  });
+
+  it('offers backup / restore of the settings and "show in folder" for an opened file', () => {
+    const closed = flatten(buildMenuTemplate(makeContext()));
+    expect(closed.find((i) => i.label === cs.commands.showInFolder).enabled).toBe(false);
+
+    const ctx = makeContext({ openedFilePath: fileA });
+    const items = flatten(buildMenuTemplate(ctx));
+    const show = items.find((i) => i.label === cs.commands.showInFolder);
+    expect(show.enabled).toBe(true);
+    show.click();
+    expect(ctx.showInFolder).toHaveBeenCalled();
+    items.find((i) => i.label === cs.commands.backupSettings).click();
+    items.find((i) => i.label === cs.commands.restoreSettings).click();
+    expect(ctx.command).toHaveBeenCalledWith('backupSettings');
+    expect(ctx.command).toHaveBeenCalledWith('restoreSettings');
   });
 });
