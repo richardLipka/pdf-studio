@@ -12,12 +12,30 @@ import {
   ShieldCheck,
   Loader2,
   Lock,
+  Clock,
+  FileText,
 } from 'lucide-react';
+import {
+  isDesktopApp,
+  getDesktopRecentFiles,
+  desktopReadFileDirect,
+  clearDesktopRecentFiles,
+} from '../../services/desktopBridge';
+import { RecentFileItem } from '../../types/electron';
 
 export const Dropzone: React.FC = () => {
   const { language, t } = useI18n();
   const { theme } = useTheme();
-  const { loadPdfFile, loadSamplePdf } = useDocument();
+  const { loadPdfFile, loadPdfBuffer, loadSamplePdf } = useDocument();
+
+  const isDesktop = isDesktopApp();
+  const [recentFiles, setRecentFiles] = useState<RecentFileItem[]>([]);
+
+  React.useEffect(() => {
+    if (isDesktop) {
+      getDesktopRecentFiles().then(setRecentFiles);
+    }
+  }, [isDesktop]);
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -76,6 +94,18 @@ export const Dropzone: React.FC = () => {
     await runLoad(async () => {
       const sampleBuffer = await createSamplePdfDoc(language);
       await loadSamplePdf(sampleBuffer, language);
+    });
+  };
+
+  const handleOpenRecent = async (filePath: string) => {
+    await runLoad(async () => {
+      const res = await desktopReadFileDirect(filePath);
+      if (res && !res.cancelled && res.data) {
+        const buffer = (res.data.buffer as ArrayBuffer).slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength);
+        await loadPdfBuffer(res.fileName || 'document.pdf', buffer);
+      } else {
+        throw new Error('Could not open recent file');
+      }
     });
   };
 
@@ -231,6 +261,57 @@ export const Dropzone: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Desktop Recent Files Quick Launch */}
+        {isDesktop && recentFiles.length > 0 && (
+          <div className="w-full pt-2 text-left">
+            <div className="flex items-center justify-between pb-2">
+              <span
+                className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${
+                  isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                {language === 'cs' ? 'Naposledy otevřené soubory' : 'Recent Files'}
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearDesktopRecentFiles().then(() => setRecentFiles([]));
+                }}
+                className={`text-[10px] hover:underline cursor-pointer ${
+                  isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#cc99cc]' : 'text-slate-500'
+                }`}
+              >
+                {language === 'cs' ? 'Vymazat historii' : 'Clear Recent'}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {recentFiles.slice(0, 6).map((file) => (
+                <button
+                  key={file.path}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenRecent(file.path);
+                  }}
+                  className={`flex items-center gap-2.5 p-2.5 rounded-lg text-left transition-all cursor-pointer group ${
+                    isMinimal
+                      ? 'bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-black'
+                      : isLcars
+                      ? 'bg-[#0f0f0f] hover:bg-[#1f1f1f] border border-[#ff9900]/40 text-[#ff9900]'
+                      : 'bg-slate-900/60 hover:bg-slate-800 border border-slate-800 text-slate-200'
+                  }`}
+                >
+                  <FileText className="w-4 h-4 flex-shrink-0 text-sky-400 group-hover:scale-110 transition-transform" />
+                  <div className="overflow-hidden min-w-0">
+                    <div className="text-xs font-medium truncate">{file.name}</div>
+                    <div className="text-[10px] opacity-60 truncate">{file.path}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 4 Key Feature Badges */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full pt-4">

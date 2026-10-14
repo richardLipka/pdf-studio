@@ -119,9 +119,11 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-# Vite cache & build
+# Vite & Electron cache and build
 dist
 dist-ssr
+dist-electron
+release
 *.local
 
 # Editor / OS files

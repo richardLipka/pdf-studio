@@ -82,6 +82,7 @@ interface DocumentContextType {
 
   // Document Operations
   loadPdfFile: (file: File) => Promise<void>;
+  loadPdfBuffer: (name: string, buffer: ArrayBuffer) => Promise<void>;
   loadSamplePdf: (buffer: ArrayBuffer, lang: string) => Promise<void>;
   /** scrollIntoView: false when the page is activated by clicking on it (it is already in view) */
   setActivePageIndex: (index: number, options?: { scrollIntoView?: boolean }) => void;
@@ -191,6 +192,12 @@ interface DocumentContextType {
     metadataOverride?: DocumentMetadata,
     formExportMode?: FormExportMode
   ) => Promise<boolean>;
+  exportPdfBytes: (
+    customName?: string,
+    rasterSettings?: RasterizationSettings,
+    metadataOverride?: DocumentMetadata,
+    formExportMode?: FormExportMode
+  ) => Promise<Uint8Array | null>;
   /** Exports the document with everything burned in, renders each page to an image and downloads the image-only PDF */
   flattenAndDownload: (
     options: FlattenOptions,
@@ -414,19 +421,16 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setHistory({ entries: [captureSnapshot()], index: 0 });
   };
 
-  const loadPdfFile = async (file: File) => {
-    logger.info('load', `Otevřen soubor: "${file.name}" (${(file.size / 1024).toFixed(1)} KB, type: ${file.type || 'unknown'})`, {
-      fileName: file.name,
-      fileSize: file.size,
-      mimeType: file.type,
-      lastModified: file.lastModified,
+  const loadPdfBuffer = async (name: string, buffer: ArrayBuffer) => {
+    logger.info('load', `Otevřen buffer: "${name}" (${(buffer.byteLength / 1024).toFixed(1)} KB)`, {
+      fileName: name,
+      fileSize: buffer.byteLength,
     });
     try {
-      const buffer = await file.arrayBuffer();
       clearPdfCache();
       const mainSource: SourceDocument = {
         id: 'main',
-        name: file.name,
+        name,
         arrayBuffer: buffer,
         updatedAt: Date.now(),
       };
@@ -436,8 +440,25 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const extractedMeta = await extractPdfMetadata('main', buffer);
       const extractedFormFields = await extractFormFieldsFromPdf(buffer, 'main', parsedPages);
 
-      initializeDocument(file.name, mainSource, parsedPages, loadedAnnotations, extractedMeta, extractedFormFields);
-      logger.success('load', `Dokument "${file.name}" připraven k úpravám (${parsedPages.length} stran)`);
+      initializeDocument(name, mainSource, parsedPages, loadedAnnotations, extractedMeta, extractedFormFields);
+      logger.success('load', `Dokument "${name}" připraven k úpravám (${parsedPages.length} stran)`);
+    } catch (e: any) {
+      logger.error('load', `Chyba při otevírání dokumentu "${name}": ${e?.message || e}`, e);
+      console.error('Failed to load PDF buffer:', e);
+      throw e;
+    }
+  };
+
+  const loadPdfFile = async (file: File) => {
+    logger.info('load', `Otevřen soubor: "${file.name}" (${(file.size / 1024).toFixed(1)} KB, type: ${file.type || 'unknown'})`, {
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+      lastModified: file.lastModified,
+    });
+    try {
+      const buffer = await file.arrayBuffer();
+      await loadPdfBuffer(file.name, buffer);
     } catch (e: any) {
       logger.error('load', `Chyba při otevírání souboru "${file.name}": ${e?.message || e}`, e);
       console.error('Failed to load PDF file:', e);
@@ -1178,6 +1199,38 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const exportPdfBytes = async (
+    customName?: string,
+    rasterSettings?: RasterizationSettings,
+    metadataOverride?: DocumentMetadata,
+    formExportMode: FormExportMode = 'interactive'
+  ): Promise<Uint8Array | null> => {
+    if (pages.length === 0) return null;
+    setIsSaving(true);
+    try {
+      const baseName = customName || fileName.replace(/\.pdf$/i, '');
+      const outName = baseName.endsWith('.pdf') ? baseName : `${baseName}-edited.pdf`;
+      const metaToApply = metadataOverride || metadata;
+      const bytes = await exportEditedPdf(
+        sources,
+        pages,
+        annotations,
+        outName,
+        rasterSettings,
+        metaToApply,
+        formValues,
+        formExportMode,
+        false
+      );
+      return bytes;
+    } catch (e: any) {
+      logger.error('save', `Chyba při exportu PDF bytů: ${e?.message || e}`, e);
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const flattenAndDownload = async (
     options: FlattenOptions,
     onProgress?: (done: number, total: number) => void
@@ -1366,6 +1419,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setMetadata,
     updateMetadata,
     loadPdfFile,
+    loadPdfBuffer,
     loadSamplePdf,
     setActivePageIndex,
     setScale,
@@ -1415,6 +1469,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     redo,
     commitHistorySnapshot,
     saveAndDownload,
+    exportPdfBytes,
     flattenAndDownload,
     consumeActivePageScrollSkip,
     signAndDownload,

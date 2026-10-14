@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { FlattenModal } from '../modals/FlattenModal';
 import { logger } from '../../services/logger';
+import { isDesktopApp, desktopOpenFile } from '../../services/desktopBridge';
 
 export const Header: React.FC = () => {
   const { language, setLanguage, t } = useI18n();
@@ -40,12 +41,15 @@ export const Header: React.FC = () => {
     undo,
     redo,
     loadPdfFile,
+    loadPdfBuffer,
     loadSamplePdf,
     saveAndDownload,
     hasFormFields,
     isSidebarOpen,
     toggleSidebar,
   } = useDocument();
+
+  const isDesktop = isDesktopApp();
 
   const {
     isNotesPanelOpen,
@@ -97,6 +101,22 @@ export const Header: React.FC = () => {
       } catch {
         showError(t.notifications.errorLoadingPdf);
       }
+    }
+  };
+
+  const handleOpenClick = async () => {
+    if (isDesktop) {
+      try {
+        const res = await desktopOpenFile();
+        if (res && !res.cancelled && res.data) {
+          const buffer = (res.data.buffer as ArrayBuffer).slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength);
+          await loadPdfBuffer(res.fileName || 'document.pdf', buffer);
+        }
+      } catch {
+        showError(t.notifications.errorLoadingPdf);
+      }
+    } else {
+      fileInputRef.current?.click();
     }
   };
 
@@ -182,6 +202,20 @@ export const Header: React.FC = () => {
                 />
                 {t.app.privacyBadge}
               </span>
+              {isDesktop && (
+                <span
+                  className={`hidden sm:inline-flex items-center gap-1 whitespace-nowrap text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    isMinimal
+                      ? 'bg-neutral-200 text-neutral-900 border border-neutral-300'
+                      : isLcars
+                      ? 'bg-[#111111] text-[#ff9900] border border-[#ff9900] uppercase tracking-wider'
+                      : 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60 shadow-sm'
+                  }`}
+                  title="PDF Studio Desktop Edition"
+                >
+                  DESKTOP
+                </span>
+              )}
             </div>
             {hasDoc && (
               <button
@@ -211,7 +245,7 @@ export const Header: React.FC = () => {
         />
 
         <button
-          onClick={() => fileInputRef.current?.click()}
+          onClick={handleOpenClick}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
             isMinimal
               ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'

@@ -19,8 +19,10 @@ import { SettingsModal } from './components/modals/SettingsModal';
 import { MetadataModal } from './components/modals/MetadataModal';
 import { ExportFormModal } from './components/modals/ExportFormModal';
 import { SearchBar } from './components/viewer/SearchBar';
+import { useDesktopIntegration } from './hooks/useDesktopIntegration';
 
 const MainWorkspace: React.FC = () => {
+  useDesktopIntegration();
   const { theme } = useTheme();
   const { pages, selectedPageIds, selectedAnnotationId } = useDocument();
   const {
