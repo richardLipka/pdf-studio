@@ -272,6 +272,12 @@ npm run dev
 
 # Start desktop app in development mode (with hot-reload)
 npm run electron:dev
+
+# Run automated Vitest test suite (40 test files, 262 tests)
+npm test
+
+# Run local build & asset content visibility test suite
+npm run test:assets
 ```
 
 Open [http://localhost:3000](http://localhost:3000) for the web version, or the desktop window will launch automatically.

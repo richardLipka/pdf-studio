@@ -16,6 +16,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:assets": "vitest run tests/localBuildAssetsVisibility.test.ts",
     "electron:build-scripts": "node scripts/build-electron.cjs",
     "electron:dev": "concurrently -k \"cross-env BROWSER=none vite\" \"node scripts/wait-for-vite.cjs && npm run electron:build-scripts && cross-env VITE_DEV_SERVER_URL=http://localhost:3000 electron .\"",
     "electron:build": "npm run build && npm run electron:build-scripts",

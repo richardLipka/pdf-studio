@@ -154,7 +154,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated test suite (39 test files, 242 tests) |
+| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated test suite (40 test files, 262 tests) |
 
 ---
 
@@ -217,7 +217,7 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (39 test files, 242 tests)
+├── tests/                  # Automated Vitest test suite (40 test files, 262 tests)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
@@ -242,6 +242,9 @@ npm run electron:dev
 
 # Run automated test suite
 npm run test
+
+# Run local build & asset content visibility test suite
+npm run test:assets
 
 # Build web application bundle
 npm run build
