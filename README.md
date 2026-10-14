@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-197%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-208%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first application for editing, annotating, signing, and managing PDF documents on your own machine with **zero server uploads** and **zero database requirements** — as a zero-install **web app** and as a **Windows desktop app** built from the same code.
@@ -19,7 +19,8 @@ A modern, fast, and privacy-first application for editing, annotating, signing, 
 | **Open** | file picker, drag & drop | native dialog, drag & drop, recent files, command line (`"PDF Studio.exe" file.pdf`), "Open with" |
 | **Save** | download | writes the opened file in place (asks before overwriting), *Save as* |
 | **Unsaved changes** | `●` next to the file name, warning before leaving the page | `●` in the window title, *Save & close / Discard / Cancel* when closing |
-| **Settings** | browser storage (language, theme, raster settings, signatures) | the same, plus a settings file (language, theme, signatures, window size, reopen last file) |
+| **Settings** | saved automatically in the browser (language, theme, raster settings, signatures); backup / restore to a JSON file | saved automatically in a settings file with a copy of the last working version (also window size, startup and overwrite options); backup / restore from the menu |
+| **File changed elsewhere** | — | offers to load the new version when another program changes the opened file |
 | **Menu** | toolbar & keyboard | toolbar, keyboard and a localized native menu |
 
 Everything else — editing, annotations, forms, signing, search — is identical. The desktop edition lives on the [`desktop`](https://github.com/richardLipka/pdf-studio/tree/desktop) branch; see [Two editions, one codebase](#-two-editions-one-codebase).
@@ -122,10 +123,13 @@ Everything else — editing, annotations, forms, signing, search — is identica
 - **Minimal (Light)**: Pure white background (`#ffffff`), crisp black lines, zero blue tints, high-contrast monochrome UI (`?theme=minimal`).
 - **LCARS (Star Trek: TNG)**: Authentic 24th-century Federation Starfleet interface with iconic LCARS amber, lilac, cyan palette, pill buttons, and condensed typography (`?theme=lcars`).
 
-### 13. ⚡ Prioritized Lazy Page Rendering & Canvas Error Recovery
-- **Prioritized Lazy Rendering Queue**: For large documents (> 5 pages), renders the first 5 pages and active viewport pages with highest priority without blocking CPU/GPU.
-- **Dynamic Viewport Priority Elevation**: `IntersectionObserver` elevates offscreen pages to the front of the queue (`VIEWPORT` priority) when scrolled into view.
-- **WebWorker Resource Cleanup**: Calls `pdfPage.cleanup()` across all renderers and annotation parsers to release operator lists and decoded bitmaps immediately.
+### 13. ⚡ On-Demand Rendering, Low Memory & Canvas Error Recovery
+- **Viewport-Based Rendering**: Pages within 1.5 screen heights of the view are rendered (canvas, text layer, edit overlays); pages more than 5 screen heights away release their bitmaps, and far pages are plain placeholders without layers. Memory and DOM size no longer grow with the length of the document (see [Performance & Memory](#-performance--memory)).
+- **Lightweight Page List**: Thumbnails are small JPEG images rendered when they scroll into view; cards far from the visible part of the list are empty boxes.
+- **Sharp on HiDPI Screens**: Pages and thumbnails are rendered at the device pixel ratio (up to 2×), so they stay sharp with Windows display scaling.
+- **Bounded Undo Memory**: Undo keeps up to 100 steps, but at most 384 MB of PDF versions created by content edits.
+- **WebWorker Resource Cleanup**: `pdfPage.cleanup()` after every render, and the pdf.js document caches are dropped after a few seconds without rendering.
+- **Damaged Scan Repair**: Scans whose CCITT fax images declare more rows than they have (e.g. `/Rows 1084690432` for a 2952-row page) rendered as blank pages with pdf.js 6; such files are repaired when opened or merged (other files keep their exact bytes).
 - **Interactive Canvas Failure Recovery**: If a page fails to render, a non-blocking error overlay provides a clear description and an interactive "Zkusit znovu / Retry" button that cleanly resets state and re-enqueues render.
 
 ### 14. 📜 Event Log & Diagnostic Protocol Screen
@@ -170,12 +174,42 @@ Everything else — editing, annotations, forms, signing, search — is identica
 - **One Save for Both Editions**: `Ctrl + S` and the save button download the PDF in the web edition and write the opened file in the desktop edition; documents with form fields first ask for interactive or flattened fields.
 - **Unsaved-Changes Tracking**: A `●` marker appears next to the file name after any edit (and disappears again when you undo back to the saved state); opening another document asks before discarding changes, and the browser warns before the page is left.
 - **About & Shortcuts**: Version, edition, author, libraries and the keyboard shortcuts dialog (status bar → version, or `Ctrl + /`).
+- **Settings Backup**: *Settings → Settings backup* saves language, theme, rasterization settings and all signatures and stamps to one JSON file and restores them (signatures are merged, nothing is lost); stamp library exports can be restored the same way.
+- **Drop to Open**: A PDF dropped anywhere on the window opens (with the unsaved-changes check) instead of replacing the app.
 
 ### 21. 💻 Desktop Edition (Windows)
 - **Native Files**: Open / Save / Save As dialogs, saving in place with an overwrite confirmation (*Do not ask again* available), atomic writes that never leave a half-written file, recent files on the start screen and in the menu.
 - **Command Line & "Open With"**: `"PDF Studio.exe" document.pdf`; the installer registers PDF Studio for PDF files and a second launch passes the file to the running window.
-- **Persistent Settings**: Language, theme, signatures, window size and *Reopen last file on startup* survive restarts (the portable build keeps them next to the executable).
+- **Persistent Settings**: Language, theme, rasterization settings, signatures, window size and the startup / overwrite options are saved automatically to a settings file (the portable build keeps it next to the executable). Each start keeps a copy of the last working version, which is used if the file gets damaged; *Settings → Back up / Restore* writes and reads a backup file.
+- **Files Changed Elsewhere**: When another program saves the opened file, PDF Studio offers to load the new version.
+- **Windows Integration**: Recent files in the taskbar jump list, *File → Show in Folder*, drag & drop from Explorer.
 - **Native Menu**: Localized Czech / English menu with the same commands and shortcuts as the toolbar.
+
+---
+
+## ⚡ Performance & Memory
+
+Both editions run the same viewer code (the desktop edition is Chromium too), so the numbers apply to
+both. Measured in the desktop edition (Electron 44, 1400×900 window, pixel ratio 1) with generated
+A4 documents (text and a picture on every page):
+
+| Measurement | Before (2.0.0) | Now |
+| :--- | ---: | ---: |
+| 300 pages — page bitmaps held 15 s after opening | 810 MB | 6 MB |
+| 300 pages — renderer memory 15 s after opening | 772 MB | 193 MB |
+| 300 pages — DOM nodes | 38 500 | 2 000 |
+| 300 pages — whole app after scrolling through all pages | 1.53 GB | 0.92 GB |
+| 1000 pages — first page shown (incl. app start) | — | 1.1 s |
+| 1000 pages — renderer memory 15 s after opening | — | 230 MB |
+| 1000 pages — DOM nodes / JS heap | — | 4 100 / 16 MB |
+| 1000 pages — main-thread work per scroll step | — | ≈ 12 ms |
+
+What changed: pages, text layers and edit overlays exist only near the viewport and far pages are
+empty placeholders; page-list thumbnails are small JPEG images rendered on demand (a canvas per
+page cost Chromium about 1 MB each); the undo stack keeps at most 384 MB of PDF versions; pdf.js
+caches are dropped after a few seconds without rendering. Memory still rises while scrolling (decoded
+images and fonts of the pages passed) and settles again afterwards; it no longer grows with the
+length of the document.
 
 ---
 
@@ -240,7 +274,7 @@ All shortcuts come from one table ([`src/shared/appCommands.ts`](src/shared/appC
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Unit Testing** | [Vitest](https://vitest.dev/) | Automated unit & integration testing (40 test files, 197 tests; the desktop branch adds tests of the Electron shell) |
+| **Unit Testing** | [Vitest](https://vitest.dev/) | Automated unit & integration testing (41 test files, 208 tests; the desktop branch adds tests of the Electron shell) |
 
 ---
 

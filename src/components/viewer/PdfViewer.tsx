@@ -181,17 +181,29 @@ export const PdfViewer: React.FC = () => {
                   : 'shadow-xl hover:ring-1 hover:ring-slate-700'
               }`}
             >
-              {/* PDF Canvas */}
-              <PageCanvas page={page} sourceDoc={sourceDoc} scale={scale} zone={zoneOf(page.id)} pixelRatio={pixelRatio} />
+              {zoneOf(page.id) === 'far' ? (
+                // Far from the viewport: an empty sheet of the page's size. Mounting the canvas,
+                // text, form and annotation layers of every page made each page change re-render
+                // the whole document (minutes of scrolling through 1000 pages)
+                <div
+                  style={{ width: `${page.width * scale}px`, height: `${page.height * scale}px` }}
+                  className="bg-white rounded-sm"
+                />
+              ) : (
+                <>
+                  {/* PDF Canvas */}
+                  <PageCanvas page={page} sourceDoc={sourceDoc} scale={scale} zone={zoneOf(page.id)} pixelRatio={pixelRatio} />
 
-              {/* PDF Text Selection & Copy Layer */}
-              <TextLayer page={page} sourceDoc={sourceDoc} scale={scale} zone={zoneOf(page.id)} />
+                  {/* PDF Text Selection & Copy Layer */}
+                  <TextLayer page={page} sourceDoc={sourceDoc} scale={scale} zone={zoneOf(page.id)} />
 
-              {/* Interactive Form Fields Layer */}
-              <FormLayer page={page} scale={scale} />
+                  {/* Interactive Form Fields Layer */}
+                  <FormLayer page={page} scale={scale} />
 
-              {/* Annotation & Interaction Overlay */}
-              <AnnotationLayer page={page} scale={scale} />
+                  {/* Annotation & Interaction Overlay */}
+                  <AnnotationLayer page={page} scale={scale} />
+                </>
+              )}
             </div>
           );
         })}
