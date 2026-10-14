@@ -9,14 +9,14 @@ const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const repoRoot = path.resolve(desktopDir, '..');
 const port = Number(process.env.PORT || 3000);
 const url = `http://localhost:${port}`;
-const isWindows = process.platform === 'win32';
 
 execSync('node scripts/build.mjs --skip-web --dev', { cwd: desktopDir, stdio: 'inherit' });
 
-const vite = spawn(isWindows ? 'npx.cmd' : 'npx', ['vite', '--port', String(port), '--strictPort'], {
+// Vite's own entry script run by this Node binary: no shell, no npx
+const viteBin = path.join(repoRoot, 'node_modules', 'vite', 'bin', 'vite.js');
+const vite = spawn(process.execPath, [viteBin, '--port', String(port), '--strictPort'], {
   cwd: repoRoot,
   stdio: 'inherit',
-  shell: isWindows,
 });
 
 const waitForServer = () =>
