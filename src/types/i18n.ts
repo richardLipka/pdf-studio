@@ -143,6 +143,7 @@ export interface TranslationSchema {
     rotateSelected: string;
     selectRangeHelp: string;
     outlinesTab: string;
+    outlinesTabShort: string;
     thumbnailsTab: string;
     noOutlines: string;
     noOutlinesDesc: string;
@@ -583,6 +584,22 @@ export interface TranslationSchema {
   };
   /** Names of the application commands (shortcuts dialog, desktop menu) */
   commands: Record<AppCommandId, string>;
+  backup: {
+    title: string;
+    description: string;
+    exportButton: string;
+    importButton: string;
+    automaticWeb: string;
+    automaticDesktop: string;
+    exported: string;
+    /** {date}, {count} */
+    confirmRestore: string;
+    /** {count} */
+    restored: string;
+    invalidFile: string;
+    newerVersion: string;
+    failed: string;
+  };
   files: {
     /** {name} */
     savedToDisk: string;
@@ -599,6 +616,10 @@ export interface TranslationSchema {
     desktopBadgeTooltip: string;
     privacyBadgeDesktop: string;
     unsavedMarker: string;
+    /** {name} */
+    changedOnDisk: string;
+    /** {name} */
+    changedOnDiskUnsaved: string;
   };
   /** Native menu and dialogs of the desktop edition (Electron main process) */
   desktopMenu: {

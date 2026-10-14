@@ -368,7 +368,7 @@ export const Toolbar: React.FC = () => {
     >
       {/* ROW 1: Mode Navigation Tabs (Above the tool line) */}
       <div
-        className={`px-4 py-1.5 border-b flex items-center justify-between gap-3 overflow-x-auto scrollbar-none ${
+        className={`px-4 py-1.5 border-b flex items-center justify-between gap-3 overflow-x-auto scrollbar-none whitespace-nowrap ${
           isMinimal
             ? 'bg-neutral-50/80 border-neutral-200'
             : isLcars
@@ -484,7 +484,7 @@ export const Toolbar: React.FC = () => {
       {/* ROW 2: Primary Tool Line & Contextual Controls */}
       <div className="px-4 py-2 flex flex-wrap items-center justify-between gap-3 select-none">
         {/* Left Side: Specific Tool Buttons for Active Tab */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none whitespace-nowrap min-w-0">
           {/* Tab 1: Review & Annotate Tools */}
           {activeTab === 'review' && (
             <div className="flex items-center gap-1">

@@ -150,6 +150,15 @@ export const useAppCommands = () => {
       case 'about':
         setIsAboutModalOpen(true);
         break;
+      case 'backupSettings':
+        void files.exportSettingsBackup();
+        break;
+      case 'restoreSettings':
+        void files.importSettingsBackup();
+        break;
+      case 'showInFolder':
+        // Handled by the desktop shell's menu
+        break;
     }
   };
 

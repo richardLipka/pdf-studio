@@ -35,6 +35,19 @@ export interface FileSaveResult {
   error?: string;
 }
 
+export interface DesktopRasterSettings {
+  scale: number;
+  format: 'image/jpeg' | 'image/png';
+  jpegQuality: number;
+}
+
+export interface TextFileOpenResult {
+  cancelled: boolean;
+  filePath?: string;
+  content?: string;
+  error?: string;
+}
+
 export interface DesktopWindowBounds {
   x?: number;
   y?: number;
@@ -55,12 +68,14 @@ export interface DesktopSettings {
   recentFiles: RecentFileItem[];
   /** Saved signatures and stamps (same objects as the web app keeps in localStorage) */
   stamps: unknown[];
+  /** Fallback rasterization settings of the export (null: the web app's defaults) */
+  rasterSettings: DesktopRasterSettings | null;
   windowBounds: DesktopWindowBounds;
 }
 
 /** The settings the web app may change; window bounds and recent files are managed by the shell */
 export type DesktopSettingsPatch = Partial<
-  Pick<DesktopSettings, 'theme' | 'language' | 'reopenLastFileOnStartup' | 'confirmOverwrite' | 'stamps'>
+  Pick<DesktopSettings, 'theme' | 'language' | 'reopenLastFileOnStartup' | 'confirmOverwrite' | 'stamps' | 'rasterSettings'>
 >;
 
 export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
@@ -71,6 +86,7 @@ export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = {
   lastOpenFilePath: '',
   recentFiles: [],
   stamps: [],
+  rasterSettings: null,
   windowBounds: { width: 1400, height: 900, isMaximized: false },
 };
 
@@ -88,7 +104,9 @@ export type DesktopMessage =
   | { type: 'open-path'; path: string }
   | { type: 'recent-files'; files: RecentFileItem[] }
   | { type: 'settings'; settings: DesktopSettings }
-  | { type: 'save-before-close' };
+  | { type: 'save-before-close' }
+  /** The opened file was changed on disk by another program */
+  | { type: 'file-changed'; path: string };
 
 export interface ElectronAPI {
   isDesktop: true;
@@ -101,6 +119,10 @@ export interface ElectronAPI {
   saveFile: (filePath: string, data: Uint8Array, skipConfirm?: boolean) => Promise<FileSaveResult>;
   /** Native save dialog, then writes the file */
   saveFileAs: (defaultFileName: string, data: Uint8Array) => Promise<FileSaveResult>;
+  /** Native save dialog for a text file (settings backup), then writes it */
+  saveTextFile: (defaultFileName: string, content: string) => Promise<FileSaveResult>;
+  /** Native open dialog for a text file (settings backup) */
+  openTextFile: () => Promise<TextFileOpenResult>;
   /** Disk path of a File from a file input or drag & drop ('' when it has none) */
   getPathForFile: (file: File) => string;
   /** File the app was started with (command line, "Open with"); returned only once */
@@ -122,6 +144,8 @@ export const IPC_CHANNELS = {
   readFile: 'pdf-studio:read-file',
   saveFile: 'pdf-studio:save-file',
   saveFileAs: 'pdf-studio:save-file-as',
+  saveTextFile: 'pdf-studio:save-text-file',
+  openTextFile: 'pdf-studio:open-text-file',
   getLaunchFile: 'pdf-studio:get-launch-file',
   getRecentFiles: 'pdf-studio:get-recent-files',
   clearRecentFiles: 'pdf-studio:clear-recent-files',

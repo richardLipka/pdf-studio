@@ -6,6 +6,7 @@ import { PageCanvas } from './PageCanvas';
 import { TextLayer } from './TextLayer';
 import { AnnotationLayer } from './AnnotationLayer';
 import { FormLayer } from './FormLayer';
+import { usePageZones, useCanvasPixelRatio } from '../../hooks/usePageZones';
 
 export const PdfViewer: React.FC = () => {
   const { theme } = useTheme();
@@ -24,6 +25,9 @@ export const PdfViewer: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  // Only pages around the viewport are rendered and kept in memory
+  const { zoneOf, visibleIds } = usePageZones(containerRef, pages.map((p) => p.id));
+  const pixelRatio = useCanvasPixelRatio();
 
   // Flag to distinguish between user scrolling with mousewheel vs programmatic scroll
   const isUserScrollingRef = useRef<boolean>(false);
@@ -75,7 +79,10 @@ export const PdfViewer: React.FC = () => {
     let closestIndex = activePageIndex;
     let minDistance = Infinity;
 
+    // Only the pages on screen are measured (all pages when the observer has not reported yet)
+    const onScreen = visibleIds();
     pages.forEach((page, index) => {
+      if (onScreen.size > 0 && !onScreen.has(page.id)) return;
       const el = pageContainerRefs.current[page.id];
       if (el) {
         const pageRect = el.getBoundingClientRect();
@@ -95,7 +102,7 @@ export const PdfViewer: React.FC = () => {
         setSelectedPageIds([pages[closestIndex].id]);
       }
     }
-  }, [pages, activePageIndex, setActivePageIndex, selectedPageIds, setSelectedPageIds]);
+  }, [pages, activePageIndex, setActivePageIndex, selectedPageIds, setSelectedPageIds, visibleIds]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // Only pan if tool is pan or middle mouse button is pressed
@@ -153,6 +160,7 @@ export const PdfViewer: React.FC = () => {
           return (
             <div
               key={page.id}
+              data-page-id={page.id}
               ref={(el) => (pageContainerRefs.current[page.id] = el)}
               onClick={(e) => {
                 const isMulti = e.ctrlKey || e.metaKey;
@@ -174,10 +182,10 @@ export const PdfViewer: React.FC = () => {
               }`}
             >
               {/* PDF Canvas */}
-              <PageCanvas page={page} sourceDoc={sourceDoc} scale={scale} />
+              <PageCanvas page={page} sourceDoc={sourceDoc} scale={scale} zone={zoneOf(page.id)} pixelRatio={pixelRatio} />
 
               {/* PDF Text Selection & Copy Layer */}
-              <TextLayer page={page} sourceDoc={sourceDoc} scale={scale} />
+              <TextLayer page={page} sourceDoc={sourceDoc} scale={scale} zone={zoneOf(page.id)} />
 
               {/* Interactive Form Fields Layer */}
               <FormLayer page={page} scale={scale} />

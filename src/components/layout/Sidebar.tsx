@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { PdfOutlineItem } from '../../types/document';
 import { resolveOutlineTarget } from '../../utils/outlineTargets';
+import { usePageZones, useCanvasPixelRatio } from '../../hooks/usePageZones';
 
 interface OutlineNodeProps {
   item: PdfOutlineItem;
@@ -162,16 +163,22 @@ export const Sidebar: React.FC = () => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  const canvasRefs = useRef<{ [key: string]: HTMLCanvasElement | null }>({});
-  // Page state last requested for each thumbnail canvas; a remounted canvas (sidebar collapsed and
-  // opened again, outline tab and back) is blank and is not in the map, so it is rendered again
-  const renderedThumbnailsRef = useRef(new WeakMap<HTMLCanvasElement, string>());
-  // Queue ids must differ per canvas, the queue merges pending tasks with the same id
-  const canvasSerialsRef = useRef({ next: 0, ids: new WeakMap<HTMLCanvasElement, number>() });
+  // Thumbnails are small JPEG images rendered on demand: a <canvas> per page costs Chromium about
+  // 1 MB each, which made the page list the largest memory user of long documents. The images
+  // survive collapsing the sidebar and switching tabs, so nothing has to be rendered again.
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
+  // Page state last requested per page and the object URL shown for it
+  const thumbnailStateRef = useRef(new Map<string, { key: string; url?: string }>());
   const thumbnailRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
+
+  // Thumbnails are rendered when they scroll into (or near) the visible part of the list
+  const thumbListRef = useRef<HTMLDivElement>(null);
+  const showsThumbnails = isSidebarOpen && sidebarTab === 'thumbnails';
+  const { zoneOf: thumbZoneOf } = usePageZones(thumbListRef, showsThumbnails ? pages.map((p) => p.id) : []);
+  const thumbPixelRatio = useCanvasPixelRatio();
 
   // Scroll active thumbnail into view when active page changes
   useEffect(() => {
@@ -184,41 +191,68 @@ export const Sidebar: React.FC = () => {
     }
   }, [activePageIndex, pages]);
 
-  // Render thumbnails only when page identity or rotation/source changes
+  // Render thumbnails of the pages scrolled near the visible part of the list
   useEffect(() => {
+    if (!showsThumbnails) return;
     pages.forEach((page, index) => {
-      const canvas = canvasRefs.current[page.id];
-      if (!canvas) return;
-
+      if (thumbZoneOf(page.id) === 'far') return;
       const sourceDoc = sources.find((s) => s.id === page.sourceDocId) || sources[0];
       if (!sourceDoc && page.sourceType === 'pdf') return;
 
-      const pageRenderKey = `${page.id}_${page.rotation}_${page.sourceType}_${sourceDoc?.updatedAt || 0}_${page.imageDataUrl ? page.imageDataUrl.length : ''}`;
+      const key = `${page.id}_${page.rotation}_${page.sourceType}_${sourceDoc?.updatedAt || 0}_${page.imageDataUrl ? page.imageDataUrl.length : ''}_${thumbPixelRatio}`;
+      const state = thumbnailStateRef.current.get(page.id);
       // Compared with the last *requested* state: after rotate + undo the page is back at the state
-      // rendered first, but the rotated render queued in between still has to be painted over
-      if (renderedThumbnailsRef.current.get(canvas) === pageRenderKey) {
-        return; // This exact page state is rendered or queued on this canvas
-      }
-      renderedThumbnailsRef.current.set(canvas, pageRenderKey);
+      // rendered first, but the rotated render queued in between must not stay on screen
+      if (state?.key === key) return;
+      thumbnailStateRef.current.set(page.id, { key, url: state?.url });
 
-      const serials = canvasSerialsRef.current;
-      if (!serials.ids.has(canvas)) serials.ids.set(canvas, ++serials.next);
-      const taskId = `thumb_${pageRenderKey}_${serials.ids.get(canvas)}`;
       const isNearActive = Math.abs(index - activePageIndex) <= 2;
-      const priority = isNearActive ? RenderPriority.BACKGROUND : RenderPriority.THUMBNAIL;
-
       renderQueue
-        .enqueue(taskId, priority, async () => {
-          if (!canvas) return;
-          await renderPdfPageToCanvas(sourceDoc, page, canvas, 0.22);
+        .enqueue(`thumb_${key}`, isNearActive ? RenderPriority.BACKGROUND : RenderPriority.THUMBNAIL, async () => {
+          const canvas = document.createElement('canvas');
+          try {
+            await renderPdfPageToCanvas(sourceDoc, page, canvas, 0.22, thumbPixelRatio);
+            const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+            const current = thumbnailStateRef.current.get(page.id);
+            if (!blob || current?.key !== key) return; // superseded or page removed
+            const url = URL.createObjectURL(blob);
+            if (current.url) URL.revokeObjectURL(current.url);
+            thumbnailStateRef.current.set(page.id, { key, url });
+            setThumbnailUrls((prev) => ({ ...prev, [page.id]: url }));
+          } finally {
+            canvas.width = 0;
+            canvas.height = 0;
+          }
         })
         .catch((err) => {
           // Let the next effect run try again
-          if (renderedThumbnailsRef.current.get(canvas) === pageRenderKey) renderedThumbnailsRef.current.delete(canvas);
+          const current = thumbnailStateRef.current.get(page.id);
+          if (current?.key === key) thumbnailStateRef.current.set(page.id, { key: '', url: current.url });
           console.error('Thumbnail render error:', err);
         });
     });
-  }, [pages, sources, activePageIndex, isSidebarOpen, sidebarTab]);
+  }, [pages, sources, activePageIndex, showsThumbnails, thumbZoneOf, thumbPixelRatio]);
+
+  // Images of removed pages (and of a closed document) are released
+  useEffect(() => {
+    const ids = new Set(pages.map((p) => p.id));
+    let removed = false;
+    for (const [id, state] of thumbnailStateRef.current) {
+      if (ids.has(id)) continue;
+      if (state.url) URL.revokeObjectURL(state.url);
+      thumbnailStateRef.current.delete(id);
+      removed = true;
+    }
+    if (removed) setThumbnailUrls((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => ids.has(id))));
+  }, [pages]);
+
+  useEffect(() => {
+    const states = thumbnailStateRef.current;
+    return () => {
+      for (const state of states.values()) if (state.url) URL.revokeObjectURL(state.url);
+      states.clear();
+    };
+  }, []);
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
@@ -371,7 +405,7 @@ export const Sidebar: React.FC = () => {
         }`}
       >
         <div
-          className={`flex items-center gap-1 p-0.5 rounded-lg flex-1 text-xs ${
+          className={`flex items-center gap-1 p-0.5 rounded-lg flex-1 min-w-0 text-xs ${
             isMinimal
               ? 'bg-neutral-200/70'
               : isLcars
@@ -381,7 +415,7 @@ export const Sidebar: React.FC = () => {
         >
           <button
             onClick={() => setSidebarTab('thumbnails')}
-            className={`flex-1 py-1 px-2 rounded-md flex items-center justify-center gap-1 font-medium transition-all ${
+            className={`flex-1 min-w-0 py-1 px-1.5 rounded-md flex items-center justify-center gap-1 font-medium whitespace-nowrap transition-all ${
               sidebarTab === 'thumbnails'
                 ? isMinimal
                   ? 'bg-white text-black shadow-sm'
@@ -394,16 +428,22 @@ export const Sidebar: React.FC = () => {
                 ? 'text-[#99ccff] hover:text-[#ff9900]'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
-            title={t.sidebar.thumbnailsTab}
+            title={`${t.sidebar.thumbnailsTab} (${pages.length})`}
           >
-            <Layers className="w-3.5 h-3.5" />
-            <span>{t.sidebar.thumbnailsTab}</span>
-            <span className="text-[10px] opacity-75 font-mono">({pages.length})</span>
+            <Layers className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{t.sidebar.thumbnailsTab}</span>
+            <span
+              className={`shrink-0 min-w-[1.25rem] px-1 rounded-full text-[10px] font-mono leading-4 ${
+                isMinimal ? 'bg-black/10' : isLcars ? 'bg-black/30' : 'bg-black/25'
+              }`}
+            >
+              {pages.length}
+            </span>
           </button>
 
           <button
             onClick={() => setSidebarTab('outlines')}
-            className={`flex-1 py-1 px-2 rounded-md flex items-center justify-center gap-1 font-medium transition-all ${
+            className={`flex-1 min-w-0 py-1 px-1.5 rounded-md flex items-center justify-center gap-1 font-medium whitespace-nowrap transition-all ${
               sidebarTab === 'outlines'
                 ? isMinimal
                   ? 'bg-white text-black shadow-sm'
@@ -416,19 +456,25 @@ export const Sidebar: React.FC = () => {
                 ? 'text-[#99ccff] hover:text-[#ff9900]'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
-            title={t.sidebar.outlinesTab}
+            title={outlines.length > 0 ? `${t.sidebar.outlinesTab} (${outlines.length})` : t.sidebar.outlinesTab}
           >
-            <ListTree className="w-3.5 h-3.5" />
-            <span>{t.sidebar.outlinesTab}</span>
+            <ListTree className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{t.sidebar.outlinesTabShort}</span>
             {outlines.length > 0 && (
-              <span className="text-[10px] opacity-75 font-mono">({outlines.length})</span>
+              <span
+              className={`shrink-0 min-w-[1.25rem] px-1 rounded-full text-[10px] font-mono leading-4 ${
+                isMinimal ? 'bg-black/10' : isLcars ? 'bg-black/30' : 'bg-black/25'
+              }`}
+            >
+                {outlines.length}
+              </span>
             )}
           </button>
         </div>
 
         <button
           onClick={toggleSidebar}
-          className={`p-1.5 rounded-md transition-colors ${
+          className={`shrink-0 p-1.5 rounded-md transition-colors ${
             isMinimal
               ? 'hover:bg-neutral-200 text-neutral-600 hover:text-black'
               : isLcars
@@ -590,6 +636,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Thumbnails Scrollable List */}
       <div
+        ref={thumbListRef}
         className={`flex-1 overflow-y-auto p-3 space-y-3 ${
           isMinimal ? 'bg-white' : ''
         }`}
@@ -603,6 +650,7 @@ export const Sidebar: React.FC = () => {
           return (
             <div
               key={page.id}
+              data-page-id={page.id}
               ref={(el) => (thumbnailRefs.current[page.id] = el)}
               draggable
               onDragStart={(e) => handleDragStart(e, index)}
@@ -740,10 +788,20 @@ export const Sidebar: React.FC = () => {
                     : 'bg-white/5 rounded-lg border-slate-700/50'
                 }`}
               >
-                <canvas
-                  ref={(el) => (canvasRefs.current[page.id] = el)}
-                  className="rounded shadow-sm max-w-full max-h-[150px] object-contain block"
-                />
+                {thumbnailUrls[page.id] ? (
+                  <img
+                    src={thumbnailUrls[page.id]}
+                    alt=""
+                    draggable={false}
+                    data-page-thumbnail={page.id}
+                    className="rounded shadow-sm max-w-full max-h-[150px] object-contain block"
+                  />
+                ) : (
+                  <div
+                    className="rounded bg-white/90 max-w-full max-h-[130px] animate-pulse"
+                    style={{ aspectRatio: `${page.rotation % 180 === 0 ? page.width : page.height} / ${page.rotation % 180 === 0 ? page.height : page.width}`, height: 130 }}
+                  />
+                )}
               </div>
 
               {/* Bottom Card Toolbar: Dedicated buttons for rotate and delete */}

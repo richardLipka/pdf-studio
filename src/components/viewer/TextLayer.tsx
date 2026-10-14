@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { PdfPageModel, SourceDocument } from '../../types/document';
 import { renderPdfTextLayer, getPageTextBlocks, getPageTextModel } from '../../services/pdfLoader';
 import { renderQueue, RenderPriority } from '../../services/renderQueue';
+import type { PageZone } from '../../hooks/usePageZones';
 import { useEditor } from '../../context/EditorContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useI18n } from '../../i18n/context';
@@ -37,9 +38,12 @@ interface TextLayerProps {
   page: PdfPageModel;
   sourceDoc: SourceDocument;
   scale: number;
+  /** Distance from the viewport (usePageZones); the text layer and edit overlays exist only near it */
+  zone?: PageZone;
 }
 
-export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) => {
+export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zone = 'near' }) => {
+  const isNear = zone === 'near';
   const { t } = useI18n();
   const { theme } = useTheme();
   const {
@@ -207,7 +211,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     // Newest load wins: a slower load started for an older version of the document must not
     // bring back blocks (and segment ids) that no longer exist
     const token = ++visualLoadRef.current;
-    if (!isRemoveActive || page.sourceType !== 'pdf') {
+    if (!isRemoveActive || !isNear || page.sourceType !== 'pdf') {
       setVisualBlocks([]);
       return;
     }
@@ -217,7 +221,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     } catch {
       if (token === visualLoadRef.current) setVisualBlocks([]);
     }
-  }, [isRemoveActive, sourceDoc, page]);
+  }, [isRemoveActive, isNear, sourceDoc, page]);
   // Async callbacks (text layer render) must use the current mode and document, not the ones
   // captured when they were started
   const refreshVisualBlocksRef = useRef(refreshVisualBlocks);
@@ -275,33 +279,41 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
   };
 
   useEffect(() => {
-    if (isRemoveActive) {
+    if (isRemoveActive && isNear) {
       refreshVisualBlocksRef.current();
     } else {
       setVisualBlocks([]);
     }
-  }, [isRemoveActive, refreshVisualBlocks, page.id, page.rotation, sourceDoc.updatedAt]);
+  }, [isRemoveActive, isNear, refreshVisualBlocks, page.id, page.rotation, sourceDoc.updatedAt]);
 
-  // Render text layer from PDF.js
+  // Render text layer from PDF.js (only near the viewport; far pages drop their spans)
+  const renderedTextKeyRef = useRef<string | null>(null);
   useEffect(() => {
     let isCancelled = false;
     const container = containerRef.current;
     if (!container) return;
 
-    const taskId = `text_${page.id}_${page.rotation}_${scale}`;
-    const isInitialBatch = page.originalPageIndex < 5;
-    const initialPriority = isInitialBatch
-      ? RenderPriority.INITIAL_BATCH
-      : RenderPriority.BACKGROUND;
+    const taskId = `text_${page.id}`;
+    const textKey = `${page.id}|${page.originalPageIndex}|${page.rotation}|${page.sourceDocId}|${sourceDoc.updatedAt}|${scale}`;
+    if (zone === 'far') {
+      renderQueue.cancel(taskId);
+      if (renderedTextKeyRef.current !== null) {
+        container.innerHTML = '';
+        renderedTextKeyRef.current = null;
+      }
+      return;
+    }
+    if (zone !== 'near' || renderedTextKeyRef.current === textKey) return;
 
     renderQueue
-      .enqueue(taskId, initialPriority, async () => {
+      .enqueue(taskId, RenderPriority.BACKGROUND, async () => {
         if (isCancelled || !container) return;
         await renderPdfTextLayer(sourceDoc, page, container, scale);
       })
       .then(() => {
         // pdf.js sizes (and for rotated pages rotates) the layer itself
         if (!isCancelled && container) {
+          renderedTextKeyRef.current = textKey;
           refreshVisualBlocksRef.current();
         }
       })
@@ -325,6 +337,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale }) 
     page.height,
     sourceDoc,
     scale,
+    zone,
   ]);
 
   // Handle selection changes
