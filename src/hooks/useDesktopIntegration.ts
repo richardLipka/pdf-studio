@@ -56,11 +56,12 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
     openSignatureModal,
   } = useEditor();
 
-  const { setTheme } = useTheme();
-  const { setLanguage } = useI18n();
+  const { theme, setTheme } = useTheme();
+  const { language, setLanguage } = useI18n();
 
   const desktopFilePathRef = useRef<string | null>(desktopFilePath);
   desktopFilePathRef.current = desktopFilePath;
+  const initialSettingsLoadedRef = useRef(false);
 
   // 1. Initial Load: Read recent files and persistent settings from OS AppData
   useEffect(() => {
@@ -77,8 +78,20 @@ export const useDesktopIntegration = (): UseDesktopIntegrationResult => {
       if (settings?.language && ['cs', 'en'].includes(settings.language)) {
         setLanguage(settings.language as 'cs' | 'en');
       }
+      initialSettingsLoadedRef.current = true;
     });
   }, [isDesktop, setTheme, setLanguage]);
+
+  // 1b. Sync Language & Theme from Basic App to Desktop Main Process & Menu
+  useEffect(() => {
+    if (!isDesktop || !initialSettingsLoadedRef.current) return;
+    setDesktopSetting('language', language);
+  }, [isDesktop, language]);
+
+  useEffect(() => {
+    if (!isDesktop || !initialSettingsLoadedRef.current) return;
+    setDesktopSetting('theme', theme);
+  }, [isDesktop, theme]);
 
   // 2. Notify Desktop Main Process about dirty/clean document state
   useEffect(() => {

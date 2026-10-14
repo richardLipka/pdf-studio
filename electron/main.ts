@@ -93,14 +93,17 @@ async function createWindow() {
   // Close confirmation if unsaved changes exist
   mainWindow.on('close', (e) => {
     if (currentDocumentState.hasUnsavedChanges) {
+      const isEn = settingsStore.get('language') === 'en';
       const choice = dialog.showMessageBoxSync(mainWindow!, {
         type: 'warning',
-        buttons: ['Uložit a zavřít / Save', 'Zahodit změny / Discard', 'Zrušit / Cancel'],
+        buttons: isEn
+          ? ['Save & Close', 'Discard Changes', 'Cancel']
+          : ['Uložit a zavřít', 'Zahodit změny', 'Zrušit'],
         defaultId: 0,
         cancelId: 2,
-        title: 'Neuložené změny / Unsaved Changes',
-        message: 'Máte neuložené změny v dokumentu.',
-        detail: 'Chcete dokument před ukončením uložit?',
+        title: isEn ? 'Unsaved Changes' : 'Neuložené změny',
+        message: isEn ? 'You have unsaved changes in this document.' : 'Máte neuložené změny v dokumentu.',
+        detail: isEn ? 'Do you want to save the document before exiting?' : 'Chcete dokument před ukončením uložit?',
       });
 
       if (choice === 0) {
@@ -190,11 +193,12 @@ function registerIpcHandlers() {
   // 1. Open File Dialog
   ipcMain.handle('dialog:openFile', async () => {
     if (!mainWindow) return { cancelled: true };
+    const isEn = settingsStore.get('language') === 'en';
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Otevřít PDF dokument / Open PDF',
+      title: isEn ? 'Open PDF Document' : 'Otevřít PDF dokument',
       filters: [
-        { name: 'Dokumenty PDF (*.pdf)', extensions: ['pdf'] },
-        { name: 'Všechny soubory (*.*)', extensions: ['*'] },
+        { name: isEn ? 'PDF Documents (*.pdf)' : 'Dokumenty PDF (*.pdf)', extensions: ['pdf'] },
+        { name: isEn ? 'All Files (*.*)' : 'Všechny soubory (*.*)', extensions: ['*'] },
       ],
       properties: ['openFile'],
     });
@@ -224,7 +228,8 @@ function registerIpcHandlers() {
   // 2. Direct File Read
   ipcMain.handle('file:readDirect', async (_event, filePath: string) => {
     if (!filePath || !fs.existsSync(filePath)) {
-      return { cancelled: true, error: 'Soubor neexistuje / File not found' };
+      const isEn = settingsStore.get('language') === 'en';
+      return { cancelled: true, error: isEn ? 'File not found' : 'Soubor neexistuje' };
     }
     try {
       const data = await fs.promises.readFile(filePath);
@@ -246,12 +251,13 @@ function registerIpcHandlers() {
   // 3. Save File Dialog (Save As)
   ipcMain.handle('dialog:saveFile', async (_event, defaultFileName: string, data: Uint8Array) => {
     if (!mainWindow) return { cancelled: true };
+    const isEn = settingsStore.get('language') === 'en';
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Uložit PDF dokument / Save PDF',
+      title: isEn ? 'Save PDF Document' : 'Uložit PDF dokument',
       defaultPath: defaultFileName || 'document.pdf',
       filters: [
-        { name: 'Dokumenty PDF (*.pdf)', extensions: ['pdf'] },
-        { name: 'Všechny soubory (*.*)', extensions: ['*'] },
+        { name: isEn ? 'PDF Documents (*.pdf)' : 'Dokumenty PDF (*.pdf)', extensions: ['pdf'] },
+        { name: isEn ? 'All Files (*.*)' : 'Všechny soubory (*.*)', extensions: ['*'] },
       ],
     });
 
