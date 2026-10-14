@@ -1,16 +1,28 @@
-# PDF Studio (Web PDF Editor) 📄✨
+# PDF Studio (Web & Desktop PDF Editor) 📄✨
 
 [![Live Demo: GitHub Pages](https://img.shields.io/badge/Live%20Demo-richardlipka.github.io%2Fpdf--studio-blue?style=for-the-badge&logo=githubpages&logoColor=white)](https://richardlipka.github.io/pdf-studio/)
+[![Desktop: Windows](https://img.shields.io/badge/Desktop-Windows%20releases-blueviolet?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/richardLipka/pdf-studio/releases)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-233%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-197%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
-A modern, fast, and privacy-first web application for editing, annotating, signing, and managing PDF documents directly in your browser with **zero server uploads** and **zero database requirements**.
+A modern, fast, and privacy-first application for editing, annotating, signing, and managing PDF documents on your own machine with **zero server uploads** and **zero database requirements** — as a zero-install **web app** and as a **Windows desktop app** built from the same code.
 
-👉 **Live Application**: [https://richardlipka.github.io/pdf-studio/](https://richardlipka.github.io/pdf-studio/)
+## 📥 Editions
+
+| | Web edition | Desktop edition |
+| :--- | :--- | :--- |
+| **Get it** | [richardlipka.github.io/pdf-studio](https://richardlipka.github.io/pdf-studio/), or `pdf-studio-web.zip` from [Releases](https://github.com/richardLipka/pdf-studio/releases) for your own web server | Installer, portable `.exe` or zip from [Releases](https://github.com/richardLipka/pdf-studio/releases) |
+| **Open** | file picker, drag & drop | native dialog, drag & drop, recent files, command line (`"PDF Studio.exe" file.pdf`), "Open with" |
+| **Save** | download | writes the opened file in place (asks before overwriting), *Save as* |
+| **Unsaved changes** | `●` next to the file name, warning before leaving the page | `●` in the window title, *Save & close / Discard / Cancel* when closing |
+| **Settings** | browser storage (language, theme, raster settings, signatures) | the same, plus a settings file (language, theme, signatures, window size, reopen last file) |
+| **Menu** | toolbar & keyboard | toolbar, keyboard and a localized native menu |
+
+Everything else — editing, annotations, forms, signing, search — is identical. The desktop edition lives on the [`desktop`](https://github.com/richardLipka/pdf-studio/tree/desktop) branch; see [Two editions, one codebase](#-two-editions-one-codebase).
 
 ---
 
@@ -86,7 +98,7 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 
 ### 8. 📑 Digital Signatures, Certificates & Stamp Library (PAdES / PKCS#7)
 - **3 Signature Modes**: Draw (canvas signature pad), Type (handwriting cursive fonts), and Upload (with automated white-background transparency cleaning).
-- **Named Stamp Library**: Save reusable stamps stored in browser `localStorage`.
+- **Named Stamp Library**: Save reusable stamps stored in browser `localStorage` (the desktop edition also keeps them in its settings file).
 - **JSON Export & Import**: Download and restore full stamp collections as JSON packages containing Base64-encoded bitmap images.
 - **Cryptographic PAdES / PKCS#7 Signing**: Conforms to ISO 32000-1 detached signatures (`/adbe.pkcs7.detached`) with PKCS#12 / PFX certificate import, in-memory RSA key pair generator, SHA-256 byte-range hashing, and visual verification badges.
 
@@ -144,15 +156,26 @@ A modern, fast, and privacy-first web application for editing, annotating, signi
 - **Smallest-Area-First Stacking**: Guarantees 100% clickability and hit-testing for nested and overlapping blocks on the canvas.
 
 ### 18. 📑 Document Outlines & Collapsible Sidebar Navigation
-- **Hierarchical Bookmarks Tree**: Automatically parses and resolves PDF document outline trees (`/Outlines`) with multi-level nesting, expansion toggles, and direct click page navigation.
+- **Hierarchical Bookmarks Tree**: Automatically parses and resolves PDF document outline trees (`/Outlines`) with multi-level nesting, expansion toggles, and direct click page navigation. Entries follow pages that were moved or had pages inserted before them; entries of deleted pages lose their page number.
 - **Collapsible Sidebar Rail**: Left sidebar can be completely collapsed down to a compact 48px rail view via header button (`PanelLeft`) or sidebar toggle, maximizing screen real estate for editing.
 - **Tabbed Sidebar Navigation**: Instantly toggle between **Stránky (Thumbnails)** and **Obsah (Outlines)** with responsive badge counters and empty-state indicators.
 
 ### 19. 🔍 Global In-Document Search & Canvas Highlights (`Ctrl + F`)
 - **High-Performance Document Search**: Scans character streams and bounding boxes across all document pages via `pdfSearchService.ts`.
-- **Search Controls & Filters**: Floating modal toolbar draggable with input debounce, match index counter (`X z Y`), case-sensitive (`Aa`), and whole-word (`\b`) match toggles.
+- **Search Controls & Filters**: Floating toolbar (drag it aside by its handle) with input debounce, match index counter (`X z Y`), case-sensitive (`Aa`), and whole-word (`\b`) match toggles; the active match is scrolled into view.
 - **Navigation & Shortcuts**: Smooth cycling with `Enter` (next match), `Shift + Enter` (previous match), and `Esc` (dismiss).
 - **Canvas Visual Overlays**: Non-destructive search highlight overlays rendered directly over `TextLayer.tsx` with active-match focus rings and full support for Studio (dark), Minimal (light), and LCARS themes.
+
+### 20. 💾 Opening, Saving & Unsaved Changes
+- **One Save for Both Editions**: `Ctrl + S` and the save button download the PDF in the web edition and write the opened file in the desktop edition; documents with form fields first ask for interactive or flattened fields.
+- **Unsaved-Changes Tracking**: A `●` marker appears next to the file name after any edit (and disappears again when you undo back to the saved state); opening another document asks before discarding changes, and the browser warns before the page is left.
+- **About & Shortcuts**: Version, edition, author, libraries and the keyboard shortcuts dialog (status bar → version, or `Ctrl + /`).
+
+### 21. 💻 Desktop Edition (Windows)
+- **Native Files**: Open / Save / Save As dialogs, saving in place with an overwrite confirmation (*Do not ask again* available), atomic writes that never leave a half-written file, recent files on the start screen and in the menu.
+- **Command Line & "Open With"**: `"PDF Studio.exe" document.pdf`; the installer registers PDF Studio for PDF files and a second launch passes the file to the running window.
+- **Persistent Settings**: Language, theme, signatures, window size and *Reopen last file on startup* survive restarts (the portable build keeps them next to the executable).
+- **Native Menu**: Localized Czech / English menu with the same commands and shortcuts as the toolbar.
 
 ---
 
@@ -178,24 +201,31 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 
 | Shortcut | Action |
 | :--- | :--- |
-| <kbd>Ctrl</kbd> + <kbd>F</kbd> | Open in-document search (Hledat v dokumentu) |
-| <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | Next / Previous search match (when search bar is active) |
-| <kbd>Ctrl</kbd> + <kbd>Z</kbd> | Undo (Zpět) |
-| <kbd>Ctrl</kbd> + <kbd>Y</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> | Redo (Znovu) |
-| <kbd>Delete</kbd> / <kbd>Backspace</kbd> | Delete selected annotation or trigger page deletion |
-| <kbd>Enter</kbd> | Confirm modals & dialogs / Save note |
-| <kbd>Shift</kbd> + <kbd>Enter</kbd> | Insert newline in note editor |
-| <kbd>Escape</kbd> | Close search bar / Cancel & close modal dialogs |
-| <kbd>↓</kbd> / <kbd>→</kbd> | Next page (scrolling viewport) |
-| <kbd>↑</kbd> / <kbd>←</kbd> | Previous page (scrolling viewport) |
-| <kbd>Shift</kbd> + <kbd>↓</kbd> / <kbd>→</kbd> | Expand page selection downwards |
-| <kbd>Shift</kbd> + <kbd>↑</kbd> / <kbd>←</kbd> | Expand page selection upwards |
-| <kbd>Shift</kbd> + <kbd>PageDown</kbd> / <kbd>Shift</kbd> + <kbd>End</kbd> | Select from active page to end of document |
-| <kbd>Shift</kbd> + <kbd>PageUp</kbd> / <kbd>Shift</kbd> + <kbd>Home</kbd> | Select from active page to start of document |
+| <kbd>Ctrl</kbd> + <kbd>O</kbd> | Open a PDF |
+| <kbd>Ctrl</kbd> + <kbd>S</kbd> | Save (web: download; desktop: write the opened file) |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> | Save as (desktop: choose a new file) |
+| <kbd>Ctrl</kbd> + <kbd>E</kbd> | Flatten to images ("as scanned") |
+| <kbd>Ctrl</kbd> + <kbd>N</kbd> / <kbd>Ctrl</kbd> + <kbd>W</kbd> | New blank document / close document (desktop edition) |
+| <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> | Reopen the previous file (desktop edition) |
+| <kbd>Ctrl</kbd> + <kbd>Z</kbd> | Undo |
+| <kbd>Ctrl</kbd> + <kbd>Y</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> | Redo |
+| <kbd>Ctrl</kbd> + <kbd>F</kbd> | In-document search |
+| <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | Next / previous search match (in the search bar) |
 | <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select all pages |
-| <kbd>Ctrl</kbd> + <kbd>0</kbd> | Zoom to fit selected page |
-| <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>=</kbd> | Zoom in |
-| <kbd>Ctrl</kbd> + <kbd>-</kbd> | Zoom out |
+| <kbd>Delete</kbd> / <kbd>Backspace</kbd> | Delete the selected annotation / element, or the selected pages (with confirmation) |
+| <kbd>Escape</kbd> | Close the search bar, a dialog or an inline editor |
+| <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>Ctrl</kbd> + <kbd>-</kbd> | Zoom in / out |
+| <kbd>Ctrl</kbd> + <kbd>0</kbd> | Fit the page |
+| <kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>Ctrl</kbd> + <kbd>2</kbd> | Actual size (100 %) / fit the width |
+| <kbd>Ctrl</kbd> + <kbd>B</kbd> | Show / hide the sidebar |
+| <kbd>Ctrl</kbd> + <kbd>/</kbd> | Keyboard shortcuts dialog |
+| <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> / <kbd>PageUp</kbd> <kbd>PageDown</kbd> | Previous / next page |
+| <kbd>Home</kbd> / <kbd>End</kbd> | First / last page |
+| <kbd>Shift</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd> | Extend the page selection |
+| <kbd>Shift</kbd> + <kbd>Home</kbd> / <kbd>End</kbd> (or <kbd>PageUp</kbd> / <kbd>PageDown</kbd>) | Select from the active page to the start / end |
+| <kbd>Shift</kbd> + <kbd>Click</kbd>, <kbd>Ctrl</kbd> + <kbd>Click</kbd> | Range / individual page selection |
+
+All shortcuts come from one table ([`src/shared/appCommands.ts`](src/shared/appCommands.ts)) that also drives the shortcuts dialog (<kbd>Ctrl</kbd> + <kbd>/</kbd>, or *About → Keyboard shortcuts*) and the menu of the desktop edition. Browsers reserve <kbd>Ctrl</kbd> + <kbd>N</kbd>, <kbd>W</kbd> and <kbd>Shift</kbd> + <kbd>T</kbd>, so those work in the desktop edition only.
 
 ---
 
@@ -204,12 +234,13 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
 | **Framework & Build** | [React 18](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/) | Fast development and type safety |
+| **Desktop Runtime** | [Electron](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) (`desktop` branch) | Native dialogs, file access, settings and Windows packaging |
 | **PDF Rendering** | [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) | Fast in-browser canvas rendering of PDF pages |
 | **PDF Manipulation & Export** | [`pdf-lib`](https://pdf-lib.js.org/) | Native vector page preservation, PageTree repair, burning annotations, signatures & shapes |
 | **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
 | **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Unit Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (37 test files, 233 tests) |
+| **Unit Testing** | [Vitest](https://vitest.dev/) | Automated unit & integration testing (40 test files, 197 tests; the desktop branch adds tests of the Electron shell) |
 
 ---
 
@@ -219,8 +250,13 @@ PDF Studio includes a comprehensive automated test suite covering page managemen
 
 ```bash
 # Run all unit tests
-npm run test
+npm test
+
+# Build and check that the bundle is self-contained (relative URLs, bundled pdf.js assets)
+npm run build && npm run verify:dist
 ```
+
+The desktop branch adds unit tests of the Electron shell (part of the same `npm test`) and an end-to-end test that drives the real desktop app with local files (`npm run e2e` in `desktop/`).
 
 ---
 
@@ -255,6 +291,22 @@ npm run build
 # Preview production build locally
 npm run preview
 ```
+
+The build uses relative URLs, so `dist/` works on GitHub Pages (`/pdf-studio/`), on any static web server and inside the desktop edition.
+
+---
+
+## 🔀 Two Editions, One Codebase
+
+```
+master   ── web app and everything shared (deployed to GitHub Pages)
+desktop  ── master + desktop/ (Electron shell) + release workflow
+```
+
+- **All application code lives on `master`.** The web app talks to the desktop shell only through `window.electronAPI`, whose contract is [`src/shared/desktopApi.ts`](src/shared/desktopApi.ts); in a browser the object does not exist and the desktop code paths are skipped.
+- **The `desktop` branch only adds files** (`desktop/`, `.github/workflows/release.yml`), so merging `master` into it never conflicts. The [sync workflow](.github/workflows/sync-desktop.yml) merges every push to `master` into `desktop` automatically, after type-checking the shell and running the tests against the merged code; if that check fails, `desktop` is left unchanged. By hand: `git checkout desktop && git merge master`.
+- **Shared translations and commands**: the desktop menu and dialogs use `src/i18n` and [`src/shared/appCommands.ts`](src/shared/appCommands.ts), so labels and shortcuts cannot drift apart.
+- **Desktop development and packaging**: see `desktop/README.md` on the `desktop` branch (`npm run dev`, `npm run e2e`, `npm run dist`). A version tag on `desktop` publishes the installer, the portable executable, the zip and the offline web bundle as a GitHub Release.
 
 ---
 

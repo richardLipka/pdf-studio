@@ -11,6 +11,7 @@ import {
   FlattenColorMode,
   FlattenOptions,
 } from '../../services/pdfFlattener';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 const DPI_CHOICES = [100, 150, 200, 300];
 
@@ -32,6 +33,13 @@ export const FlattenModal: React.FC = () => {
     () => estimateFlattenedSize(pages.map((p) => ({ width: p.width, height: p.height })), options),
     [pages, options]
   );
+
+  // Not while the pages are being rendered
+  useEscapeKey(isOpen && !running, () => {
+    setResult(null);
+    setProgress(null);
+    setIsFlattenModalOpen(false);
+  });
 
   if (!isOpen) return null;
 

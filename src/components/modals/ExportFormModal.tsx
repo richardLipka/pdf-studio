@@ -6,6 +6,7 @@ import { useDocument } from '../../context/DocumentContext';
 import { useFiles } from '../../context/FileContext';
 import { FormExportMode } from '../../types/form';
 import { FileEdit, Lock, Download, X, CheckCircle2 } from 'lucide-react';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 export const ExportFormModal: React.FC = () => {
   const { t } = useI18n();
@@ -16,6 +17,8 @@ export const ExportFormModal: React.FC = () => {
 
   const [selectedMode, setSelectedMode] = useState<FormExportMode>('interactive');
   const [isExporting, setIsExporting] = useState<boolean>(false);
+
+  useEscapeKey(isExportFormModalOpen && !isExporting, () => setIsExportFormModalOpen(false));
 
   if (!isExportFormModalOpen) return null;
 

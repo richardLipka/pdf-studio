@@ -10,6 +10,7 @@ import {
   DEFAULT_DOCUMENT_METADATA,
   RESERVED_METADATA_KEYS,
 } from '../../types/document';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 const CUSTOM_SUGGESTIONS = ['Company', 'Category', 'Comments', 'Manager'];
 
@@ -43,6 +44,8 @@ export const MetadataModal: React.FC = () => {
       setForm(metadata);
     }
   }, [isMetadataModalOpen, metadata]);
+
+  useEscapeKey(isMetadataModalOpen, () => setIsMetadataModalOpen(false));
 
   if (!isMetadataModalOpen) return null;
 
