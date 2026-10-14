@@ -1,9 +1,8 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
-import { createSamplePdfDoc } from '../../utils/file';
 import {
   FileUp,
   Download,
@@ -24,8 +23,8 @@ import {
   PanelLeft,
   Search,
 } from 'lucide-react';
-import { FlattenModal } from '../modals/FlattenModal';
 import { logger } from '../../services/logger';
+import { useFiles } from '../../context/FileContext';
 
 export const Header: React.FC = () => {
   const { language, setLanguage, t } = useI18n();
@@ -39,10 +38,7 @@ export const Header: React.FC = () => {
     canRedo,
     undo,
     redo,
-    loadPdfFile,
-    loadSamplePdf,
-    saveAndDownload,
-    hasFormFields,
+    isDirty,
     isSidebarOpen,
     toggleSidebar,
   } = useDocument();
@@ -56,13 +52,12 @@ export const Header: React.FC = () => {
     toggleSettingsModal,
     isMetadataModalOpen,
     toggleMetadataModal,
-    setIsExportFormModalOpen,
-    rasterSettings,
     isSearchOpen,
     toggleSearch,
+    setIsFlattenModalOpen,
   } = useEditor();
 
-  const [isFlattenOpen, setIsFlattenOpen] = React.useState(false);
+  const { isDesktop, notice, openDocument, openSample, requestSave } = useFiles();
   const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
     warns: 0,
     errors: 0,
@@ -74,56 +69,6 @@ export const Header: React.FC = () => {
       setIssueCount(logger.getWarningAndErrorCount());
     });
   }, []);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [showSuccessToast, setShowSuccessToast] = React.useState<boolean>(false);
-  const [showErrorToast, setShowErrorToast] = React.useState<boolean>(false);
-  const [errorToastText, setErrorToastText] = React.useState<string | null>(null);
-
-  const showError = (text: string | null) => {
-    setErrorToastText(text);
-    setShowErrorToast(true);
-    setShowSuccessToast(false);
-    setTimeout(() => setShowErrorToast(false), 4000);
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    if (file) {
-      try {
-        await loadPdfFile(file);
-      } catch {
-        showError(t.notifications.errorLoadingPdf);
-      }
-    }
-  };
-
-  const handleLoadSample = async () => {
-    try {
-      const sampleBuffer = await createSamplePdfDoc(language);
-      await loadSamplePdf(sampleBuffer, language);
-    } catch {
-      showError(t.notifications.errorLoadingPdf);
-    }
-  };
-
-  const handleSaveAndDownload = async () => {
-    if (pages.length === 0) return;
-    if (hasFormFields) {
-      setIsExportFormModalOpen(true);
-      return;
-    }
-    const success = await saveAndDownload(undefined, rasterSettings);
-    if (success) {
-      setShowSuccessToast(true);
-      setShowErrorToast(false);
-      setTimeout(() => setShowSuccessToast(false), 3500);
-    } else {
-      showError(null);
-    }
-  };
 
   const hasDoc = pages.length > 0;
   const notesCount = annotations.filter(
@@ -160,14 +105,14 @@ export const Header: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <span
-                className={`font-bold text-base tracking-tight ${
+                className={`hidden lg:inline font-bold text-base tracking-tight ${
                   isMinimal ? 'text-black font-semibold' : isLcars ? 'text-[#ff9900] uppercase' : 'text-white'
                 }`}
               >
                 {t.app.title}
               </span>
               <span
-                className={`hidden xl:inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-medium px-2 py-0.5 ${
+                className={`hidden 2xl:inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-medium px-2 py-0.5 ${
                   isMinimal
                     ? 'rounded-md bg-neutral-100 text-neutral-800 border border-neutral-300'
                     : isLcars
@@ -180,19 +125,38 @@ export const Header: React.FC = () => {
                     isMinimal ? 'text-black' : isLcars ? 'text-[#99ccff]' : 'text-emerald-400'
                   }`}
                 />
-                {t.app.privacyBadge}
+                {isDesktop ? t.files.privacyBadgeDesktop : t.app.privacyBadge}
               </span>
+              {isDesktop && (
+                <span
+                  className={`hidden sm:inline-flex items-center whitespace-nowrap text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                    isMinimal
+                      ? 'bg-neutral-200 text-neutral-900 border border-neutral-300'
+                      : isLcars
+                      ? 'bg-[#111111] text-[#ff9900] border border-[#ff9900] tracking-wider'
+                      : 'bg-emerald-950/80 text-emerald-300 border border-emerald-700/60'
+                  }`}
+                  title={t.files.desktopBadgeTooltip}
+                >
+                  {t.files.desktopBadge}
+                </span>
+              )}
             </div>
             {hasDoc && (
               <button
                 type="button"
                 onClick={toggleMetadataModal}
-                className={`text-xs truncate max-w-[160px] md:max-w-xs flex items-center gap-1 group text-left transition-colors ${
+                className={`text-xs truncate max-w-[120px] lg:max-w-xs flex items-center gap-1 group text-left transition-colors ${
                   isMinimal ? 'text-neutral-500 hover:text-black' : isLcars ? 'text-[#cc99cc] hover:text-[#ff9900]' : 'text-slate-400 hover:text-sky-300'
                 }`}
                 title={t.metadataModal.buttonTooltip}
               >
                 <span className="truncate">{fileName}</span>
+                {isDirty && (
+                  <span className="shrink-0 text-amber-400" title={t.files.unsavedMarker} aria-label={t.files.unsavedMarker}>
+                    ●
+                  </span>
+                )}
                 <Info className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
               </button>
             )}
@@ -202,17 +166,9 @@ export const Header: React.FC = () => {
 
       {/* Center Actions: Open, Sample, Undo, Redo */}
       <div className="flex items-center gap-1 lg:gap-2">
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          accept="application/pdf"
-          className="hidden"
-        />
-
         <button
-          onClick={() => fileInputRef.current?.click()}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+          onClick={() => void openDocument()}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
             isMinimal
               ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300 shadow-none'
               : isLcars
@@ -226,12 +182,12 @@ export const Header: React.FC = () => {
               isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-sky-400'
             }`}
           />
-          <span className="hidden lg:inline">{t.app.openFile}</span>
+          <span className="hidden xl:inline">{t.app.openFile}</span>
         </button>
 
         <button
-          onClick={handleLoadSample}
-          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+          onClick={() => void openSample()}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
             isMinimal
               ? 'rounded-md bg-white hover:bg-neutral-100 text-black border border-neutral-300'
               : isLcars
@@ -245,7 +201,7 @@ export const Header: React.FC = () => {
               isMinimal ? 'text-black' : isLcars ? 'text-[#ff9966]' : 'text-amber-400'
             }`}
           />
-          <span className="hidden xl:inline">{t.app.samplePdf}</span>
+          <span className="hidden 2xl:inline">{t.app.samplePdf}</span>
         </button>
 
         {hasDoc && (
@@ -368,7 +324,7 @@ export const Header: React.FC = () => {
                     : 'text-amber-400'
                 }`}
               />
-              <span className="hidden lg:inline">{t.notesPanel.title}</span>
+              <span className="hidden 2xl:inline whitespace-nowrap">{t.notesPanel.title}</span>
               {notesCount > 0 && (
                 <span
                   className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
@@ -392,7 +348,7 @@ export const Header: React.FC = () => {
         {/* Diagnostic Log Button (Icon only with Tooltip) */}
         <button
           onClick={toggleLogModal}
-          className={`p-2 relative border transition-all ${
+          className={`hidden lg:block p-2 relative border transition-all ${
             isMinimal
               ? isLogModalOpen
                 ? 'rounded-md bg-black text-white border-black'
@@ -426,7 +382,7 @@ export const Header: React.FC = () => {
         {hasDoc && (
           <button
             onClick={toggleMetadataModal}
-            className={`p-2 border transition-all ${
+            className={`hidden lg:block p-2 border transition-all ${
               isMinimal
                 ? isMetadataModalOpen
                   ? 'rounded-md bg-black text-white border-black'
@@ -449,7 +405,7 @@ export const Header: React.FC = () => {
         {/* Settings Button (Icon only with Tooltip) */}
         <button
           onClick={toggleSettingsModal}
-          className={`p-2 border transition-all ${
+          className={`hidden lg:block p-2 border transition-all ${
             isMinimal
               ? isSettingsModalOpen
                 ? 'rounded-md bg-black text-white border-black'
@@ -495,7 +451,7 @@ export const Header: React.FC = () => {
             title={t.theme.studio}
           >
             <Palette className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">Studio</span>
+            <span className="hidden 2xl:inline">Studio</span>
           </button>
 
           <button
@@ -514,7 +470,7 @@ export const Header: React.FC = () => {
             title={t.theme.minimal}
           >
             <Sun className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">Minimal</span>
+            <span className="hidden 2xl:inline">Minimal</span>
           </button>
 
           <button
@@ -533,7 +489,7 @@ export const Header: React.FC = () => {
             title={t.theme.lcars}
           >
             <Rocket className="w-3.5 h-3.5" />
-            <span className="hidden xl:inline">LCARS</span>
+            <span className="hidden 2xl:inline">LCARS</span>
           </button>
         </div>
 
@@ -590,7 +546,7 @@ export const Header: React.FC = () => {
         {/* Flatten to images ("as scanned") */}
         <button
           type="button"
-          onClick={() => setIsFlattenOpen(true)}
+          onClick={() => setIsFlattenModalOpen(true)}
           disabled={isSaving || !hasDoc}
           className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
             isMinimal
@@ -603,23 +559,30 @@ export const Header: React.FC = () => {
           aria-label={t.flattenModal.buttonTooltip}
         >
           <ScanLine className="w-4 h-4" />
-          <span className="hidden xl:inline">{t.flattenModal.buttonLabel}</span>
+          <span className="hidden 2xl:inline whitespace-nowrap">{t.flattenModal.buttonLabel}</span>
         </button>
-        <FlattenModal open={isFlattenOpen} onClose={() => setIsFlattenOpen(false)} />
 
         {/* Save & Download button */}
         <div className="relative">
           <button
-            onClick={handleSaveAndDownload}
+            onClick={() => requestSave(false)}
             disabled={isSaving || !hasDoc}
-            className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold active:scale-[0.98] transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap active:scale-[0.98] transition-all disabled:opacity-35 disabled:cursor-not-allowed ${
               isMinimal
                 ? 'rounded-md bg-black hover:bg-neutral-800 text-white border border-black shadow-none'
                 : isLcars
                 ? 'rounded-full bg-[#ff9900] hover:bg-[#ffcc00] text-black uppercase font-bold border-2 border-[#ff9900]'
                 : 'rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white shadow-md shadow-sky-500/20'
             }`}
-            title={!hasDoc ? (language === 'cs' ? 'Nejprve otevřete dokument' : 'Open a document first') : t.app.savePdf}
+            title={
+              !hasDoc
+                ? language === 'cs'
+                  ? 'Nejprve otevřete dokument'
+                  : 'Open a document first'
+                : isDesktop
+                ? t.files.saveTooltip
+                : t.app.savePdf
+            }
           >
             {isSaving ? (
               <>
@@ -629,13 +592,13 @@ export const Header: React.FC = () => {
             ) : (
               <>
                 <Download className="w-4 h-4 text-inherit" />
-                <span className="text-inherit">{t.app.savePdf}</span>
+                <span className="hidden lg:inline text-inherit">{isDesktop ? t.files.saveButton : t.app.savePdf}</span>
               </>
             )}
           </button>
 
           {/* Success Toast */}
-          {showSuccessToast && (
+          {notice?.kind === 'success' && (
             <div
               className={`absolute right-0 top-11 text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap animate-in fade-in slide-in-from-top-1 duration-200 z-50 ${
                 isMinimal
@@ -645,12 +608,12 @@ export const Header: React.FC = () => {
                   : 'bg-emerald-950 border border-emerald-500/50 text-emerald-300 shadow-xl'
               }`}
             >
-              ✓ {t.app.downloadSuccess}
+              ✓ {notice.text}
             </div>
           )}
 
           {/* Error Toast */}
-          {showErrorToast && (
+          {notice?.kind === 'error' && (
             <div
               className={`absolute right-0 top-11 text-[11px] font-medium px-3 py-1.5 rounded-lg whitespace-nowrap animate-in fade-in slide-in-from-top-1 duration-200 z-50 ${
                 isMinimal
@@ -660,7 +623,7 @@ export const Header: React.FC = () => {
                   : 'bg-rose-950 border border-rose-500/50 text-rose-300 shadow-xl'
               }`}
             >
-              ✕ {errorToastText || (language === 'cs' ? 'Chyba při stahování souboru' : 'Failed to download PDF')}
+              ✕ {notice.text}
             </div>
           )}
         </div>

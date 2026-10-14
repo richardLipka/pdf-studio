@@ -69,6 +69,15 @@ interface EditorContextType {
   isExportFormModalOpen: boolean;
   setIsExportFormModalOpen: (open: boolean) => void;
   toggleExportFormModal: () => void;
+  isAboutModalOpen: boolean;
+  setIsAboutModalOpen: (open: boolean) => void;
+  toggleAboutModal: () => void;
+  isShortcutsModalOpen: boolean;
+  setIsShortcutsModalOpen: (open: boolean) => void;
+  toggleShortcutsModal: () => void;
+  isFlattenModalOpen: boolean;
+  setIsFlattenModalOpen: (open: boolean) => void;
+  toggleFlattenModal: () => void;
   streamReplaceTargetText: string;
   setStreamReplaceTargetText: (text: string) => void;
   streamReplaceTargetPosition: { x: number; y: number } | null;
@@ -100,6 +109,7 @@ interface EditorContextType {
 
   // Stamps & Signatures Library
   stamps: SignatureStamp[];
+  setStamps: React.Dispatch<React.SetStateAction<SignatureStamp[]>>;
   addStamp: (stampData: { title: string; imageDataUrl: string; width?: number; height?: number }) => void;
   removeStamp: (id: string) => void;
   exportStampsToJson: () => void;
@@ -230,6 +240,22 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isStreamReplaceModalOpen, setIsStreamReplaceModalOpenState] = useState<boolean>(false);
   const [isRemoveElementsModalOpen, setIsRemoveElementsModalOpenState] = useState<boolean>(false);
   const [isExportFormModalOpen, setIsExportFormModalOpen] = useState<boolean>(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState<boolean>(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState<boolean>(false);
+  const [isFlattenModalOpen, setIsFlattenModalOpen] = useState<boolean>(false);
+
+  const toggleAboutModal = useCallback(() => {
+    setIsAboutModalOpen((prev) => !prev);
+  }, []);
+
+  const toggleShortcutsModal = useCallback(() => {
+    setIsShortcutsModalOpen((prev) => !prev);
+  }, []);
+
+  const toggleFlattenModal = useCallback(() => {
+    setIsFlattenModalOpen((prev) => !prev);
+  }, []);
+
   const [streamReplaceTargetText, setStreamReplaceTargetText] = useState<string>('');
   const [streamReplaceTargetPosition, setStreamReplaceTargetPosition] = useState<{ x: number; y: number } | null>(null);
 
@@ -246,20 +272,20 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setIsSearchOpen((prev) => !prev);
   }, []);
 
+  // State updaters must stay pure (StrictMode runs them twice), so the match count comes from a ref
+  const searchResultCountRef = React.useRef(0);
+  searchResultCountRef.current = searchResults.length;
+
   const nextSearchMatch = useCallback(() => {
-    setSearchResults((current) => {
-      if (current.length === 0) return current;
-      setActiveSearchMatchIndex((prev) => (prev + 1) % current.length);
-      return current;
-    });
+    const count = searchResultCountRef.current;
+    if (count === 0) return;
+    setActiveSearchMatchIndex((prev) => (prev + 1) % count);
   }, []);
 
   const prevSearchMatch = useCallback(() => {
-    setSearchResults((current) => {
-      if (current.length === 0) return current;
-      setActiveSearchMatchIndex((prev) => (prev - 1 + current.length) % current.length);
-      return current;
-    });
+    const count = searchResultCountRef.current;
+    if (count === 0) return;
+    setActiveSearchMatchIndex((prev) => (prev - 1 + count) % count);
   }, []);
 
   const setIsEditSidePanelOpen = (open: boolean) => {
@@ -559,6 +585,15 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isExportFormModalOpen,
     setIsExportFormModalOpen,
     toggleExportFormModal,
+    isAboutModalOpen,
+    setIsAboutModalOpen,
+    toggleAboutModal,
+    isShortcutsModalOpen,
+    setIsShortcutsModalOpen,
+    toggleShortcutsModal,
+    isFlattenModalOpen,
+    setIsFlattenModalOpen,
+    toggleFlattenModal,
     streamReplaceTargetText,
     setStreamReplaceTargetText,
     streamReplaceTargetPosition,
@@ -580,6 +615,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setRasterSettings,
     resetRasterSettings,
     stamps,
+    setStamps,
     addStamp,
     removeStamp,
     exportStampsToJson,

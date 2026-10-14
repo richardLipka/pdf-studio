@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const pdfjsDistDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'node_modules/pdfjs-dist');
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const pdfjsDistDir = path.resolve(rootDir, 'node_modules/pdfjs-dist');
+const appVersion: string = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf-8')).version;
 // Folders pdf.js fetches by file name at runtime: wasm image decoders (JPEG 2000, JBIG2) and color
 // management, standard font data, CMaps and ICC profiles
 const PDFJS_ASSET_DIRS = ['wasm', 'standard_fonts', 'cmaps', 'iccs'];
@@ -53,7 +55,12 @@ function pdfjsRuntimeAssets(): Plugin {
 }
 
 export default defineConfig({
+  // Relative asset URLs: the same build runs on GitHub Pages (/pdf-studio/), from any static folder and
+  // from file:// inside the desktop edition
   base: './',
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [react(), pdfjsRuntimeAssets()],
   optimizeDeps: {
     include: ['pdfjs-dist/legacy/build/pdf.mjs', 'pdf-lib', 'signature_pad']

@@ -13,7 +13,10 @@ import {
   ShieldCheck,
   ScrollText,
   Sliders,
+  Info,
 } from 'lucide-react';
+import { isDesktopApp } from '../../services/desktopBridge';
+import { APP_VERSION } from '../../utils/appInfo';
 
 export const StatusBar: React.FC = () => {
   const { t } = useI18n();
@@ -28,7 +31,7 @@ export const StatusBar: React.FC = () => {
     zoomToFitWidth,
   } = useDocument();
 
-  const { toggleLogModal, toggleSettingsModal, rasterSettings } = useEditor();
+  const { toggleLogModal, toggleSettingsModal, toggleAboutModal, rasterSettings } = useEditor();
 
   const [issueCount, setIssueCount] = React.useState<{ warns: number; errors: number; totalIssues: number }>({
     warns: 0,
@@ -143,7 +146,7 @@ export const StatusBar: React.FC = () => {
           className="flex items-center gap-1.5 hover:opacity-90 transition-opacity"
           title="Fakulta aplikovaných věd ZČU v Plzni (https://www.fav.zcu.cz/cs/)"
         >
-          <img src="/fav-logo.svg" alt="FAV ZČU" className="h-5 object-contain" />
+          <img src={`${import.meta.env.BASE_URL}fav-logo.svg`} alt="FAV ZČU" className="h-5 object-contain" />
         </a>
 
         <span
@@ -262,6 +265,32 @@ export const StatusBar: React.FC = () => {
             {rasterSettings.format === 'image/jpeg'
               ? `Raster: JPG ${Math.round(rasterSettings.jpegQuality * 100)}% (${rasterSettings.scale}×)`
               : `Raster: PNG (${rasterSettings.scale}×)`}
+          </span>
+        </button>
+
+        <span
+          className={`hidden lg:inline select-none ${
+            isMinimal ? 'text-neutral-300' : isLcars ? 'text-[#ff9900]' : 'text-slate-700'
+          }`}
+        >
+          •
+        </span>
+
+        {/* About App Modal Trigger */}
+        <button
+          onClick={toggleAboutModal}
+          className={`hidden lg:inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+            isMinimal
+              ? 'text-neutral-600 hover:text-black hover:bg-neutral-100'
+              : isLcars
+              ? 'text-[#ff9900] hover:text-[#ffff66] hover:bg-[#222]'
+              : 'text-slate-400 hover:text-sky-300 hover:bg-slate-800'
+          }`}
+          title={t.aboutModal.title}
+        >
+          <Info className="w-3 h-3" />
+          <span>
+            v{APP_VERSION} ({isDesktopApp() ? 'Desktop' : 'Web'})
           </span>
         </button>
       </div>

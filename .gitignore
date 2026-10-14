@@ -124,6 +124,13 @@ dist
 dist-ssr
 *.local
 
+# Desktop edition (desktop branch): Electron build output and packaged binaries
+dist-electron
+release
+desktop/build
+desktop/release
+desktop/node_modules
+
 # Editor / OS files
 .DS_Store
 Thumbs.db

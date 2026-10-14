@@ -1,8 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useI18n } from '../../i18n/context';
-import { useDocument } from '../../context/DocumentContext';
 import { useTheme } from '../../context/ThemeContext';
-import { createSamplePdfDoc } from '../../utils/file';
+import { useFiles } from '../../context/FileContext';
 import {
   FileUp,
   Sparkles,
@@ -12,18 +11,18 @@ import {
   ShieldCheck,
   Loader2,
   Lock,
+  Clock,
+  FileText,
 } from 'lucide-react';
 
 export const Dropzone: React.FC = () => {
   const { language, t } = useI18n();
   const { theme } = useTheme();
-  const { loadPdfFile, loadSamplePdf } = useDocument();
+  const { isDesktop, recentFiles, openDocument, openFile, openSample, openPath, clearRecentFiles } = useFiles();
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
@@ -37,12 +36,12 @@ export const Dropzone: React.FC = () => {
     setIsDragOver(false);
   };
 
-  // Failures are logged by the document context; here they only need to be shown to the user
-  const runLoad = async (load: () => Promise<void>) => {
+  // Failures are logged and announced by the file context; the drop zone also shows them inline
+  const runLoad = async (load: () => Promise<boolean | void>) => {
     setIsLoading(true);
     setLoadError(null);
     try {
-      await load();
+      if ((await load()) === false) setLoadError(t.notifications.errorLoadingPdf);
     } catch {
       setLoadError(t.notifications.errorLoadingPdf);
     } finally {
@@ -57,27 +56,13 @@ export const Dropzone: React.FC = () => {
     if (!file) return;
     // Some systems report an empty MIME type for dragged files, so accept the extension too
     if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-      await runLoad(() => loadPdfFile(file));
+      await runLoad(() => openFile(file));
     } else {
       setLoadError(t.notifications.invalidFile);
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Reset so that picking the same file again (e.g. after an error) fires onChange
-    e.target.value = '';
-    if (file) {
-      await runLoad(() => loadPdfFile(file));
-    }
-  };
-
-  const handleLoadSample = async () => {
-    await runLoad(async () => {
-      const sampleBuffer = await createSamplePdfDoc(language);
-      await loadSamplePdf(sampleBuffer, language);
-    });
-  };
+  const handleLoadSample = () => runLoad(openSample);
 
   return (
     <div
@@ -106,7 +91,7 @@ export const Dropzone: React.FC = () => {
                 isMinimal ? 'text-black' : isLcars ? 'text-[#ff9900]' : 'text-emerald-400'
               }`}
             />
-            <span>{t.app.privacyBadge}</span>
+            <span>{isDesktop ? t.files.privacyBadgeDesktop : t.app.privacyBadge}</span>
           </div>
 
           <h1
@@ -127,19 +112,11 @@ export const Dropzone: React.FC = () => {
         </div>
 
         {/* Drag and Drop Zone */}
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileSelect}
-          accept="application/pdf"
-          className="hidden"
-        />
-
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => void openDocument()}
           className={`w-full p-8 md:p-12 transition-all cursor-pointer flex flex-col items-center justify-center space-y-4 ${
             isMinimal
               ? isDragOver
@@ -196,7 +173,7 @@ export const Dropzone: React.FC = () => {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                fileInputRef.current?.click();
+                void openDocument();
               }}
               className={`px-5 py-2.5 text-xs font-bold transition-all ${
                 isMinimal
@@ -231,6 +208,54 @@ export const Dropzone: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Recent files of the desktop edition */}
+        {isDesktop && recentFiles.length > 0 && (
+          <div className="w-full text-left">
+            <div className="flex items-center justify-between pb-2">
+              <span
+                className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 ${
+                  isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#ff9900]' : 'text-slate-400'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                {t.files.recentFiles}
+              </span>
+              <button
+                type="button"
+                onClick={() => void clearRecentFiles()}
+                className={`text-[11px] hover:underline ${
+                  isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#cc99cc]' : 'text-slate-500'
+                }`}
+              >
+                {t.files.clearRecent}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {recentFiles.slice(0, 6).map((file) => (
+                <button
+                  type="button"
+                  key={file.path}
+                  onClick={() => void runLoad(() => openPath(file.path))}
+                  title={file.path}
+                  className={`flex items-center gap-2.5 p-2.5 rounded-lg text-left transition-colors group ${
+                    isMinimal
+                      ? 'bg-neutral-50 hover:bg-neutral-100 border border-neutral-200 text-black'
+                      : isLcars
+                      ? 'bg-[#0f0f0f] hover:bg-[#1f1f1f] border border-[#ff9900]/40 text-[#ff9900]'
+                      : 'bg-slate-900/60 hover:bg-slate-800 border border-slate-800 text-slate-200'
+                  }`}
+                >
+                  <FileText className="w-4 h-4 flex-shrink-0 text-sky-400" />
+                  <span className="overflow-hidden min-w-0">
+                    <span className="block text-xs font-medium truncate">{file.name}</span>
+                    <span className="block text-[10px] opacity-60 truncate">{file.path}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 4 Key Feature Badges */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full pt-4">

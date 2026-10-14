@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
+import { useEditor } from '../../context/EditorContext';
 import { ScanLine, X, Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import {
   DEFAULT_FLATTEN_OPTIONS,
@@ -11,20 +12,17 @@ import {
   FlattenOptions,
 } from '../../services/pdfFlattener';
 
-interface FlattenModalProps {
-  open: boolean;
-  onClose: () => void;
-}
-
 const DPI_CHOICES = [100, 150, 200, 300];
 
 const formatSize = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-export const FlattenModal: React.FC<FlattenModalProps> = ({ open, onClose }) => {
+export const FlattenModal: React.FC = () => {
   const { t } = useI18n();
   const { theme } = useTheme();
   const { pages, isSaving, flattenAndDownload } = useDocument();
+  const { isFlattenModalOpen: isOpen, setIsFlattenModalOpen } = useEditor();
+
   const [options, setOptions] = useState<FlattenOptions>(DEFAULT_FLATTEN_OPTIONS);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [result, setResult] = useState<'done' | 'failed' | null>(null);
@@ -35,7 +33,7 @@ export const FlattenModal: React.FC<FlattenModalProps> = ({ open, onClose }) => 
     [pages, options]
   );
 
-  if (!open) return null;
+  if (!isOpen) return null;
 
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
@@ -54,7 +52,7 @@ export const FlattenModal: React.FC<FlattenModalProps> = ({ open, onClose }) => 
     if (running) return;
     setResult(null);
     setProgress(null);
-    onClose();
+    setIsFlattenModalOpen(false);
   };
 
   const panelClass = isMinimal
