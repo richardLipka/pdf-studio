@@ -10,6 +10,10 @@ import {
 } from '../../src/shared/desktopApi';
 
 const THEMES = ['default', 'minimal', 'lcars'] as const;
+
+/** Paths are case-insensitive on Windows and (by default) macOS, case-sensitive elsewhere */
+export const samePath = (a: string, b: string, platform: string = process.platform): boolean =>
+  platform === 'win32' || platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
 const LANGUAGES = ['cs', 'en'] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -120,14 +124,13 @@ export class SettingsStore {
 
   /** Moves the file to the top of the recent files and remembers it as the last opened document */
   addRecentFile(filePath: string, size?: number): RecentFileItem[] {
-    const key = filePath.toLowerCase();
     const item: RecentFileItem = {
       path: filePath,
       name: path.basename(filePath),
       lastOpened: Date.now(),
       ...(typeof size === 'number' ? { size } : {}),
     };
-    this.settings.recentFiles = [item, ...this.settings.recentFiles.filter((f) => f.path.toLowerCase() !== key)].slice(
+    this.settings.recentFiles = [item, ...this.settings.recentFiles.filter((f) => !samePath(f.path, filePath))].slice(
       0,
       MAX_RECENT_FILES
     );
@@ -137,9 +140,8 @@ export class SettingsStore {
   }
 
   removeRecentFile(filePath: string): RecentFileItem[] {
-    const key = filePath.toLowerCase();
-    this.settings.recentFiles = this.settings.recentFiles.filter((f) => f.path.toLowerCase() !== key);
-    if (this.settings.lastOpenFilePath.toLowerCase() === key) this.settings.lastOpenFilePath = '';
+    this.settings.recentFiles = this.settings.recentFiles.filter((f) => !samePath(f.path, filePath));
+    if (samePath(this.settings.lastOpenFilePath, filePath)) this.settings.lastOpenFilePath = '';
     this.save();
     return this.settings.recentFiles;
   }
