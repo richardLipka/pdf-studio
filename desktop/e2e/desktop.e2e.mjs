@@ -55,7 +55,7 @@ async function makePdf(file, pageCount, withOutline) {
 }
 
 // --packaged runs the unpacked package from desktop/release (npm run pack) instead of desktop/build
-const packagedExe = path.join(desktopDir, 'release', 'win-unpacked', 'PDF Studio.exe');
+const packagedExe = path.join(desktopDir, 'release', 'win-unpacked', 'PilsenPDF.exe');
 const usePackaged = process.argv.includes('--packaged');
 if (usePackaged && !fs.existsSync(packagedExe)) {
   console.error(`${packagedExe} is missing: run npm run pack first`);
@@ -147,7 +147,7 @@ const main = async () => {
 
   console.log('1. Start with a file on the command line');
   let { app, win, problems } = await launch([fileA]);
-  check(await waitFor(async () => (await title(app)) === 'kniha s osnovou.pdf — PDF Studio'), `window title shows the file (${await title(app)})`);
+  check(await waitFor(async () => (await title(app)) === 'kniha s osnovou.pdf — PilsenPDF'), `window title shows the file (${await title(app)})`);
   check(await waitFor(() => win.locator('aside [data-page-id]').count().then((n) => n === 4)), 'four page thumbnails');
   const s1 = settings();
   check(s1.recentFiles[0]?.path === fileA && s1.lastOpenFilePath === fileA, 'opened file recorded in recent files');
@@ -185,7 +185,7 @@ const main = async () => {
     };
   });
   await pressShortcut(win, 'Control+S');
-  check(await waitFor(async () => (await title(app)) === 'kniha s osnovou.pdf — PDF Studio'), 'title is clean after saving');
+  check(await waitFor(async () => (await title(app)) === 'kniha s osnovou.pdf — PilsenPDF'), 'title is clean after saving');
   check((await app.evaluate(() => globalThis.__overwriteAsked)) === 1, 'overwrite was confirmed once');
   const savedA = await PDFDocument.load(fs.readFileSync(fileA));
   check(savedA.getPageCount() === 3 && fs.statSync(fileA).size !== sizeA, 'file on disk has the 3 remaining pages');
@@ -197,7 +197,7 @@ const main = async () => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath: target });
   }, fileC);
   await clickMenu(app, (await win.evaluate(() => document.documentElement.lang)) === 'en' ? 'Save As…' : 'Uložit jako…');
-  check(await waitFor(async () => (await title(app)) === 'kopie.pdf — PDF Studio'), 'title shows the new name');
+  check(await waitFor(async () => (await title(app)) === 'kopie.pdf — PilsenPDF'), 'title shows the new name');
   check(fs.existsSync(fileC) && settings().recentFiles[0].path === fileC, 'new file exists and leads the recent files');
 
   console.log('5. Unsaved changes are saved when closing with "Save"');
@@ -216,7 +216,7 @@ const main = async () => {
 
   console.log('6. Restart: last file reopened, settings kept');
   ({ app, win, problems } = await launch());
-  check(await waitFor(async () => (await title(app)) === 'kopie.pdf — PDF Studio'), 'last file reopened on startup');
+  check(await waitFor(async () => (await title(app)) === 'kopie.pdf — PilsenPDF'), 'last file reopened on startup');
   // Switch the language and theme in the app; the shell stores them and relabels its menu
   await win.getByRole('button', { name: 'EN', exact: true }).click();
   await win.getByTitle(/Minimal/).first().click();
@@ -236,11 +236,11 @@ const main = async () => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
   }, fileB);
   await pressShortcut(win, 'Control+O');
-  check(await waitFor(async () => (await title(app)) === 'druhy.pdf — PDF Studio'), 'Ctrl+O opened the file picked in the dialog');
+  check(await waitFor(async () => (await title(app)) === 'druhy.pdf — PilsenPDF'), 'Ctrl+O opened the file picked in the dialog');
   await clickMenu(app, 'Close Document');
   check(await waitFor(() => win.getByText('Recent Files').isVisible()), 'start screen lists recent files');
   await win.getByRole('button', { name: /kopie\.pdf/ }).click();
-  check(await waitFor(async () => (await title(app)) === 'kopie.pdf — PDF Studio'), 'recent file opened from the start screen');
+  check(await waitFor(async () => (await title(app)) === 'kopie.pdf — PilsenPDF'), 'recent file opened from the start screen');
 
   console.log('8. A scan with corrupt CCITT parameters is displayed');
   const scanFile = path.join(docs, 'scan.pdf');
@@ -249,7 +249,7 @@ const main = async () => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
   }, scanFile);
   await pressShortcut(win, 'Control+O');
-  check(await waitFor(async () => (await title(app)) === 'scan.pdf — PDF Studio'), 'scan opened');
+  check(await waitFor(async () => (await title(app)) === 'scan.pdf — PilsenPDF'), 'scan opened');
   const darkCenter = await waitFor(() =>
     win.evaluate(() => {
       const canvas = document.querySelector('canvas[data-page-canvas]');
@@ -290,7 +290,7 @@ const main = async () => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [target] });
   }, fileB);
   await pressShortcut(win, 'Control+O');
-  check(await waitFor(async () => (await title(app)) === 'druhy.pdf — PDF Studio'), 'file opened');
+  check(await waitFor(async () => (await title(app)) === 'druhy.pdf — PilsenPDF'), 'file opened');
   await new Promise((r) => setTimeout(r, 2500));
   await makePdf(fileB, 3, false); // another program saves a 3-page version
   check(
@@ -311,7 +311,7 @@ const main = async () => {
       globalThis.__opened.push(url);
     };
   });
-  await clickMenu(app, 'About PDF Studio');
+  await clickMenu(app, 'About PilsenPDF');
   await win.getByRole('button', { name: /GitHub/ }).click();
   const opened = await waitFor(() => app.evaluate(() => globalThis.__opened[0]));
   check(opened === 'https://github.com/richardLipka/pdf-studio', 'GitHub link handed to the system browser');

@@ -28,7 +28,7 @@ const isFile = (filePath: string) => fs.statSync(filePath).isFile();
 
 // The portable build keeps its settings next to the executable instead of in AppData
 if (process.env.PORTABLE_EXECUTABLE_DIR) {
-  app.setPath('userData', path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'PDF Studio Data'));
+  app.setPath('userData', path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'PilsenPDF Data'));
 }
 
 const devServerUrl = !app.isPackaged ? process.env.VITE_DEV_SERVER_URL : undefined;
@@ -83,7 +83,7 @@ const recentFilesChanged = () => {
 const updateWindowTitle = () => {
   if (!mainWindow) return;
   const name = documentState.fileName || (documentState.filePath ? path.basename(documentState.filePath) : '');
-  mainWindow.setTitle(name ? `${documentState.hasUnsavedChanges ? '● ' : ''}${name} — PDF Studio` : 'PDF Studio');
+  mainWindow.setTitle(name ? `${documentState.hasUnsavedChanges ? '● ' : ''}${name} — PilsenPDF` : 'PilsenPDF');
   // Windows / macOS "modified" indicators
   mainWindow.setDocumentEdited?.(documentState.hasUnsavedChanges);
 };
@@ -366,7 +366,7 @@ const createWindow = async () => {
     ...bounds,
     minWidth: 800,
     minHeight: 600,
-    title: 'PDF Studio',
+    title: 'PilsenPDF',
     backgroundColor: '#0f172a',
     show: false,
     ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
@@ -477,7 +477,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
-    if (process.platform === 'win32') app.setAppUserModelId('cz.zcu.fav.pdfstudio');
+    if (process.platform === 'win32') app.setAppUserModelId('cz.zcu.fav.pilsenpdf');
     const locale = app.getLocale().toLowerCase();
     store = new SettingsStore(path.join(app.getPath('userData'), 'pdf-studio-settings.json'), {
       ...DEFAULT_DESKTOP_SETTINGS,

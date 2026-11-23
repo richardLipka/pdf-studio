@@ -44,7 +44,7 @@ const PDFJS_OPS = {
 describe('Local Build & Asset Visibility Test Suite', () => {
   const desktopDir = path.resolve(__dirname, '..');
   const rootDir = path.resolve(desktopDir, '..');
-  const releaseExePath = path.join(desktopDir, 'release/win-unpacked/PDF Studio.exe');
+  const releaseExePath = path.join(desktopDir, 'release/win-unpacked/PilsenPDF.exe');
   const distIndexPath = path.join(desktopDir, 'build/web/index.html');
   const distElectronMainPath = path.join(desktopDir, 'build/main.cjs');
   const distElectronPreloadPath = path.join(desktopDir, 'build/preload.cjs');
@@ -66,7 +66,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
       expect(fs.existsSync(distIndexPath)).toBe(true);
       const htmlContent = fs.readFileSync(distIndexPath, 'utf-8');
       expect(htmlContent).toContain('id="root"');
-      expect(htmlContent).toContain('PDF Studio');
+      expect(htmlContent).toContain('PilsenPDF');
       expect(htmlContent).toMatch(/<script type="module"/);
     });
 
@@ -79,7 +79,7 @@ describe('Local Build & Asset Visibility Test Suite', () => {
       expect(preloadStat.size).toBeGreaterThan(500);
     });
 
-    it.skipIf(!hasExe)('verifies that the local desktop executable (PDF Studio.exe) exists and has valid PE headers', () => {
+    it.skipIf(!hasExe)('verifies that the local desktop executable (PilsenPDF.exe) exists and has valid PE headers', () => {
       expect(fs.existsSync(releaseExePath)).toBe(true);
       const stat = fs.statSync(releaseExePath);
       // Packaged electron binary should be substantial (> 100 MB)

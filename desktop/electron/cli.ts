@@ -8,7 +8,7 @@ export interface LaunchFileOptions {
 }
 
 /**
- * Finds the PDF file passed on the command line ("PDF Studio.exe" document.pdf, "Open with",
+ * Finds the PDF file passed on the command line ("PilsenPDF.exe" document.pdf, "Open with",
  * double-click on an associated file). argv[0] is the executable; in development Electron also gets
  * the app folder, and Chromium may append its own --switches, so the first argument that names an
  * existing .pdf file wins.

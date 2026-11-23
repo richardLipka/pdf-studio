@@ -1,8 +1,8 @@
 {
-  "name": "pdf-studio-desktop",
-  "productName": "PDF Studio",
+  "name": "pilsen-pdf-desktop",
+  "productName": "PilsenPDF",
   "version": "2.0.0",
-  "description": "PDF Studio desktop edition: the web app (repository root) in an Electron shell with native dialogs, in-place saving, recent files and persistent settings",
+  "description": "PilsenPDF (P-PDF) desktop edition: the web app (repository root) in an Electron shell with native dialogs, in-place saving, recent files and persistent settings",
   "author": "Richard Lipka <lipka@fav.zcu.cz>",
   "homepage": "https://github.com/richardLipka/pdf-studio",
   "license": "MIT",
@@ -29,8 +29,8 @@
     "playwright-core": "^1.65.1"
   },
   "build": {
-    "appId": "cz.zcu.fav.pdfstudio",
-    "productName": "PDF Studio",
+    "appId": "cz.zcu.fav.pilsenpdf",
+    "productName": "PilsenPDF",
     "directories": {
       "output": "release",
       "buildResources": "resources"
@@ -39,7 +39,7 @@
       "build/**/*",
       "package.json"
     ],
-    "artifactName": "PDF-Studio-${version}-${os}-${arch}.${ext}",
+    "artifactName": "PilsenPDF-${version}-${os}-${arch}.${ext}",
     "fileAssociations": [
       {
         "ext": "pdf",
@@ -61,11 +61,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "PDF Studio",
-      "artifactName": "PDF-Studio-Setup-${version}.${ext}"
+      "shortcutName": "PilsenPDF",
+      "artifactName": "PilsenPDF-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "PDF-Studio-Portable-${version}.${ext}"
+      "artifactName": "PilsenPDF-Portable-${version}.${ext}"
     }
   }
 }

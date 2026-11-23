@@ -21,14 +21,14 @@ describe('Command-line file', () => {
   const options = { cwd: work, isFile: (p: string) => existing.has(p) };
 
   it('takes the first existing PDF after the executable', () => {
-    expect(findPdfArgument(['PDF Studio.exe', fileA], options)).toBe(fileA);
+    expect(findPdfArgument(['PilsenPDF.exe', fileA], options)).toBe(fileA);
     // development: electron.exe <app folder> <file>
     expect(findPdfArgument(['electron.exe', '.', fileA], options)).toBe(fileA);
-    expect(findPdfArgument(['PDF Studio.exe', `"${withSpace}"`], options)).toBe(withSpace);
+    expect(findPdfArgument(['PilsenPDF.exe', `"${withSpace}"`], options)).toBe(withSpace);
   });
 
   it('resolves relative paths against the working directory of the launching process', () => {
-    expect(findPdfArgument(['PDF Studio.exe', 'rel.pdf'], options)).toBe(path.join(work, 'rel.pdf'));
+    expect(findPdfArgument(['PilsenPDF.exe', 'rel.pdf'], options)).toBe(path.join(work, 'rel.pdf'));
   });
 
   it('ignores switches, other files, missing files and the executable itself', () => {
@@ -147,7 +147,7 @@ describe('Native menu', () => {
     settings: { ...DEFAULT_DESKTOP_SETTINGS },
     recentFiles: [],
     isMac: false,
-    appName: 'PDF Studio',
+    appName: 'PilsenPDF',
     command: vi.fn(),
     openPath: vi.fn(),
     openedFilePath: null,

@@ -1,4 +1,4 @@
-# PDF Studio — desktop edition
+# PilsenPDF (P-PDF) — desktop edition
 
 The desktop edition is the web app from the repository root running in an Electron window. This
 folder holds only the shell around it; everything you see in the window is the same code that runs
@@ -12,7 +12,7 @@ What the shell adds to the web app:
 | Save writes the opened file in place | atomic write (temporary file + rename); asks before overwriting, with *Do not ask again* (Settings → *Ask before overwriting files*) |
 | Unsaved changes guard | `●` in the window title; closing asks *Save & close / Discard / Cancel* |
 | Recent files | File → *Open recent*, the start screen, `Ctrl+Shift+T` reopens the previous file |
-| Command line and "Open with" | `"PDF Studio.exe" document.pdf`; a second launch passes the file to the running window |
+| Command line and "Open with" | `"PilsenPDF.exe" document.pdf`; a second launch passes the file to the running window |
 | Persistent settings | language, theme, rasterization settings, signatures/stamps, window size, *Reopen last file on startup*, *Ask before overwriting files* — saved automatically |
 | Settings backup | Settings → *Back Up Settings & Signatures…* / *Restore Settings from Backup…* (JSON; same format as the web edition's settings dialog) |
 | Files changed elsewhere | the opened file is polled every 2 s; when another program saves it, the app offers to load the new version (its own saves do not trigger this) |
@@ -20,7 +20,7 @@ What the shell adds to the web app:
 | Native menu | localized (Czech / English), labels from `src/i18n`, shortcuts from `src/shared/appCommands.ts` |
 
 Settings are stored in `pdf-studio-settings.json` in the user data folder
-(`%APPDATA%\PDF Studio` on Windows). The portable executable keeps them in a `PDF Studio Data`
+(`%APPDATA%\PilsenPDF` on Windows). The portable executable keeps them in a `PilsenPDF Data`
 folder next to itself. Every start that reads the file successfully copies it to
 `pdf-studio-settings.json.bak`; if the settings file is ever damaged, that last working copy is used
 (the damaged file is kept as `.corrupt`) instead of starting from the defaults.
@@ -72,8 +72,8 @@ npm run dist           # installer, portable executable and zip in release/
 npm run dist:nsis      # only the installer (also :portable, :zip)
 ```
 
-Files in `release/`: `PDF-Studio-Setup-<version>.exe`, `PDF-Studio-Portable-<version>.exe` and
-`PDF-Studio-<version>-win-x64.zip`. A version tag on the `desktop` branch
+Files in `release/`: `PilsenPDF-Setup-<version>.exe`, `PilsenPDF-Portable-<version>.exe` and
+`PilsenPDF-<version>-win-x64.zip`. A version tag on the `desktop` branch
 (`git tag v2.0.0 && git push origin v2.0.0`) builds them in GitHub Actions and publishes a release
 together with the offline web bundle.
 

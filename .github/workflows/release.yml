@@ -54,12 +54,12 @@ jobs:
           npm run verify:dist
 
       - name: Package the offline web bundle
-        run: cd dist && zip -r ../pdf-studio-web.zip .
+        run: cd dist && zip -r ../pilsen-pdf-web.zip .
 
       - uses: actions/upload-artifact@v4
         with:
           name: web-bundle
-          path: pdf-studio-web.zip
+          path: pilsen-pdf-web.zip
           if-no-files-found: error
 
   windows-desktop:
@@ -124,18 +124,18 @@ jobs:
           draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
           prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
           generate_release_notes: true
-          name: PDF Studio ${{ steps.assets.outputs.version }}
+          name: PilsenPDF (P-PDF) ${{ steps.assets.outputs.version }}
           body: |
-            ## PDF Studio ${{ steps.assets.outputs.version }}
+            ## PilsenPDF (P-PDF) ${{ steps.assets.outputs.version }}
 
             ### Windows desktop edition
-            - **Installer**: `PDF-Studio-Setup-${{ steps.assets.outputs.version }}.exe` (per-user install, Start menu and desktop shortcuts, "Open with" for PDF files)
-            - **Portable**: `PDF-Studio-Portable-${{ steps.assets.outputs.version }}.exe` (no installation; settings are kept next to the executable)
-            - **Zip**: `PDF-Studio-${{ steps.assets.outputs.version }}-win-x64.zip` (unpacked application folder)
+            - **Installer**: `PilsenPDF-Setup-${{ steps.assets.outputs.version }}.exe` (per-user install, Start menu and desktop shortcuts, "Open with" for PDF files)
+            - **Portable**: `PilsenPDF-Portable-${{ steps.assets.outputs.version }}.exe` (no installation; settings are kept next to the executable)
+            - **Zip**: `PilsenPDF-${{ steps.assets.outputs.version }}-win-x64.zip` (unpacked application folder)
 
             ### Web edition
             - **Live**: https://richardlipka.github.io/pdf-studio/
-            - **Offline bundle**: `pdf-studio-web.zip` (unpack and serve from any static web server, e.g. an intranet)
+            - **Offline bundle**: `pilsen-pdf-web.zip` (unpack and serve from any static web server, e.g. an intranet)
 
             All PDF processing, rendering, signing and editing happens locally; nothing is uploaded.
         env:
