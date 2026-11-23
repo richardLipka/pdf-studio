@@ -16,7 +16,7 @@ const requireFromRoot = createRequire(path.join(desktopDir, '..', 'package.json'
 const { PDFDocument, StandardFonts, PDFName, PDFString, PDFNumber } = requireFromRoot('pdf-lib');
 const electronBinary = createRequire(path.join(desktopDir, 'package.json'))('electron');
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-studio-e2e-'));
+const work = fs.mkdtempSync(path.join(os.tmpdir(), 'pilsen-pdf-e2e-'));
 const profile = path.join(work, 'profile');
 const docs = path.join(work, 'Dokumenty s mezerou');
 fs.mkdirSync(docs, { recursive: true });
@@ -108,7 +108,7 @@ const launch = async (args = []) => {
 };
 
 const title = (app) => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle());
-const settings = () => JSON.parse(fs.readFileSync(path.join(profile, 'pdf-studio-settings.json'), 'utf-8'));
+const settings = () => JSON.parse(fs.readFileSync(path.join(profile, 'pilsen-pdf-settings.json'), 'utf-8'));
 const waitFor = async (fn, timeout = 15000) => {
   const start = Date.now();
   for (;;) {
@@ -264,7 +264,7 @@ const main = async () => {
   console.log('9. Settings: automatic file, backup and restore');
   const s9 = settings();
   check(s9.rasterSettings && s9.rasterSettings.scale > 0, 'raster settings are kept in the settings file');
-  check(fs.existsSync(path.join(profile, 'pdf-studio-settings.json.bak')), 'last working copy of the settings file exists');
+  check(fs.existsSync(path.join(profile, 'pilsen-pdf-settings.json.bak')), 'last working copy of the settings file exists');
   const backupFile = path.join(work, 'zaloha.json');
   await app.evaluate(({ dialog }, target) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath: target });
@@ -273,7 +273,7 @@ const main = async () => {
   check(await waitFor(() => fs.existsSync(backupFile)), 'backup written through the native save dialog');
   const backup = JSON.parse(fs.readFileSync(backupFile, 'utf-8'));
   check(
-    backup.format === 'pdf-studio-backup' && backup.settings.theme === 'minimal' && backup.settings.language === 'en' && backup.app.edition === 'desktop',
+    backup.format === 'pilsen-pdf-backup' && backup.settings.theme === 'minimal' && backup.settings.language === 'en' && backup.app.edition === 'desktop',
     'backup holds the theme, language and edition'
   );
   // Change the theme, then restore the backup (the confirmation dialog is accepted)
@@ -314,7 +314,7 @@ const main = async () => {
   await clickMenu(app, 'About PilsenPDF');
   await win.getByRole('button', { name: /GitHub/ }).click();
   const opened = await waitFor(() => app.evaluate(() => globalThis.__opened[0]));
-  check(opened === 'https://github.com/richardLipka/pdf-studio', 'GitHub link handed to the system browser');
+  check(opened === 'https://github.com/richardLipka/pilsen-pdf', 'GitHub link handed to the system browser');
   check((await app.windows()).length === 1, 'no in-app browser window was opened');
   check(problems.length === 0, `no errors in the window${problems.length ? `: ${problems.join(' | ')}` : ''}`);
   await app.close();

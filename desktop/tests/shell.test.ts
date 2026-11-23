@@ -43,8 +43,8 @@ describe('Settings store', () => {
   let file: string;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-studio-settings-'));
-    file = path.join(dir, 'pdf-studio-settings.json');
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pilsen-pdf-settings-'));
+    file = path.join(dir, 'pilsen-pdf-settings.json');
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 

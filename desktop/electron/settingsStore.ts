@@ -69,10 +69,10 @@ export const sanitizeSettings = (raw: unknown, defaults: DesktopSettings): Deskt
 };
 
 /**
- * Settings of the desktop edition in a JSON file (pdf-studio-settings.json in the user data folder,
+ * Settings of the desktop edition in a JSON file (pilsen-pdf-settings.json in the user data folder,
  * next to the executable for the portable build). Writes are atomic, so a crash never leaves a
  * truncated file behind, and every successful start keeps a copy of the file as it was
- * (pdf-studio-settings.json.bak): when the settings file is unreadable, that last working version
+ * (pilsen-pdf-settings.json.bak): when the settings file is unreadable, that last working version
  * is used instead of the defaults. Pure Node: no Electron imports, so it is unit-tested directly.
  */
 export class SettingsStore {

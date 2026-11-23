@@ -4,7 +4,7 @@
   "version": "2.0.0",
   "description": "PilsenPDF (P-PDF) desktop edition: the web app (repository root) in an Electron shell with native dialogs, in-place saving, recent files and persistent settings",
   "author": "Richard Lipka <lipka@fav.zcu.cz>",
-  "homepage": "https://github.com/richardLipka/pdf-studio",
+  "homepage": "https://github.com/richardLipka/pilsen-pdf",
   "license": "MIT",
   "private": true,
   "main": "build/main.cjs",

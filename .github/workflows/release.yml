@@ -134,7 +134,7 @@ jobs:
             - **Zip**: `PilsenPDF-${{ steps.assets.outputs.version }}-win-x64.zip` (unpacked application folder)
 
             ### Web edition
-            - **Live**: https://richardlipka.github.io/pdf-studio/
+            - **Live**: https://richardlipka.github.io/pilsen-pdf/
             - **Offline bundle**: `pilsen-pdf-web.zip` (unpack and serve from any static web server, e.g. an intranet)
 
             All PDF processing, rendering, signing and editing happens locally; nothing is uploaded.

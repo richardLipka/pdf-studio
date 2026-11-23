@@ -135,7 +135,7 @@ const writeFileAtomic = async (filePath: string, data: Uint8Array) => {
     await fs.promises.writeFile(tmp, data);
     await fs.promises.rename(tmp, filePath);
   } catch (err) {
-    await fs.promises.rm(tmp, { force: true }).catch(() => {});
+    await fs.promises.rm(tmp, { force: true }).catch(() => { });
     throw err;
   }
 };
@@ -255,7 +255,7 @@ const registerIpcHandlers = () => {
   ipcMain.handle(IPC_CHANNELS.saveTextFile, async (_event, defaultName: unknown, content: unknown): Promise<FileSaveResult> => {
     if (!mainWindow) return { cancelled: true };
     if (typeof content !== 'string') throw new Error('Invalid file content');
-    const suggested = typeof defaultName === 'string' && defaultName ? path.basename(defaultName) : 'pdf-studio-settings.json';
+    const suggested = typeof defaultName === 'string' && defaultName ? path.basename(defaultName) : 'pilsen-pdf-settings.json';
     const result = await dialog.showSaveDialog(mainWindow, {
       title: strings().commands.backupSettings.replace(/…$/, ''),
       defaultPath: path.join(app.getPath('documents'), suggested),
@@ -479,7 +479,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     if (process.platform === 'win32') app.setAppUserModelId('cz.zcu.fav.pilsenpdf');
     const locale = app.getLocale().toLowerCase();
-    store = new SettingsStore(path.join(app.getPath('userData'), 'pdf-studio-settings.json'), {
+    store = new SettingsStore(path.join(app.getPath('userData'), 'pilsen-pdf-settings.json'), {
       ...DEFAULT_DESKTOP_SETTINGS,
       language: locale.startsWith('cs') || locale.startsWith('sk') ? 'cs' : 'en',
     });

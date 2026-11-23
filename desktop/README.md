@@ -2,7 +2,7 @@
 
 The desktop edition is the web app from the repository root running in an Electron window. This
 folder holds only the shell around it; everything you see in the window is the same code that runs
-on <https://richardlipka.github.io/pdf-studio/>.
+on <https://richardlipka.github.io/pilsen-pdf/>.
 
 What the shell adds to the web app:
 
@@ -19,10 +19,10 @@ What the shell adds to the web app:
 | Windows integration | recent files in the taskbar jump list, File → *Show in Folder*, PDFs dropped anywhere on the window open |
 | Native menu | localized (Czech / English), labels from `src/i18n`, shortcuts from `src/shared/appCommands.ts` |
 
-Settings are stored in `pdf-studio-settings.json` in the user data folder
+Settings are stored in `pilsen-pdf-settings.json` in the user data folder
 (`%APPDATA%\PilsenPDF` on Windows). The portable executable keeps them in a `PilsenPDF Data`
 folder next to itself. Every start that reads the file successfully copies it to
-`pdf-studio-settings.json.bak`; if the settings file is ever damaged, that last working copy is used
+`pilsen-pdf-settings.json.bak`; if the settings file is ever damaged, that last working copy is used
 (the damaged file is kept as `.corrupt`) instead of starting from the defaults.
 
 ## How the two editions stay compatible

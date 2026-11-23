@@ -3,7 +3,7 @@ import { AppCommandId, getAccelerator } from '../../src/shared/appCommands';
 import { DesktopSettings, DesktopSettingsPatch, RecentFileItem } from '../../src/shared/desktopApi';
 import type { TranslationSchema } from '../../src/types/i18n';
 
-export const REPOSITORY_URL = 'https://github.com/richardLipka/pdf-studio';
+export const REPOSITORY_URL = 'https://github.com/richardLipka/pilsen-pdf';
 
 export interface MenuContext {
   strings: TranslationSchema;
