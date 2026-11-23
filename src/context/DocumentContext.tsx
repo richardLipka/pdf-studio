@@ -18,9 +18,18 @@ import {
   extractPdfMetadata,
   clearPdfCache,
   getPageTextModel,
+  getPageViewportTransform,
   getDocumentOutlines,
 } from '../services/pdfLoader';
 import { replaceTextBlockContent, replaceTextLineContent, removeTextLineContent } from '../services/pdfTextEditor';
+import {
+  displayRectToPdfRect,
+  invertMatrix,
+  PdfRect,
+  reflowTextBlocksOnPage,
+  transformImageOnPage,
+  transformTextBlocksOnPage,
+} from '../services/pdfElementTransform';
 import { logger } from '../services/logger';
 import { repairPdfDefects } from '../services/pdfRepair';
 import { downloadBlob } from '../utils/file';
@@ -221,6 +230,25 @@ interface DocumentContextType {
     lineId: string,
     pageIndex?: number
   ) => Promise<{ success: boolean; error?: string }>;
+  /** Repositions and/or resizes an embedded image placement on a PDF page */
+  transformPageImage: (
+    placementId: string,
+    newRect: PdfRect,
+    options?: { space?: 'pdf' | 'display'; pageIndex?: number }
+  ) => Promise<{ success: boolean; error?: string }>;
+  /** Repositions and/or scales one or more PDF text blocks atomically */
+  transformPageTextBlocks: (
+    segmentIds: string[],
+    oldRect: PdfRect,
+    newRect: PdfRect,
+    options?: { space?: 'pdf' | 'display'; pageIndex?: number }
+  ) => Promise<{ success: boolean; error?: string }>;
+  /** Reflows a PDF text block (or visual group) into a new target width in points */
+  reflowPageTextBlocks: (
+    segmentIds: string[],
+    newWidthPt: number,
+    options?: { deltaDisplayX?: number; deltaDisplayY?: number; deltaPdfX?: number; deltaPdfY?: number; pageIndex?: number }
+  ) => Promise<{ success: boolean; lineCount?: number; fontSubstituted?: boolean; error?: string }>;
 
   // Interactive Form Fields (AcroForms)
   formFields: FormFieldModel[];
@@ -1198,6 +1226,122 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return { success: true };
   };
 
+  const transformPageImage = async (
+    placementId: string,
+    newRect: PdfRect,
+    options: { space?: 'pdf' | 'display'; pageIndex?: number } = {}
+  ): Promise<{ success: boolean; error?: string }> => {
+    const pageIndex = options.pageIndex ?? activePageIndexRef.current;
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { targetPage, sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    let pdfRect = newRect;
+    if (options.space === 'display') {
+      const vt = await getPageViewportTransform(sourceDoc, targetPage);
+      if (!vt) return { success: false, error: 'Nepodařilo se určit souřadnicový prostor stránky.' };
+      pdfRect = displayRectToPdfRect(newRect, vt);
+    }
+
+    const result = await transformImageOnPage(sourceDoc.arrayBuffer, sourcePageIndex, placementId, pdfRect);
+    if (result.error) return { success: false, error: result.error };
+    if (result.updatedPdfBytes !== sourceDoc.arrayBuffer) {
+      commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+    }
+    return { success: true };
+  };
+
+  const transformPageTextBlocks = async (
+    segmentIds: string[],
+    oldRect: PdfRect,
+    newRect: PdfRect,
+    options: { space?: 'pdf' | 'display'; pageIndex?: number } = {}
+  ): Promise<{ success: boolean; error?: string }> => {
+    const pageIndex = options.pageIndex ?? activePageIndexRef.current;
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { targetPage, sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    const model = await getPageTextModel(sourceDoc, targetPage);
+    if (!model?.aligned) {
+      return { success: false, error: 'Text této stránky nelze spolehlivě namapovat na obsah PDF.' };
+    }
+
+    let oldPdfRect = oldRect;
+    let newPdfRect = newRect;
+    if ((options.space ?? 'display') === 'display') {
+      const vt = model.viewportTransform ?? (await getPageViewportTransform(sourceDoc, targetPage));
+      if (!vt) return { success: false, error: 'Nepodařilo se určit souřadnicový prostor stránky.' };
+      oldPdfRect = displayRectToPdfRect(oldRect, vt);
+      newPdfRect = displayRectToPdfRect(newRect, vt);
+    }
+
+    const result = await transformTextBlocksOnPage(
+      sourceDoc.arrayBuffer,
+      sourcePageIndex,
+      model,
+      segmentIds,
+      oldPdfRect,
+      newPdfRect
+    );
+    if (result.error) return { success: false, error: result.error };
+    if (result.updatedPdfBytes !== sourceDoc.arrayBuffer) {
+      commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+    }
+    return { success: true };
+  };
+
+  const reflowPageTextBlocks = async (
+    segmentIds: string[],
+    newWidthPt: number,
+    options: { deltaDisplayX?: number; deltaDisplayY?: number; deltaPdfX?: number; deltaPdfY?: number; pageIndex?: number } = {}
+  ): Promise<{ success: boolean; lineCount?: number; fontSubstituted?: boolean; error?: string }> => {
+    const pageIndex = options.pageIndex ?? activePageIndexRef.current;
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { targetPage, sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    const model = await getPageTextModel(sourceDoc, targetPage);
+    if (!model?.aligned) {
+      return { success: false, error: 'Text této stránky nelze spolehlivě namapovat na obsah PDF.' };
+    }
+
+    let deltaPdfX = options.deltaPdfX ?? 0;
+    let deltaPdfY = options.deltaPdfY ?? 0;
+    if (options.deltaDisplayX || options.deltaDisplayY) {
+      const vt = model.viewportTransform ?? (await getPageViewportTransform(sourceDoc, targetPage));
+      const inv = vt ? invertMatrix(vt) : null;
+      if (inv) {
+        const dx = options.deltaDisplayX ?? 0;
+        const dy = options.deltaDisplayY ?? 0;
+        deltaPdfX += inv[0] * dx + inv[2] * dy;
+        deltaPdfY += inv[1] * dx + inv[3] * dy;
+      }
+    }
+
+    const result = await reflowTextBlocksOnPage(
+      sourceDoc.arrayBuffer,
+      sourcePageIndex,
+      model,
+      segmentIds,
+      newWidthPt,
+      deltaPdfX,
+      deltaPdfY
+    );
+    if (result.error) return { success: false, error: result.error };
+    if (result.updatedPdfBytes !== sourceDoc.arrayBuffer) {
+      commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+    }
+    return {
+      success: true,
+      lineCount: result.lineCount,
+      fontSubstituted: result.fontSubstituted,
+    };
+  };
+
   const replacePageImage = async (
     imageName: string,
     fileOrBytes: File | Blob | ArrayBuffer | Uint8Array,
@@ -1607,6 +1751,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     applyBlockTextEdit,
     applyLineTextEdit,
     removeLineText,
+    transformPageImage,
+    transformPageTextBlocks,
+    reflowPageTextBlocks,
     formFields,
     formValues,
     updateFormFieldValue,

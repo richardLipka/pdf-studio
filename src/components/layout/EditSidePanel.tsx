@@ -23,6 +23,7 @@ import {
   ChevronRight,
   ChevronDown,
   Lock,
+  Unlock,
   Download,
   Replace,
   RotateCcw,
@@ -39,6 +40,7 @@ import {
   normalizeTextForSearch,
 } from '../../services/contentStreamEditor';
 import { getPageTextBlocks, getPageTextModel } from '../../services/pdfLoader';
+import { displayRectToPdfRect, PdfMatrix, PdfRect } from '../../services/pdfElementTransform';
 import { fromReadableBlock, ReadableBlock, toReadableBlock } from '../../services/pdfReadableStream';
 import type { PageTextModel, TextBlock, TextLine } from '../../services/pdfTextModel';
 import { VisualTextBlock } from '../../utils/textSnap';
@@ -159,6 +161,9 @@ export const EditSidePanel: React.FC = () => {
     applyBlockTextEdit,
     applyLineTextEdit,
     removeLineText,
+    transformPageImage,
+    transformPageTextBlocks,
+    reflowPageTextBlocks,
     applyContentStreamReplacement,
     selectedAnnotationId,
   } = useDocument();
@@ -236,7 +241,18 @@ export const EditSidePanel: React.FC = () => {
   // Inspector Text, Multi-Line & Advanced Stream Code State
   const [quickReplaceNewText, setQuickReplaceNewText] = useState<string>('');
   const [selectedModelBlock, setSelectedModelBlock] = useState<TextBlock | null>(null);
+  const [selectedModelViewport, setSelectedModelViewport] = useState<PdfMatrix | null>(null);
   const [blockInspectorMode, setBlockInspectorMode] = useState<'lines' | 'block'>('lines');
+  // Numeric Position & Size controls (PDF user-space points) for selected image or text block
+  const [geomDraft, setGeomDraft] = useState<{ x: string; y: string; w: string; h: string }>({
+    x: '',
+    y: '',
+    w: '',
+    h: '',
+  });
+  const [geomOrigRect, setGeomOrigRect] = useState<PdfRect | null>(null);
+  const [geomLockAspect, setGeomLockAspect] = useState<boolean>(true);
+  const [textGeomMode, setTextGeomMode] = useState<'scale' | 'reflow'>('scale');
   const [lineDrafts, setLineDrafts] = useState<Record<string, string>>({});
   const [savingLineId, setSavingLineId] = useState<string | null>(null);
   const [showAdvancedCode, setShowAdvancedCode] = useState<boolean>(false);
@@ -538,6 +554,7 @@ export const EditSidePanel: React.FC = () => {
     let cancelled = false;
     setReadableState(null);
     setSelectedModelBlock(null);
+    setSelectedModelViewport(null);
     const activePageModel = pages[activePageIndex];
     const activeSource = activePageModel
       ? sources.find((src) => src.id === activePageModel.sourceDocId) || sources[0]
@@ -551,6 +568,7 @@ export const EditSidePanel: React.FC = () => {
         return;
       }
       setSelectedModelBlock(block);
+      setSelectedModelViewport(model.viewportTransform ?? null);
       const drafts: Record<string, string> = {};
       for (const ln of block.lines) {
         drafts[ln.id] = ln.text;
@@ -1068,6 +1086,105 @@ export const EditSidePanel: React.FC = () => {
     } finally {
       setIsSaving(false);
       setTargetReplacingImage(null);
+    }
+  };
+
+  // Sync Position & Size inputs when the selected image or text block changes
+  useEffect(() => {
+    const fmt = (n: number) => String(Math.round(n * 10) / 10);
+    if (selectedImageInfo && selectedImageInfo.x !== undefined && selectedImageInfo.y !== undefined && selectedImageInfo.width && selectedImageInfo.height) {
+      const rect: PdfRect = {
+        x: selectedImageInfo.x,
+        y: selectedImageInfo.y,
+        width: selectedImageInfo.width,
+        height: selectedImageInfo.height,
+      };
+      setGeomOrigRect(rect);
+      setGeomDraft({ x: fmt(rect.x), y: fmt(rect.y), w: fmt(rect.width), h: fmt(rect.height) });
+      return;
+    }
+    if (selectedModelBlock) {
+      const pdfRect = selectedModelViewport
+        ? displayRectToPdfRect(selectedModelBlock.bbox, selectedModelViewport)
+        : selectedModelBlock.bbox;
+      setGeomOrigRect(pdfRect);
+      setGeomDraft({ x: fmt(pdfRect.x), y: fmt(pdfRect.y), w: fmt(pdfRect.width), h: fmt(pdfRect.height) });
+      return;
+    }
+    setGeomOrigRect(null);
+  }, [selectedImageInfo, selectedModelBlock, selectedModelViewport]);
+
+  const handleGeomFieldChange = (field: 'x' | 'y' | 'w' | 'h', raw: string) => {
+    setGeomDraft((prev) => {
+      const next = { ...prev, [field]: raw };
+      const shouldLock = geomLockAspect && (!selectedModelBlock || textGeomMode === 'scale');
+      if (shouldLock && geomOrigRect && geomOrigRect.width > 0 && geomOrigRect.height > 0) {
+        const val = parseFloat(raw);
+        if (Number.isFinite(val) && val > 0) {
+          const aspect = geomOrigRect.width / geomOrigRect.height;
+          if (field === 'w') next.h = String(Math.round((val / aspect) * 10) / 10);
+          else if (field === 'h') next.w = String(Math.round(val * aspect * 10) / 10);
+        }
+      }
+      return next;
+    });
+  };
+
+  const handleApplyGeometry = async () => {
+    if (!geomOrigRect || isSaving || isDocumentEncrypted) return;
+    const x = parseFloat(geomDraft.x);
+    const y = parseFloat(geomDraft.y);
+    const w = parseFloat(geomDraft.w);
+    const h = parseFloat(geomDraft.h);
+    if (![x, y, w, h].every((v) => Number.isFinite(v)) || w < 2 || h < 2) return;
+
+    setIsSaving(true);
+    try {
+      if (selectedImageInfo) {
+        const res = await transformPageImage(
+          selectedImageInfo.id,
+          { x, y, width: w, height: h },
+          { space: 'pdf', pageIndex: activePageIndex }
+        );
+        if (res.success) {
+          showEditNotice({ type: 'success', text: t.editPanel.imageTransformed, canUndo: true });
+        } else {
+          showEditNotice({ type: 'error', text: res.error || t.editPanel.imageTransformFailed });
+        }
+        return;
+      }
+      if (selectedModelBlock) {
+        if (textGeomMode === 'reflow') {
+          const res = await reflowPageTextBlocks([selectedModelBlock.segmentId], w, {
+            deltaPdfX: x - geomOrigRect.x,
+            deltaPdfY: y - geomOrigRect.y,
+            pageIndex: activePageIndex,
+          });
+          if (res.success) {
+            showEditNotice({
+              type: 'success',
+              text: t.editPanel.textReflowed.replace('{lines}', String(res.lineCount ?? 1)),
+              canUndo: true,
+            });
+          } else {
+            showEditNotice({ type: 'error', text: res.error || t.editPanel.textReflowFailed });
+          }
+          return;
+        }
+        const res = await transformPageTextBlocks(
+          [selectedModelBlock.segmentId],
+          geomOrigRect,
+          { x, y, width: w, height: h },
+          { space: 'pdf', pageIndex: activePageIndex }
+        );
+        if (res.success) {
+          showEditNotice({ type: 'success', text: t.editPanel.textTransformed, canUndo: true });
+        } else {
+          showEditNotice({ type: 'error', text: res.error || t.editPanel.textTransformFailed });
+        }
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -2100,6 +2217,126 @@ export const EditSidePanel: React.FC = () => {
                   </>
                 )}
 
+                {/* Position & Size (Move / Scale / Reflow Width) for selected Text Block */}
+                {selectedModelBlock && isTextModelAligned && geomOrigRect && (
+                  <div
+                    className={`pt-2 border-t space-y-1.5 ${
+                      isMinimal ? 'border-neutral-200' : isLcars ? 'border-[#333333]' : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wide ${
+                          isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ffcc00]' : 'text-slate-400'
+                        }`}
+                      >
+                        {t.editPanel.positionSizeTitle}
+                      </span>
+                      <div
+                        className={`inline-flex items-center p-0.5 border ${
+                          isMinimal
+                            ? 'rounded bg-neutral-200/70 border-neutral-300'
+                            : isLcars
+                            ? 'rounded-full bg-black border-[#ff9900]'
+                            : 'rounded bg-slate-900 border-slate-800'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setTextGeomMode('scale')}
+                          className={`px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
+                            textGeomMode === 'scale'
+                              ? isMinimal
+                                ? 'rounded bg-white text-black shadow-xs'
+                                : isLcars
+                                ? 'rounded-full bg-[#ff9900] text-black font-bold'
+                                : 'rounded bg-indigo-600 text-white'
+                              : isMinimal
+                              ? 'text-neutral-600'
+                              : isLcars
+                              ? 'text-[#ff9966]'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {t.editPanel.textResizeModeScale}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTextGeomMode('reflow')}
+                          className={`px-1.5 py-0.5 text-[10px] font-semibold transition-all ${
+                            textGeomMode === 'reflow'
+                              ? isMinimal
+                                ? 'rounded bg-white text-black shadow-xs'
+                                : isLcars
+                                ? 'rounded-full bg-[#ff9900] text-black font-bold'
+                                : 'rounded bg-sky-600 text-white'
+                              : isMinimal
+                              ? 'text-neutral-600'
+                              : isLcars
+                              ? 'text-[#ff9966]'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {t.editPanel.textResizeModeReflow}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1">
+                      {(
+                        [
+                          { k: 'x' as const, label: t.editPanel.posXLabel, disabled: false },
+                          { k: 'y' as const, label: t.editPanel.posYLabel, disabled: textGeomMode === 'reflow' },
+                          { k: 'w' as const, label: t.editPanel.widthLabel, disabled: false },
+                          { k: 'h' as const, label: t.editPanel.heightLabel, disabled: textGeomMode === 'reflow' },
+                        ] as const
+                      ).map(({ k, label, disabled }) => (
+                        <label key={k} className="block">
+                          <span className="text-[9px] font-mono opacity-60 block mb-0.5">{label}</span>
+                          <input
+                            type="number"
+                            step="1"
+                            value={geomDraft[k]}
+                            disabled={isSaving || isDocumentEncrypted || disabled}
+                            onChange={(e) => handleGeomFieldChange(k, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void handleApplyGeometry();
+                              }
+                            }}
+                            className={`w-full px-1.5 py-0.5 text-[11px] font-mono rounded border outline-none disabled:opacity-40 ${inputClass}`}
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-1.5">
+                      {textGeomMode === 'scale' ? (
+                        <button
+                          type="button"
+                          onClick={() => setGeomLockAspect((p) => !p)}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors ${secondaryBtnClass}`}
+                          title={geomLockAspect ? t.editPanel.unlockAspectRatio : t.editPanel.lockAspectRatio}
+                        >
+                          {geomLockAspect ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                          <span>{geomLockAspect ? t.editPanel.lockAspectRatio : t.editPanel.unlockAspectRatio}</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] opacity-65 truncate">{t.editPanel.sideResizeReflowHint}</span>
+                      )}
+                      <button
+                        type="button"
+                        disabled={isSaving || isDocumentEncrypted}
+                        onClick={() => void handleApplyGeometry()}
+                        className={`px-2.5 py-0.5 text-[11px] font-semibold transition-colors disabled:opacity-45 shrink-0 ${primaryBtnClass}`}
+                      >
+                        {t.editPanel.applyGeometryBtn}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Collapsible Advanced: PDF Stream Code Disclosure */}
                 <div className={`pt-1.5 border-t ${isMinimal ? 'border-neutral-200' : isLcars ? 'border-[#333333]' : 'border-slate-800'}`}>
                   <button
@@ -2254,6 +2491,71 @@ export const EditSidePanel: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Position & Size (Move / Resize) for selected Image */}
+                {geomOrigRect && (
+                  <div
+                    className={`pt-2 border-t space-y-1.5 ${
+                      isMinimal ? 'border-neutral-200' : isLcars ? 'border-[#333333]' : 'border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wide ${
+                          isMinimal ? 'text-neutral-600' : isLcars ? 'text-[#ffcc00]' : 'text-slate-400'
+                        }`}
+                      >
+                        {t.editPanel.positionSizeTitle}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setGeomLockAspect((p) => !p)}
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-colors ${secondaryBtnClass}`}
+                        title={geomLockAspect ? t.editPanel.unlockAspectRatio : t.editPanel.lockAspectRatio}
+                      >
+                        {geomLockAspect ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {(
+                        [
+                          { k: 'x' as const, label: t.editPanel.posXLabel },
+                          { k: 'y' as const, label: t.editPanel.posYLabel },
+                          { k: 'w' as const, label: t.editPanel.widthLabel },
+                          { k: 'h' as const, label: t.editPanel.heightLabel },
+                        ] as const
+                      ).map(({ k, label }) => (
+                        <label key={k} className="block">
+                          <span className="text-[9px] font-mono opacity-60 block mb-0.5">{label}</span>
+                          <input
+                            type="number"
+                            step="1"
+                            value={geomDraft[k]}
+                            disabled={isSaving || isDocumentEncrypted}
+                            onChange={(e) => handleGeomFieldChange(k, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void handleApplyGeometry();
+                              }
+                            }}
+                            className={`w-full px-1.5 py-0.5 text-[11px] font-mono rounded border outline-none ${inputClass}`}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        disabled={isSaving || isDocumentEncrypted}
+                        onClick={() => void handleApplyGeometry()}
+                        className={`px-2.5 py-0.5 text-[11px] font-semibold transition-colors disabled:opacity-45 ${primaryBtnClass}`}
+                      >
+                        {t.editPanel.applyGeometryBtn}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Image Actions */}
                 <div className="flex items-center gap-1.5">

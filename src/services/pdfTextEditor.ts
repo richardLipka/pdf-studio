@@ -30,7 +30,7 @@ export interface TextBlockEditResult {
 
 const POSITIONING_OPERATORS = new Set(['Td', 'TD', 'Tm', 'T*']);
 
-const formatNumber = (value: number): string => {
+export const formatNumber = (value: number): string => {
   if (Number.isInteger(value)) return String(value);
   const fixed = value.toFixed(4).replace(/0+$/, '');
   return fixed.endsWith('.') ? fixed.slice(0, -1) : fixed;
@@ -115,13 +115,14 @@ function fontDictForPart(pdfDoc: PDFDocument, pageIndex: number, formName: strin
 const rawOf = (streamText: string, op: ContentOperation) => streamText.substring(op.start, op.end);
 
 /** Builds the replacement text object */
-function buildTextObject(
+export function buildTextObject(
   streamText: string,
   block: TextBlock,
   fontOperator: string | null,
   lineOperations: string[],
   leading: number,
-  restoreFontOperator: string | null
+  restoreFontOperator: string | null,
+  textMatrixOverride?: [number, number, number, number, number, number]
 ): string {
   const operations = tokenizeContentStream(streamText, block.startIndex, block.endIndex);
   const firstShow = operations.findIndex((op) => TEXT_SHOW_OPERATORS.has(op.operator));
@@ -146,6 +147,7 @@ function buildTextObject(
   const afterSetsFont = operations.slice(firstShow + 1).some((op) => op.operator === 'Tf');
 
   const first = block.runs[0];
+  const tm = textMatrixOverride ?? first.textMatrix;
   const lines: string[] = [];
   lineOperations.forEach((operation, idx) => {
     if (idx > 0) lines.push(`0 ${formatNumber(-leading)} Td`);
@@ -156,7 +158,7 @@ function buildTextObject(
     'BT',
     ...before,
     ...(fontOperator ? [fontOperator] : []),
-    `${first.textMatrix.map(formatNumber).join(' ')} Tm`,
+    `${tm.map(formatNumber).join(' ')} Tm`,
     ...lines,
     ...after,
     ...(restoreFontOperator && !afterSetsFont ? [restoreFontOperator] : []),
@@ -211,7 +213,7 @@ function rebuildLineSlice(
  * character, otherwise a substitute font registered in the resources of the run's stream part.
  * Optional `substituteCache` avoids embedding duplicate substitute fonts across multiple lines.
  */
-async function encodeForRun(
+export async function encodeForRun(
   pdfDoc: PDFDocument,
   pageIndex: number,
   model: PageTextModel,

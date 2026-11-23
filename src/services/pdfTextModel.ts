@@ -142,6 +142,8 @@ export interface PageTextModel {
    * complete ToUnicode table where the font is known to contain those glyphs
    */
   fontCodeMaps: Map<string, FontCodeMap>;
+  /** Scale-1.0 pdf.js viewport transform (PDF user space -> displayed page space) */
+  viewportTransform?: [number, number, number, number, number, number];
 }
 
 export interface FontMetrics {
