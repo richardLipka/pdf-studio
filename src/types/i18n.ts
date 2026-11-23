@@ -816,5 +816,29 @@ export interface TranslationSchema {
     saveLineBtn: string;
     multiLinePreservedHint: string;
     clickLineToEditHint: string;
+    positionSizeTitle: string;
+    posXLabel: string;
+    posYLabel: string;
+    widthLabel: string;
+    heightLabel: string;
+    lockAspectRatio: string;
+    unlockAspectRatio: string;
+    applyGeometryBtn: string;
+    textResizeModeScale: string;
+    textResizeModeReflow: string;
+    dragToMoveHint: string;
+    cornerResizeScaleHint: string;
+    sideResizeReflowHint: string;
+    imageResizeHint: string;
+    imageTransformed: string;
+    imageTransformFailed: string;
+    textTransformed: string;
+    textTransformFailed: string;
+    /** {lines} */
+    textReflowed: string;
+    textReflowFailed: string;
+    badgeScale: string;
+    badgeReflow: string;
+    badgeMove: string;
   };
 }

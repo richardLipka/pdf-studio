@@ -1,6 +1,6 @@
 {
   "name": "pilsen-pdf",
-  "version": "2.1.4",
+  "version": "2.2.0",
   "description": "PilsenPDF (P-PDF) — Client-side privacy-first PDF editor, annotator and PAdES signer (web edition; the desktop edition lives on the desktop branch)",
   "author": "Richard Lipka <lipka@fav.zcu.cz>",
   "homepage": "https://richardlipka.github.io/pilsen-pdf/",

@@ -1137,6 +1137,16 @@ export const getPageTextModel = (
           getFontToUnicode: resolveFontToUnicode,
           toDisplay: (x, y) => viewport.convertToViewportPoint(x, y) as [number, number],
         });
+        if (viewport.transform && viewport.transform.length === 6) {
+          model.viewportTransform = [
+            viewport.transform[0],
+            viewport.transform[1],
+            viewport.transform[2],
+            viewport.transform[3],
+            viewport.transform[4],
+            viewport.transform[5],
+          ];
+        }
         if (!model.aligned) {
           logger.warn(
             'edit',
@@ -1158,6 +1168,44 @@ export const getPageTextModel = (
   })();
   perBuffer.set(key, pending);
   return pending;
+};
+
+/**
+ * Returns the scale-1.0 pdf.js viewport transform matrix [a, b, c, d, e, f] mapping PDF user-space
+ * coordinates to displayed page coordinates (accounts for page rotation, MediaBox and CropBox).
+ */
+export const getPageViewportTransform = async (
+  sourceDoc: SourceDocument | undefined,
+  pageModel: PdfPageModel
+): Promise<[number, number, number, number, number, number] | null> => {
+  if (pageModel.sourceType !== 'pdf' || !sourceDoc?.arrayBuffer) return null;
+  let pdfPage: pdfjsLib.PDFPageProxy | null = null;
+  try {
+    const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
+    pdfPage = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+    const viewport = pdfPage.getViewport({ scale: 1.0, rotation: pageModel.rotation });
+    if (viewport.transform && viewport.transform.length === 6) {
+      return [
+        viewport.transform[0],
+        viewport.transform[1],
+        viewport.transform[2],
+        viewport.transform[3],
+        viewport.transform[4],
+        viewport.transform[5],
+      ];
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (pdfPage) {
+      try {
+        pdfPage.cleanup();
+      } catch {
+        // ignore
+      }
+    }
+  }
 };
 
 /**

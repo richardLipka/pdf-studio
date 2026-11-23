@@ -158,7 +158,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest 5](https://vitest.dev/) | Comprehensive automated unit & integration testing (46 test files, 342 tests across web + desktop) |
+| **Testing** | [Vitest 5](https://vitest.dev/) | Comprehensive automated unit & integration testing (47 test files, 350 tests across web + desktop) |
 
 ---
 
@@ -204,6 +204,7 @@ pdf-editor/
 │   │   ├── pdfContentTokenizer.ts # Low-level PDF content stream tokenizer
 │   │   ├── pdfTextModel.ts # Exact page text/line model, column layout, and PDF /ToUnicode CMap parser
 │   │   ├── pdfTextEditor.ts # Multi-line block/line rewriter, per-line deletion, and font substitution
+│   │   ├── pdfElementTransform.ts # Image & text block move/resize (CTM matrix + clip/Form BBox) and text width reflow
 │   │   ├── pdfReadableStream.ts # Decoded readable stream view («text») and round-trip encoder
 │   │   ├── padesSigner.ts  # Client-side PAdES / PKCS#7 detached cryptographic signing via node-forge
 │   │   ├── pdfFlattener.ts # Flatten document pages into image-only PDFs ("as scanned")
@@ -226,7 +227,7 @@ pdf-editor/
 │   ├── index.css
 │   └── main.tsx
 ├── docs/wikipedia/         # Wikipedia article draft (wikitext) and Wikimedia Commons–ready screenshot
-├── tests/                  # Automated Vitest test suite (342 tests across web + desktop)
+├── tests/                  # Automated Vitest test suite (350 tests across web + desktop)
 ├── scripts/verify-dist.mjs # Checks the build is self-contained (Pages, offline bundle, desktop)
 ├── desktop/                # (desktop branch only) Electron shell, see desktop/README.md
 ├── package.json

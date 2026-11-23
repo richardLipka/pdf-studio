@@ -90,6 +90,9 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     removePageImage,
     replacePageImage,
     exportPageImage,
+    transformPageImage,
+    transformPageTextBlocks,
+    reflowPageTextBlocks,
     activePageIndex,
     setActivePageIndex,
     setSelectedPageIds,
@@ -131,6 +134,30 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   const [selectedBlockLines, setSelectedBlockLines] = useState<TextLine[]>([]);
   const visualLoadRef = useRef(0);
   const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
+  const [isTransforming, setIsTransforming] = useState(false);
+
+  // Interactive canvas drag-to-move & resize gesture for selected native PDF images and text blocks
+  type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+  interface ActiveTransformGesture {
+    block: VisualTextBlock;
+    mode: 'move' | 'resize';
+    handle?: ResizeHandle;
+    startClientX: number;
+    startClientY: number;
+    origRect: { x: number; y: number; width: number; height: number };
+    currentRect: { x: number; y: number; width: number; height: number };
+    committedDrag: boolean;
+    isReflow: boolean;
+  }
+  const [dragOp, setDragOp] = useState<ActiveTransformGesture | null>(null);
+  const dragOpRef = useRef<ActiveTransformGesture | null>(null);
+  dragOpRef.current = dragOp;
+  const suppressNextClickRef = useRef(false);
+  // Holds the target box briefly while the async PDF edit commits & re-renders so the box never snaps back
+  const [pendingRect, setPendingRect] = useState<{
+    blockId: string;
+    rect: { x: number; y: number; width: number; height: number };
+  } | null>(null);
   // Inline editor for one line of text, opened by double-clicking a line or via floating pill
   const [lineEditor, setLineEditor] = useState<{
     lineId: string;
@@ -324,10 +351,227 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     return () => clearTimeout(timer);
   }, [selectedStreamBlockId, selectedStreamBlockPageId, selectionOnThisPage, isEditOverlayActive]);
 
-  // A different document version or page invalidates an open editor
+  // A different document version or page invalidates an open editor or pending drag preview
   useEffect(() => {
     setLineEditor(null);
+    setDragOp(null);
+    setPendingRect(null);
   }, [sourceDoc.updatedAt, page.id, page.rotation]);
+
+  const startElementMove = useCallback(
+    (e: React.MouseEvent, block: VisualTextBlock) => {
+      if (e.button !== 0 || lineEditor || deletingBlockId || isTransforming) return;
+      const orig = { x: block.x, y: block.y, width: block.width, height: block.height };
+      setDragOp({
+        block,
+        mode: 'move',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        origRect: orig,
+        currentRect: orig,
+        committedDrag: false,
+        isReflow: false,
+      });
+    },
+    [lineEditor, deletingBlockId, isTransforming]
+  );
+
+  const startElementResize = useCallback(
+    (e: React.MouseEvent, block: VisualTextBlock, handle: ResizeHandle) => {
+      if (e.button !== 0 || lineEditor || deletingBlockId || isTransforming) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const orig = { x: block.x, y: block.y, width: block.width, height: block.height };
+      const isReflow = block.type !== 'image' && (handle === 'w' || handle === 'e');
+      setDragOp({
+        block,
+        mode: 'resize',
+        handle,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        origRect: orig,
+        currentRect: orig,
+        committedDrag: true,
+        isReflow,
+      });
+    },
+    [lineEditor, deletingBlockId, isTransforming]
+  );
+
+  const commitTransformGesture = useCallback(
+    async (op: ActiveTransformGesture) => {
+      const targetPageIndex = pages.findIndex((p) => p.id === page.id);
+      if (targetPageIndex < 0) return;
+
+      const { block, origRect, currentRect, isReflow } = op;
+      const unchanged =
+        Math.abs(origRect.x - currentRect.x) < 0.25 &&
+        Math.abs(origRect.y - currentRect.y) < 0.25 &&
+        Math.abs(origRect.width - currentRect.width) < 0.25 &&
+        Math.abs(origRect.height - currentRect.height) < 0.25;
+      if (unchanged) return;
+
+      setIsTransforming(true);
+      setPendingRect({ blockId: block.id, rect: currentRect });
+      try {
+        if (block.type === 'image') {
+          const res = await transformPageImage(block.id, currentRect, {
+            space: 'display',
+            pageIndex: targetPageIndex,
+          });
+          if (res.success) {
+            showEditNotice({ type: 'success', text: t.editPanel.imageTransformed, canUndo: true });
+          } else {
+            setPendingRect(null);
+            showEditNotice({ type: 'error', text: res.error || t.editPanel.imageTransformFailed });
+          }
+          return;
+        }
+
+        const segIds = block.segmentIds && block.segmentIds.length > 0 ? block.segmentIds : [block.id];
+        if (isReflow) {
+          const res = await reflowPageTextBlocks(segIds, currentRect.width, {
+            deltaDisplayX: currentRect.x - origRect.x,
+            deltaDisplayY: 0,
+            pageIndex: targetPageIndex,
+          });
+          if (res.success) {
+            const msg = t.editPanel.textReflowed.replace('{lines}', String(res.lineCount ?? 1));
+            showEditNotice({ type: 'success', text: msg, canUndo: true });
+          } else {
+            setPendingRect(null);
+            showEditNotice({ type: 'error', text: res.error || t.editPanel.textReflowFailed });
+          }
+          return;
+        }
+
+        const res = await transformPageTextBlocks(segIds, origRect, currentRect, {
+          space: 'display',
+          pageIndex: targetPageIndex,
+        });
+        if (res.success) {
+          showEditNotice({ type: 'success', text: t.editPanel.textTransformed, canUndo: true });
+        } else {
+          setPendingRect(null);
+          showEditNotice({ type: 'error', text: res.error || t.editPanel.textTransformFailed });
+        }
+      } finally {
+        setIsTransforming(false);
+      }
+    },
+    [
+      pages,
+      page.id,
+      transformPageImage,
+      transformPageTextBlocks,
+      reflowPageTextBlocks,
+      showEditNotice,
+      t.editPanel.imageTransformed,
+      t.editPanel.imageTransformFailed,
+      t.editPanel.textTransformed,
+      t.editPanel.textTransformFailed,
+      t.editPanel.textReflowed,
+      t.editPanel.textReflowFailed,
+    ]
+  );
+
+  // Global mousemove / mouseup / Escape listeners while dragging or resizing a native PDF element
+  const isDragActive = Boolean(dragOp);
+  useEffect(() => {
+    if (!isDragActive) return;
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      const op = dragOpRef.current;
+      if (!op) return;
+
+      const rawDx = ev.clientX - op.startClientX;
+      const rawDy = ev.clientY - op.startClientY;
+      if (!op.committedDrag && Math.hypot(rawDx, rawDy) < 4) return;
+
+      const dx = rawDx / scale;
+      const dy = rawDy / scale;
+      const o = op.origRect;
+      let next = { ...o };
+
+      if (op.mode === 'move') {
+        next = { x: o.x + dx, y: o.y + dy, width: o.width, height: o.height };
+      } else if (op.handle) {
+        const h = op.handle;
+        const isImage = op.block.type === 'image';
+        const isCorner = h === 'nw' || h === 'ne' || h === 'se' || h === 'sw';
+        const minW = op.isReflow ? 32 : isImage ? 8 : 16;
+        const minH = 8;
+
+        if (op.isReflow) {
+          // Width-only reflow: keep top & height steady while showing the new target width
+          if (h === 'e') {
+            next = { ...o, width: Math.max(minW, o.width + dx) };
+          } else if (h === 'w') {
+            const newW = Math.max(minW, o.width - dx);
+            next = { ...o, x: o.x + (o.width - newW), width: newW };
+          }
+        } else if (isCorner && (!isImage || !ev.shiftKey)) {
+          // Uniform aspect-locked scaling anchored at the opposite corner
+          const aspect = o.width > 0 && o.height > 0 ? o.width / o.height : 1;
+          const anchorX = h === 'nw' || h === 'sw' ? o.x + o.width : o.x;
+          const anchorY = h === 'nw' || h === 'ne' ? o.y + o.height : o.y;
+          const signX = h === 'nw' || h === 'sw' ? -1 : 1;
+          const signY = h === 'nw' || h === 'ne' ? -1 : 1;
+          const candW = Math.max(minW, o.width + signX * dx);
+          const candH = Math.max(minH, o.height + signY * dy);
+          const scaleX = candW / Math.max(1, o.width);
+          const scaleY = candH / Math.max(1, o.height);
+          const uniformScale = Math.abs(scaleX - 1) >= Math.abs(scaleY - 1) ? scaleX : scaleY;
+          const finalW = Math.max(minW, o.width * uniformScale);
+          const finalH = Math.max(minH, finalW / aspect);
+          const finalX = signX < 0 ? anchorX - finalW : anchorX;
+          const finalY = signY < 0 ? anchorY - finalH : anchorY;
+          next = { x: finalX, y: finalY, width: finalW, height: finalH };
+        } else {
+          // Free-axis resize (image edges, or image corners while holding Shift)
+          let left = o.x;
+          let top = o.y;
+          let right = o.x + o.width;
+          let bottom = o.y + o.height;
+          if (h.includes('w')) left = Math.min(right - minW, o.x + dx);
+          if (h.includes('e')) right = Math.max(left + minW, o.x + o.width + dx);
+          if (h.includes('n')) top = Math.min(bottom - minH, o.y + dy);
+          if (h.includes('s')) bottom = Math.max(top + minH, o.y + o.height + dy);
+          next = { x: left, y: top, width: right - left, height: bottom - top };
+        }
+      }
+
+      setDragOp((prev) => (prev ? { ...prev, committedDrag: true, currentRect: next } : null));
+    };
+
+    const handleMouseUp = () => {
+      const op = dragOpRef.current;
+      setDragOp(null);
+      if (!op || !op.committedDrag) return;
+      suppressNextClickRef.current = true;
+      setTimeout(() => {
+        suppressNextClickRef.current = false;
+      }, 0);
+      void commitTransformGesture(op);
+    };
+
+    const handleKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setDragOp(null);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [isDragActive, scale, commitTransformGesture]);
 
   const refreshVisualBlocks = useCallback(async () => {
     // Newest load wins: a slower load started for an older version of the document must not
@@ -973,19 +1217,33 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                   : 'border border-indigo-400 bg-indigo-500/15 ring-1 ring-indigo-400/50'
                 : restingOutlineClass;
 
-              const placeBarBelow = block.y * scale < 42;
+              const isDraggingThis = Boolean(dragOp && dragOp.block.id === block.id && dragOp.committedDrag);
+              const activeBox = isDraggingThis
+                ? dragOp!.currentRect
+                : pendingRect && pendingRect.blockId === block.id
+                ? pendingRect.rect
+                : { x: block.x, y: block.y, width: block.width, height: block.height };
+
+              const placeBarBelow = activeBox.y * scale < 42;
+              const showHandles = isSelected && !lineEditor && !deletingBlockId && !isTransforming;
 
               return (
                 <div
                   key={block.id}
                   data-block-id={block.id}
                   onMouseEnter={() => {
+                    if (dragOp?.committedDrag) return;
                     setHoveredBlockId(block.id, page.id);
                     setHoveredBlockText(block.text);
                   }}
                   onMouseLeave={() => {
+                    if (dragOp?.committedDrag) return;
                     setHoveredBlockId(null);
                     setHoveredBlockText(null);
+                  }}
+                  onMouseDown={(e) => {
+                    if (!isSelected || lineEditor) return;
+                    startElementMove(e, block);
                   }}
                   onDoubleClick={(e) => {
                     if (isImage) return;
@@ -995,6 +1253,10 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                     openLineEditor(e.clientX, e.clientY, block.id);
                   }}
                   onClick={(e) => {
+                    if (suppressNextClickRef.current) {
+                      e.stopPropagation();
+                      return;
+                    }
                     e.stopPropagation();
                     activateThisPage();
                     setSelectedStreamBlockId(block.id, page.id);
@@ -1025,23 +1287,154 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                   }}
                   style={{
                     position: 'absolute',
-                    left: `${block.x * scale}px`,
-                    top: `${block.y * scale}px`,
-                    width: `${block.width * scale}px`,
-                    height: `${block.height * scale}px`,
-                    zIndex,
+                    left: `${activeBox.x * scale}px`,
+                    top: `${activeBox.y * scale}px`,
+                    width: `${activeBox.width * scale}px`,
+                    height: `${activeBox.height * scale}px`,
+                    zIndex: isDraggingThis ? 55 : zIndex,
                   }}
-                  className={`group pointer-events-auto absolute rounded-[2px] transition-colors cursor-pointer flex items-start justify-end ${activeOutlineClass}`}
+                  className={`group pointer-events-auto absolute rounded-[2px] ${
+                    isDraggingThis ? 'transition-none cursor-grabbing' : 'transition-colors'
+                  } ${isSelected && !lineEditor ? 'cursor-move' : 'cursor-pointer'} flex items-start justify-end ${activeOutlineClass}`}
                   title={
                     isImage
                       ? `${t.editPanel.selectedImage}: ${block.imageName || block.text}${
                           block.pixelWidth && block.pixelHeight ? ` (${block.pixelWidth}×${block.pixelHeight} px)` : ''
-                        }`
-                      : `${block.text}\n(${t.editPanel.canvasDoubleClickHint})`
+                        }\n${t.editPanel.dragToMoveHint}`
+                      : `${block.text}\n(${t.editPanel.canvasDoubleClickHint} • ${t.editPanel.dragToMoveHint})`
                   }
                 >
+                  {/* Resize handles for selected PDF Image (8 handles) and Text Block (4 corners = scale, W/E = reflow width) */}
+                  {showHandles && (
+                    <>
+                      {/* 4 Corner Handles (Images: aspect-locked by default, Shift=free; Text: proportional scale) */}
+                      {(
+                        [
+                          { h: 'nw' as ResizeHandle, pos: '-top-1.5 -left-1.5', cursor: 'cursor-nwse-resize' },
+                          { h: 'ne' as ResizeHandle, pos: '-top-1.5 -right-1.5', cursor: 'cursor-nesw-resize' },
+                          { h: 'se' as ResizeHandle, pos: '-bottom-1.5 -right-1.5', cursor: 'cursor-nwse-resize' },
+                          { h: 'sw' as ResizeHandle, pos: '-bottom-1.5 -left-1.5', cursor: 'cursor-nesw-resize' },
+                        ] as const
+                      ).map(({ h, pos, cursor }) => (
+                        <div
+                          key={h}
+                          data-resize-handle={h}
+                          onMouseDown={(e) => startElementResize(e, block, h)}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          title={isImage ? t.editPanel.imageResizeHint : t.editPanel.cornerResizeScaleHint}
+                          className={`absolute ${pos} w-3 h-3 rounded-[2px] border-2 shadow-sm pointer-events-auto z-50 ${cursor} ${
+                            isImage
+                              ? isMinimal
+                                ? 'bg-white border-amber-600 hover:bg-amber-100'
+                                : isLcars
+                                ? 'bg-black border-[#ffcc00] hover:bg-[#ffcc00]'
+                                : 'bg-slate-900 border-amber-400 hover:bg-amber-400'
+                              : isMinimal
+                              ? 'bg-white border-indigo-600 hover:bg-indigo-100'
+                              : isLcars
+                              ? 'bg-black border-[#99ccff] hover:bg-[#99ccff]'
+                              : 'bg-slate-900 border-indigo-400 hover:bg-indigo-400'
+                          }`}
+                        />
+                      ))}
+
+                      {/* Top & Bottom Edge Handles (Images only: free vertical resize) */}
+                      {isImage &&
+                        (
+                          [
+                            { h: 'n' as ResizeHandle, pos: '-top-1.5 left-1/2 -translate-x-1/2' },
+                            { h: 's' as ResizeHandle, pos: '-bottom-1.5 left-1/2 -translate-x-1/2' },
+                          ] as const
+                        ).map(({ h, pos }) => (
+                          <div
+                            key={h}
+                            data-resize-handle={h}
+                            onMouseDown={(e) => startElementResize(e, block, h)}
+                            onClick={(e) => e.stopPropagation()}
+                            title={t.editPanel.imageResizeHint}
+                            className={`absolute ${pos} w-4 h-2.5 rounded-full border-2 shadow-sm pointer-events-auto z-50 cursor-ns-resize ${
+                              isMinimal
+                                ? 'bg-white border-amber-600 hover:bg-amber-100'
+                                : isLcars
+                                ? 'bg-black border-[#ffcc00] hover:bg-[#ffcc00]'
+                                : 'bg-slate-900 border-amber-400 hover:bg-amber-400'
+                            }`}
+                          />
+                        ))}
+
+                      {/* Left & Right Edge Handles (Images: free horizontal resize; Text: width reflow) */}
+                      {(
+                        [
+                          { h: 'w' as ResizeHandle, pos: 'top-1/2 -left-1.5 -translate-y-1/2' },
+                          { h: 'e' as ResizeHandle, pos: 'top-1/2 -right-1.5 -translate-y-1/2' },
+                        ] as const
+                      ).map(({ h, pos }) => (
+                        <div
+                          key={h}
+                          data-resize-handle={h}
+                          onMouseDown={(e) => startElementResize(e, block, h)}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          title={isImage ? t.editPanel.imageResizeHint : t.editPanel.sideResizeReflowHint}
+                          className={`absolute ${pos} w-2.5 h-5 rounded-full border-2 shadow-sm pointer-events-auto z-50 cursor-ew-resize ${
+                            isImage
+                              ? isMinimal
+                                ? 'bg-white border-amber-600 hover:bg-amber-100'
+                                : isLcars
+                                ? 'bg-black border-[#ffcc00] hover:bg-[#ffcc00]'
+                                : 'bg-slate-900 border-amber-400 hover:bg-amber-400'
+                              : isMinimal
+                              ? 'bg-sky-50 border-sky-600 hover:bg-sky-200'
+                              : isLcars
+                              ? 'bg-black border-[#ffcc00] hover:bg-[#ffcc00]'
+                              : 'bg-slate-900 border-sky-400 hover:bg-sky-400'
+                          }`}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Live Floating Geometry Readout Pill during Drag / Resize */}
+                  {isDraggingThis && dragOp && (
+                    <div
+                      className={`absolute z-50 px-2 py-0.5 rounded-lg border text-[11px] font-mono font-semibold whitespace-nowrap pointer-events-none select-none shadow-xl ${
+                        placeBarBelow ? 'top-full mt-1.5 left-0' : '-top-8 left-0'
+                      } ${
+                        isMinimal
+                          ? 'bg-white/95 border-neutral-400 text-neutral-900'
+                          : isLcars
+                          ? 'bg-black border-2 border-[#ffcc00] text-[#ffcc00]'
+                          : 'bg-slate-900/95 border-sky-400/80 text-sky-100'
+                      }`}
+                    >
+                      {dragOp.mode === 'move' ? (
+                        <span>
+                          {t.editPanel.badgeMove} • X: {Math.round(activeBox.x)}, Y: {Math.round(activeBox.y)} pt
+                        </span>
+                      ) : dragOp.isReflow ? (
+                        <span>
+                          {t.editPanel.badgeReflow} • {t.editPanel.widthLabel}: {Math.round(activeBox.width)} pt
+                        </span>
+                      ) : isImage ? (
+                        <span>
+                          {Math.round(activeBox.width)} × {Math.round(activeBox.height)} pt
+                          {block.pixelWidth && activeBox.width > 0
+                            ? ` • ${Math.round((block.pixelWidth / activeBox.width) * 72)} DPI`
+                            : ''}
+                        </span>
+                      ) : (
+                        <span>
+                          {t.editPanel.badgeScale} •{' '}
+                          {Math.round((activeBox.width / Math.max(1, dragOp.origRect.width)) * 100)}% (
+                          {Math.round(activeBox.width)} × {Math.round(activeBox.height)} pt)
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Per-line interactive hitboxes inside a selected multi-line PDF text block */}
-                  {!isImage && isSelected && !lineEditor && selectedBlockLines.length > 1 && (
+                  {!isImage && isSelected && !lineEditor && !isDraggingThis && selectedBlockLines.length > 1 && (
                     <div className="absolute inset-0 pointer-events-none">
                       {selectedBlockLines.map((ln) => {
                         const isLineSelected = selectedLineId === ln.id;
@@ -1059,6 +1452,10 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                               setHoveredLineId(null);
                             }}
                             onClick={(e) => {
+                              if (suppressNextClickRef.current) {
+                                e.stopPropagation();
+                                return;
+                              }
                               e.stopPropagation();
                               setSelectedLineId(ln.id);
                             }}
@@ -1097,7 +1494,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                   )}
 
                   {/* Text Block Contextual Floating Action Pill on Selection */}
-                  {!isImage && isSelected && !lineEditor && (() => {
+                  {!isImage && isSelected && !lineEditor && !isDraggingThis && (() => {
                     const isMultiLine = selectedBlockLines.length > 1;
                     const activeLine =
                       isMultiLine && selectedLineId
@@ -1107,6 +1504,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
 
                     return (
                       <div
+                        onMouseDown={(e) => e.stopPropagation()}
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={(e) => e.stopPropagation()}
                         className={`absolute z-50 flex items-center gap-1 px-2 py-1 shadow-2xl rounded-xl border text-xs whitespace-nowrap backdrop-blur-xl pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150 ${
@@ -1252,8 +1650,9 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                   })()}
 
                   {/* Image Quick Action Floating Bar on Selection */}
-                  {isImage && isSelected && (
+                  {isImage && isSelected && !isDraggingThis && (
                     <div
+                      onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
                       className={`absolute z-50 flex items-center gap-1.5 px-2.5 py-1 shadow-2xl rounded-xl border text-xs whitespace-nowrap backdrop-blur-xl pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150 ${
                         placeBarBelow ? 'top-2 left-2' : '-top-10 left-0'
