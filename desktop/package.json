@@ -23,10 +23,10 @@
     "dist:zip": "node scripts/build.mjs && node scripts/package.mjs zip"
   },
   "devDependencies": {
-    "electron": "^44.7.2",
-    "electron-builder": "^26.15.3",
-    "esbuild": "^0.25.12",
-    "playwright-core": "^1.56.1"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "playwright-core": "^1.65.1"
   },
   "build": {
     "appId": "cz.zcu.fav.pdfstudio",
