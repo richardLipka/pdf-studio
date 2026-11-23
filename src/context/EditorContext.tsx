@@ -157,10 +157,10 @@ interface EditorContextType {
 
 const EditorContext = createContext<EditorContextType | null>(null);
 
-const STAMPS_STORAGE_KEY = 'pdf_studio_stamps_library_v2';
-const LEGACY_SIGS_KEY = 'pdf_studio_saved_sigs_v1';
-const RASTER_SETTINGS_STORAGE_KEY = 'pdf_studio_raster_settings_v1';
-const SHOW_ALL_OUTLINES_STORAGE_KEY = 'pdf_studio_show_all_edit_outlines_v1';
+const STAMPS_STORAGE_KEY = 'pilsen_pdf_stamps_library_v2';
+const LEGACY_SIGS_KEY = 'pilsen_pdf_saved_sigs_v1';
+const RASTER_SETTINGS_STORAGE_KEY = 'pilsen_pdf_raster_settings_v1';
+const SHOW_ALL_OUTLINES_STORAGE_KEY = 'pilsen_pdf_show_all_edit_outlines_v1';
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeTab, setActiveTabState] = useState<EditorTab>('review');

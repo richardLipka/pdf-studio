@@ -26,7 +26,7 @@ const getInitialTheme = (): AppTheme => {
   }
 
   // 2. Check localStorage
-  const saved = localStorage.getItem('pdf_studio_theme') as AppTheme;
+  const saved = localStorage.getItem('pilsen_pdf_theme') as AppTheme;
   if (saved === 'minimal' || saved === 'lcars' || saved === 'default') {
     return saved;
   }
@@ -41,7 +41,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const setTheme = (newTheme: AppTheme) => {
     setThemeState(newTheme);
     try {
-      localStorage.setItem('pdf_studio_theme', newTheme);
+      localStorage.setItem('pilsen_pdf_theme', newTheme);
     } catch {
       // ignore storage error
     }

@@ -56,7 +56,7 @@ export interface DesktopWindowBounds {
   isMaximized?: boolean;
 }
 
-/** Settings persisted by the desktop shell (pdf-studio-settings.json in the user data folder) */
+/** Settings persisted by the desktop shell (pilsen-pdf-settings.json in the user data folder) */
 export interface DesktopSettings {
   theme: DesktopTheme;
   language: DesktopLanguage;
@@ -140,18 +140,18 @@ export interface ElectronAPI {
 
 /** IPC channel names shared by the preload script and the main process */
 export const IPC_CHANNELS = {
-  openFile: 'pdf-studio:open-file',
-  readFile: 'pdf-studio:read-file',
-  saveFile: 'pdf-studio:save-file',
-  saveFileAs: 'pdf-studio:save-file-as',
-  saveTextFile: 'pdf-studio:save-text-file',
-  openTextFile: 'pdf-studio:open-text-file',
-  getLaunchFile: 'pdf-studio:get-launch-file',
-  getRecentFiles: 'pdf-studio:get-recent-files',
-  clearRecentFiles: 'pdf-studio:clear-recent-files',
-  getSettings: 'pdf-studio:get-settings',
-  updateSettings: 'pdf-studio:update-settings',
-  documentState: 'pdf-studio:document-state',
-  saveBeforeCloseDone: 'pdf-studio:save-before-close-done',
-  message: 'pdf-studio:message',
+  openFile: 'pilsen-pdf:open-file',
+  readFile: 'pilsen-pdf:read-file',
+  saveFile: 'pilsen-pdf:save-file',
+  saveFileAs: 'pilsen-pdf:save-file-as',
+  saveTextFile: 'pilsen-pdf:save-text-file',
+  openTextFile: 'pilsen-pdf:open-text-file',
+  getLaunchFile: 'pilsen-pdf:get-launch-file',
+  getRecentFiles: 'pilsen-pdf:get-recent-files',
+  clearRecentFiles: 'pilsen-pdf:clear-recent-files',
+  getSettings: 'pilsen-pdf:get-settings',
+  updateSettings: 'pilsen-pdf:update-settings',
+  documentState: 'pilsen-pdf:document-state',
+  saveBeforeCloseDone: 'pilsen-pdf:save-before-close-done',
+  message: 'pilsen-pdf:message',
 } as const;

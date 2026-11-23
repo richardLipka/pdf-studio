@@ -42,7 +42,7 @@ describe('Text Selection, Layer Rendering & Clipboard Support', () => {
   it('should accurately convert selection client rects to PDF point coordinate annotations', () => {
     const scale = 1.5;
     const containerRect = { left: 100, top: 100, width: 900, height: 600 };
-    
+
     // Simulate 2 lines of selected text on screen
     const selectionClientRects = [
       { left: 150, top: 150, width: 300, height: 30 },

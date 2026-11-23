@@ -16,7 +16,7 @@ const translations: Record<Language, TranslationSchema> = {
 
 const I18nContext = createContext<I18nContextType | null>(null);
 
-const STORAGE_KEY = 'pdf_studio_lang_v1';
+const STORAGE_KEY = 'pilsen_pdf_lang_v1';
 
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {

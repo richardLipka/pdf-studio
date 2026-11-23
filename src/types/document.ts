@@ -84,7 +84,7 @@ export const DEFAULT_DOCUMENT_METADATA: DocumentMetadata = {
   subject: '',
   keywords: '',
   creator: 'PilsenPDF',
-  producer: 'PilsenPDF (https://richardlipka.github.io/pdf-studio/)',
+  producer: 'PilsenPDF (https://richardlipka.github.io/pilsen-pdf/)',
 };
 
 /** A document outline (bookmark) item with hierarchy and target page */

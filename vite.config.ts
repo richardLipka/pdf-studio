@@ -55,7 +55,7 @@ function pdfjsRuntimeAssets(): Plugin {
 }
 
 export default defineConfig({
-  // Relative asset URLs: the same build runs on GitHub Pages (/pdf-studio/), from any static folder and
+  // Relative asset URLs: the same build runs on GitHub Pages (/pilsen-pdf/), from any static folder and
   // from file:// inside the desktop edition
   base: './',
   define: {

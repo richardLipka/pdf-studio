@@ -1,12 +1,12 @@
 {
   "name": "pilsen-pdf",
-  "version": "2.1.3",
+  "version": "2.1.4",
   "description": "PilsenPDF (P-PDF) — Client-side privacy-first PDF editor, annotator and PAdES signer (web edition; the desktop edition lives on the desktop branch)",
   "author": "Richard Lipka <lipka@fav.zcu.cz>",
-  "homepage": "https://richardlipka.github.io/pdf-studio/",
+  "homepage": "https://richardlipka.github.io/pilsen-pdf/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/richardLipka/pdf-studio.git"
+    "url": "https://github.com/richardLipka/pilsen-pdf.git"
   },
   "license": "MIT",
   "private": true,

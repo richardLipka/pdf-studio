@@ -48,7 +48,7 @@ import {
   getNextSelectionAfterRemoval,
 } from '../../utils/editModeState';
 
-const PANEL_WIDTH_STORAGE_KEY = 'pdf_studio_edit_panel_width_v1';
+const PANEL_WIDTH_STORAGE_KEY = 'pilsen_pdf_edit_panel_width_v1';
 
 /**
  * Utility to crop a high-quality thumbnail from the rendered page canvas.

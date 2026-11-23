@@ -111,7 +111,7 @@ describe('Settings backup', () => {
     });
     const parsed = parseSettingsBackup(JSON.stringify(backup));
     expect('backup' in parsed && parsed.backup).toEqual(backup);
-    expect(backupFileName(new Date('2026-10-14T10:00:00Z'))).toBe('pdf-studio-settings-2026-10-14.json');
+    expect(backupFileName(new Date('2026-10-14T10:00:00Z'))).toBe('pilsen-pdf-settings-2026-10-14.json');
   });
 
   it('drops invalid values instead of applying them', () => {
@@ -133,7 +133,7 @@ describe('Settings backup', () => {
     expect(parseSettingsBackup('not json')).toEqual({ error: 'invalid-json' });
     expect(parseSettingsBackup('{"hello":1}')).toEqual({ error: 'not-a-backup' });
     expect(parseSettingsBackup(JSON.stringify({ format: BACKUP_FORMAT, version: 99 }))).toEqual({ error: 'newer-version' });
-    const stampsPackage = { app: 'PDF Studio', version: '2.0.0', exportedAt: '2026-01-01T00:00:00.000Z', stampsCount: 1, stamps: [stamp('s1')] };
+    const stampsPackage = { app: 'PilsenPDF', version: '2.0.0', exportedAt: '2026-01-01T00:00:00.000Z', stampsCount: 1, stamps: [stamp('s1')] };
     const parsed = parseSettingsBackup(JSON.stringify(stampsPackage));
     expect('backup' in parsed && parsed.backup.signatures.map((s) => s.id)).toEqual(['s1']);
   });

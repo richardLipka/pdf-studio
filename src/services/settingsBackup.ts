@@ -8,7 +8,7 @@ import { SignatureStamp } from '../types/stamp';
  * The stamp library export of the signature dialog (StampExportPackage) is accepted as well.
  */
 
-export const BACKUP_FORMAT = 'pdf-studio-backup';
+export const BACKUP_FORMAT = 'pilsen-pdf-backup';
 export const BACKUP_VERSION = 1;
 
 export type BackupLanguage = 'cs' | 'en';
@@ -28,7 +28,7 @@ export interface SettingsBackup {
   format: typeof BACKUP_FORMAT;
   version: number;
   createdAt: string;
-  app: { name: 'PilsenPDF' | 'PDF Studio'; version: string; edition: 'web' | 'desktop' };
+  app: { name: 'PilsenPDF'; version: string; edition: 'web' | 'desktop' };
   settings: BackupSettings;
   signatures: SignatureStamp[];
 }
@@ -88,8 +88,8 @@ export const parseSettingsBackup = (text: string): { backup: SettingsBackup } | 
   }
   if (!isRecord(raw)) return { error: 'not-a-backup' };
 
-  // Stamp library export of the signature dialog (accepts both PilsenPDF and legacy PDF Studio exports)
-  if ((raw.app === 'PilsenPDF' || raw.app === 'PDF Studio') && Array.isArray(raw.stamps) && raw.format === undefined) {
+  // Stamp library export of the signature dialog
+  if (raw.app === 'PilsenPDF' && Array.isArray(raw.stamps) && raw.format === undefined) {
     return {
       backup: createSettingsBackup({
         appVersion: typeof raw.version === 'string' ? raw.version : '',
@@ -120,7 +120,7 @@ export const parseSettingsBackup = (text: string): { backup: SettingsBackup } | 
       version: raw.version,
       createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
       app: {
-        name: app.name === 'PDF Studio' ? 'PDF Studio' : 'PilsenPDF',
+        name: 'PilsenPDF',
         version: typeof app.version === 'string' ? app.version : '',
         edition: app.edition === 'desktop' ? 'desktop' : 'web',
       },
@@ -138,4 +138,4 @@ export const mergeSignatures = (current: SignatureStamp[], restored: SignatureSt
   return [...merged, ...restored.filter((s) => !known.has(s.id))];
 };
 
-export const backupFileName = (now = new Date()) => `pdf-studio-settings-${now.toISOString().slice(0, 10)}.json`;
+export const backupFileName = (now = new Date()) => `pilsen-pdf-settings-${now.toISOString().slice(0, 10)}.json`;

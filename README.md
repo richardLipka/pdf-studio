@@ -1,7 +1,7 @@
 # PilsenPDF / P-PDF (Web & Desktop PDF Editor) 📄✨
 
-[![Live Demo: GitHub Pages](https://img.shields.io/badge/Live%20Demo-richardlipka.github.io%2Fpdf--studio-blue?style=for-the-badge&logo=githubpages&logoColor=white)](https://richardlipka.github.io/pdf-studio/)
-[![Desktop: Windows](https://img.shields.io/badge/Desktop-Windows%20releases-blueviolet?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/richardLipka/pdf-studio/releases)
+[![Live Demo: GitHub Pages](https://img.shields.io/badge/Live%20Demo-richardlipka.github.io%2Fpilsen--pdf-blue?style=for-the-badge&logo=githubpages&logoColor=white)](https://richardlipka.github.io/pilsen-pdf/)
+[![Desktop: Windows](https://img.shields.io/badge/Desktop-Windows%20releases-blueviolet?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/richardLipka/pilsen-pdf/releases)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
@@ -15,7 +15,7 @@ A modern, fast, and privacy-first application for editing, annotating, signing, 
 
 | | Web edition | Desktop edition |
 | :--- | :--- | :--- |
-| **Get it** | [richardlipka.github.io/pdf-studio](https://richardlipka.github.io/pdf-studio/), or `pilsen-pdf-web.zip` from [Releases](https://github.com/richardLipka/pdf-studio/releases) for your own web server | Installer, portable `.exe` or zip from [Releases](https://github.com/richardLipka/pdf-studio/releases) |
+| **Get it** | [richardlipka.github.io/pilsen-pdf](https://richardlipka.github.io/pilsen-pdf/), or `pilsen-pdf-web.zip` from [Releases](https://github.com/richardLipka/pilsen-pdf/releases) for your own web server | Installer, portable `.exe` or zip from [Releases](https://github.com/richardLipka/pilsen-pdf/releases) |
 | **Open** | file picker, drag & drop | native dialog, drag & drop, recent files, command line (`"PilsenPDF.exe" file.pdf`), "Open with" |
 | **Save** | download | writes the opened file in place (asks before overwriting), *Save as* |
 | **Unsaved changes** | `●` next to the file name, warning before leaving the page | `●` in the window title, *Save & close / Discard / Cancel* when closing |
@@ -23,7 +23,7 @@ A modern, fast, and privacy-first application for editing, annotating, signing, 
 | **File changed elsewhere** | — | offers to load the new version when another program changes the opened file |
 | **Menu** | toolbar & keyboard | toolbar, keyboard and a localized native menu |
 
-Everything else — editing, annotations, forms, signing, search — is identical. The desktop edition lives on the [`desktop`](https://github.com/richardLipka/pdf-studio/tree/desktop) branch; see [Two editions, one codebase](#-two-editions-one-codebase).
+Everything else — editing, annotations, forms, signing, search — is identical. The desktop edition lives on the [`desktop`](https://github.com/richardLipka/pilsen-pdf/tree/desktop) branch; see [Two editions, one codebase](#-two-editions-one-codebase).
 
 ---
 
@@ -303,8 +303,8 @@ The desktop branch adds unit tests of the Electron shell (part of the same `npm 
 
 ```bash
 # Clone repository
-git clone https://github.com/richardLipka/pdf-studio.git
-cd pdf-studio
+git clone https://github.com/richardLipka/pilsen-pdf.git
+cd pilsen-pdf
 
 # Install dependencies
 npm install
@@ -325,7 +325,7 @@ npm run build
 npm run preview
 ```
 
-The build uses relative URLs, so `dist/` works on GitHub Pages (`/pdf-studio/`), on any static web server and inside the desktop edition.
+The build uses relative URLs, so `dist/` works on GitHub Pages (`/pilsen-pdf/`), on any static web server and inside the desktop edition.
 
 ---
 

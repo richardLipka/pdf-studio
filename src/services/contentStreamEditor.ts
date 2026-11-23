@@ -906,8 +906,8 @@ export function decodeStreamObject(stream: any): string {
  * Marker lines are PDF comments, so they are harmless even if they end up inside a stream; they
  * deliberately contain no "BT"/"ET"/"q" sequences that the heuristic stream parsers look for.
  */
-const FORM_MARKER_PREFIX = '% pdfstudio:form-xobject:';
-const FORM_MARKER_REGEX = /(^|\n)% pdfstudio:form-xobject:(\d+)[^\r\n]*(\r?\n|$)/g;
+const FORM_MARKER_PREFIX = '% pilsenpdf:form-xobject:';
+const FORM_MARKER_REGEX = /(^|\n)% pilsenpdf:form-xobject:(\d+)[^\r\n]*(\r?\n|$)/g;
 
 interface FormStreamPart {
   index: number;

@@ -243,7 +243,7 @@ export const AboutModal: React.FC = () => {
 
             {/* GitHub Repo Button */}
             <button
-              onClick={() => handleOpenLink('https://github.com/richardLipka/pdf-studio')}
+              onClick={() => handleOpenLink('https://github.com/richardLipka/pilsen-pdf')}
               className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold shrink-0 transition-all shadow-md active:scale-95 ${
                 isMinimal
                   ? 'bg-black text-white hover:bg-neutral-800'
