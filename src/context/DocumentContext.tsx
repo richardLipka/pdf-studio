@@ -3,7 +3,7 @@ import { PdfPageModel, SourceDocument, RasterizationSettings, DocumentMetadata, 
 import { Annotation } from '../types/annotations';
 import { PDFDocument } from 'pdf-lib';
 import { exportEditedPdf } from '../services/pdfExporter';
-import { flattenPdfToImages, FlattenOptions } from '../services/pdfFlattener';
+import type { FlattenOptions } from '../services/pdfFlattener';
 import {
   deletePage,
   reorderPages,
@@ -24,9 +24,12 @@ import {
 import { replaceTextBlockContent, replaceTextLineContent, removeTextLineContent } from '../services/pdfTextEditor';
 import {
   displayRectToPdfRect,
+  insertImageOnPage,
   invertMatrix,
   PdfRect,
   reflowTextBlocksOnPage,
+  styleTextBlocksOnPage,
+  transformBatchElementsOnPage,
   transformImageOnPage,
   transformTextBlocksOnPage,
 } from '../services/pdfElementTransform';
@@ -50,7 +53,7 @@ import {
 
 import { FormFieldModel, FormExportMode } from '../types/form';
 import { extractFormFieldsFromPdf } from '../services/formService';
-import { signPdfWithCertificate, DigitalSignatureOptions } from '../services/digitalSignatureService';
+import type { DigitalSignatureOptions } from '../services/digitalSignatureService';
 
 // History snapshots share object references with the live state. Pages, annotations, form values and
 // source buffers are never mutated in place (every edit produces new objects / new ArrayBuffers), so
@@ -230,18 +233,18 @@ interface DocumentContextType {
     lineId: string,
     pageIndex?: number
   ) => Promise<{ success: boolean; error?: string }>;
-  /** Repositions and/or resizes an embedded image placement on a PDF page */
+  /** Repositions, resizes, and/or rotates an embedded image placement on a PDF page */
   transformPageImage: (
     placementId: string,
     newRect: PdfRect,
-    options?: { space?: 'pdf' | 'display'; pageIndex?: number }
+    options?: { space?: 'pdf' | 'display'; pageIndex?: number; rotationDeg?: number }
   ) => Promise<{ success: boolean; error?: string }>;
-  /** Repositions and/or scales one or more PDF text blocks atomically */
+  /** Repositions, scales, and/or rotates one or more PDF text blocks atomically */
   transformPageTextBlocks: (
     segmentIds: string[],
     oldRect: PdfRect,
     newRect: PdfRect,
-    options?: { space?: 'pdf' | 'display'; pageIndex?: number }
+    options?: { space?: 'pdf' | 'display'; pageIndex?: number; rotationDeg?: number }
   ) => Promise<{ success: boolean; error?: string }>;
   /** Reflows a PDF text block (or visual group) into a new target width in points */
   reflowPageTextBlocks: (
@@ -249,6 +252,25 @@ interface DocumentContextType {
     newWidthPt: number,
     options?: { deltaDisplayX?: number; deltaDisplayY?: number; deltaPdfX?: number; deltaPdfY?: number; pageIndex?: number }
   ) => Promise<{ success: boolean; lineCount?: number; fontSubstituted?: boolean; error?: string }>;
+  /** Inserts a new raster image (PNG/JPEG/WebP) directly onto an existing PDF page */
+  insertPageImage: (
+    fileOrBytes: File | Blob | ArrayBuffer | Uint8Array,
+    options?: { mimeType?: 'image/png' | 'image/jpeg' | 'image/webp'; pdfRect?: PdfRect; pageIndex?: number }
+  ) => Promise<{ success: boolean; placementId?: string; error?: string }>;
+  /** Updates font size (pt) and/or RGB fill color of one or more PDF text blocks */
+  stylePageTextBlocks: (
+    segmentIds: string[],
+    style: { fontSizePt?: number; hexColor?: string },
+    pageIndex?: number
+  ) => Promise<{ success: boolean; error?: string }>;
+  /** Moves/scales multiple selected text blocks and images in a single atomic Undo step */
+  transformBatchPageElements: (
+    segmentIds: string[],
+    imageIds: string[],
+    deltaPdfX: number,
+    deltaPdfY: number,
+    options?: { scaleFactor?: number; pageIndex?: number }
+  ) => Promise<{ success: boolean; error?: string }>;
 
   // Interactive Form Fields (AcroForms)
   formFields: FormFieldModel[];
@@ -1229,7 +1251,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const transformPageImage = async (
     placementId: string,
     newRect: PdfRect,
-    options: { space?: 'pdf' | 'display'; pageIndex?: number } = {}
+    options: { space?: 'pdf' | 'display'; pageIndex?: number; rotationDeg?: number } = {}
   ): Promise<{ success: boolean; error?: string }> => {
     const pageIndex = options.pageIndex ?? activePageIndexRef.current;
     const resolved = resolvePageSource(pageIndex);
@@ -1244,7 +1266,13 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       pdfRect = displayRectToPdfRect(newRect, vt);
     }
 
-    const result = await transformImageOnPage(sourceDoc.arrayBuffer, sourcePageIndex, placementId, pdfRect);
+    const result = await transformImageOnPage(
+      sourceDoc.arrayBuffer,
+      sourcePageIndex,
+      placementId,
+      pdfRect,
+      options.rotationDeg ?? 0
+    );
     if (result.error) return { success: false, error: result.error };
     if (result.updatedPdfBytes !== sourceDoc.arrayBuffer) {
       commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
@@ -1256,7 +1284,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     segmentIds: string[],
     oldRect: PdfRect,
     newRect: PdfRect,
-    options: { space?: 'pdf' | 'display'; pageIndex?: number } = {}
+    options: { space?: 'pdf' | 'display'; pageIndex?: number; rotationDeg?: number } = {}
   ): Promise<{ success: boolean; error?: string }> => {
     const pageIndex = options.pageIndex ?? activePageIndexRef.current;
     const resolved = resolvePageSource(pageIndex);
@@ -1284,7 +1312,8 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       model,
       segmentIds,
       oldPdfRect,
-      newPdfRect
+      newPdfRect,
+      options.rotationDeg ?? 0
     );
     if (result.error) return { success: false, error: result.error };
     if (result.updatedPdfBytes !== sourceDoc.arrayBuffer) {
@@ -1340,6 +1369,126 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       lineCount: result.lineCount,
       fontSubstituted: result.fontSubstituted,
     };
+  };
+
+  const insertPageImage = async (
+    fileOrBytes: File | Blob | ArrayBuffer | Uint8Array,
+    options: { mimeType?: 'image/png' | 'image/jpeg' | 'image/webp'; pdfRect?: PdfRect; pageIndex?: number } = {}
+  ): Promise<{ success: boolean; placementId?: string; error?: string }> => {
+    const pageIndex = options.pageIndex ?? activePageIndexRef.current;
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    try {
+      let buffer: ArrayBuffer | Uint8Array;
+      let effectiveMime: 'image/png' | 'image/jpeg' = options.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+
+      if (fileOrBytes instanceof File || fileOrBytes instanceof Blob) {
+        const rawType = fileOrBytes.type || options.mimeType || 'image/png';
+        if (rawType === 'image/jpeg' || rawType === 'image/jpg') {
+          buffer = await fileOrBytes.arrayBuffer();
+          effectiveMime = 'image/jpeg';
+        } else if (rawType === 'image/png') {
+          buffer = await fileOrBytes.arrayBuffer();
+          effectiveMime = 'image/png';
+        } else {
+          // Convert WebP or other browser-decodable raster formats cleanly to PNG
+          const blobUrl = URL.createObjectURL(fileOrBytes);
+          const img = new Image();
+          try {
+            await new Promise<void>((resolve, reject) => {
+              img.onload = () => resolve();
+              img.onerror = reject;
+              img.src = blobUrl;
+            });
+          } finally {
+            URL.revokeObjectURL(blobUrl);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(img, 0, 0);
+          const pngBlob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+          canvas.width = 0;
+          canvas.height = 0;
+          if (!pngBlob) throw new Error('Konverze obrázku na PNG selhala.');
+          buffer = await pngBlob.arrayBuffer();
+          effectiveMime = 'image/png';
+        }
+      } else {
+        buffer = fileOrBytes;
+      }
+
+      const result = await insertImageOnPage(
+        sourceDoc.arrayBuffer,
+        sourcePageIndex,
+        buffer,
+        effectiveMime,
+        options.pdfRect
+      );
+      if (result.error) return { success: false, error: result.error };
+      commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+      return { success: true, placementId: result.placementId };
+    } catch (err: any) {
+      return { success: false, error: err?.message || String(err) };
+    }
+  };
+
+  const stylePageTextBlocks = async (
+    segmentIds: string[],
+    style: { fontSizePt?: number; hexColor?: string },
+    pageIndex: number = activePageIndexRef.current
+  ): Promise<{ success: boolean; error?: string }> => {
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { targetPage, sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    const model = await getPageTextModel(sourceDoc, targetPage);
+    if (!model?.aligned) {
+      return { success: false, error: 'Text této stránky nelze spolehlivě namapovat na obsah PDF.' };
+    }
+
+    const result = await styleTextBlocksOnPage(sourceDoc.arrayBuffer, sourcePageIndex, model, segmentIds, style);
+    if (result.error) return { success: false, error: result.error };
+    if (result.updatedPdfBytes !== sourceDoc.arrayBuffer) {
+      commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+    }
+    return { success: true };
+  };
+
+  const transformBatchPageElements = async (
+    segmentIds: string[],
+    imageIds: string[],
+    deltaPdfX: number,
+    deltaPdfY: number,
+    options: { scaleFactor?: number; pageIndex?: number } = {}
+  ): Promise<{ success: boolean; error?: string }> => {
+    const pageIndex = options.pageIndex ?? activePageIndexRef.current;
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { targetPage, sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+
+    const model = segmentIds.length > 0 ? await getPageTextModel(sourceDoc, targetPage) : null;
+    const result = await transformBatchElementsOnPage(
+      sourceDoc.arrayBuffer,
+      sourcePageIndex,
+      model,
+      segmentIds,
+      imageIds,
+      deltaPdfX,
+      deltaPdfY,
+      options.scaleFactor ?? 1
+    );
+    if (result.error) return { success: false, error: result.error };
+    if (result.updatedPdfBytes !== sourceDoc.arrayBuffer) {
+      commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+    }
+    return { success: true };
   };
 
   const replacePageImage = async (
@@ -1551,6 +1700,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         'flatten',
         false
       );
+      const { flattenPdfToImages } = await import('../services/pdfFlattener');
       const flattened = await flattenPdfToImages(exported, options, metadata, onProgress);
       downloadBlob(new Blob([flattened as unknown as BlobPart], { type: 'application/pdf' }), outName);
       return true;
@@ -1598,6 +1748,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         baseBytes.byteOffset + baseBytes.byteLength
       ) as ArrayBuffer;
 
+      const { signPdfWithCertificate } = await import('../services/digitalSignatureService');
       const signResult = await signPdfWithCertificate(
         pdfArrayBuffer,
         privateKeyPem,
@@ -1626,6 +1777,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // so it never acts on stale annotations, pages or history.
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   handleKeyDownRef.current = (e: KeyboardEvent) => {
+    if (e.defaultPrevented) return;
     const targetEl = e.target as HTMLElement | null;
     if (
       targetEl?.tagName === 'INPUT' ||
@@ -1754,6 +1906,9 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     transformPageImage,
     transformPageTextBlocks,
     reflowPageTextBlocks,
+    insertPageImage,
+    stylePageTextBlocks,
+    transformBatchPageElements,
     formFields,
     formValues,
     updateFormFieldValue,

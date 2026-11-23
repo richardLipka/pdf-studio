@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { I18nProvider, useI18n } from './i18n/context';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { DocumentProvider, useDocument } from './context/DocumentContext';
@@ -11,21 +11,44 @@ import { NotesPanel } from './components/layout/NotesPanel';
 import { EditSidePanel } from './components/layout/EditSidePanel';
 import { PdfViewer } from './components/viewer/PdfViewer';
 import { Dropzone } from './components/common/Dropzone';
-import { SignatureModal } from './components/modals/SignatureModal';
-import { AddPageModal } from './components/modals/AddPageModal';
-import { ConfirmModal } from './components/modals/ConfirmModal';
-import { LogModal } from './components/modals/LogModal';
-import { SettingsModal } from './components/modals/SettingsModal';
-import { MetadataModal } from './components/modals/MetadataModal';
-import { ExportFormModal } from './components/modals/ExportFormModal';
-import { AboutModal } from './components/modals/AboutModal';
-import { ShortcutsModal } from './components/modals/ShortcutsModal';
-import { FlattenModal } from './components/modals/FlattenModal';
 import { SearchBar } from './components/viewer/SearchBar';
 import { FileProvider } from './context/FileContext';
 import { useAppCommands } from './hooks/useAppCommands';
 import { shouldAllowGlobalPageDelete } from './utils/editModeState';
 import { CheckCircle2, AlertCircle, RotateCcw, X } from 'lucide-react';
+
+// On-demand lazy modals: keeps heavy dependencies (node-forge, signature_pad, pdfFlattener, etc.)
+// out of the initial entry bundle until a user actually opens the modal.
+const SignatureModal = lazy(() =>
+  import('./components/modals/SignatureModal').then((m) => ({ default: m.SignatureModal }))
+);
+const AddPageModal = lazy(() =>
+  import('./components/modals/AddPageModal').then((m) => ({ default: m.AddPageModal }))
+);
+const ConfirmModal = lazy(() =>
+  import('./components/modals/ConfirmModal').then((m) => ({ default: m.ConfirmModal }))
+);
+const LogModal = lazy(() =>
+  import('./components/modals/LogModal').then((m) => ({ default: m.LogModal }))
+);
+const SettingsModal = lazy(() =>
+  import('./components/modals/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+const MetadataModal = lazy(() =>
+  import('./components/modals/MetadataModal').then((m) => ({ default: m.MetadataModal }))
+);
+const ExportFormModal = lazy(() =>
+  import('./components/modals/ExportFormModal').then((m) => ({ default: m.ExportFormModal }))
+);
+const FlattenModal = lazy(() =>
+  import('./components/modals/FlattenModal').then((m) => ({ default: m.FlattenModal }))
+);
+const AboutModal = lazy(() =>
+  import('./components/modals/AboutModal').then((m) => ({ default: m.AboutModal }))
+);
+const ShortcutsModal = lazy(() =>
+  import('./components/modals/ShortcutsModal').then((m) => ({ default: m.ShortcutsModal }))
+);
 
 const MainWorkspace: React.FC = () => {
   const { t } = useI18n();
@@ -38,6 +61,16 @@ const MainWorkspace: React.FC = () => {
     setIsDeleteConfirmModalOpen,
     setDeleteTargetPageId,
     setDeleteMode,
+    isSignatureModalOpen,
+    isAddPageModalOpen,
+    isDeleteConfirmModalOpen,
+    isLogModalOpen,
+    isSettingsModalOpen,
+    isMetadataModalOpen,
+    isExportFormModalOpen,
+    isFlattenModalOpen,
+    isAboutModalOpen,
+    isShortcutsModalOpen,
   } = useEditor();
 
   const hasDoc = pages.length > 0;
@@ -185,17 +218,19 @@ const MainWorkspace: React.FC = () => {
       {/* Bottom Status Bar (Always present on all pages including first page) */}
       <StatusBar />
 
-      {/* Modals */}
-      <SignatureModal />
-      <AddPageModal />
-      <ConfirmModal />
-      <LogModal />
-      <SettingsModal />
-      <MetadataModal />
-      <ExportFormModal />
-      <FlattenModal />
-      <AboutModal />
-      <ShortcutsModal />
+      {/* Lazy-Loaded Modals (mounted only when opened) */}
+      <Suspense fallback={null}>
+        {isSignatureModalOpen && <SignatureModal />}
+        {isAddPageModalOpen && <AddPageModal />}
+        {isDeleteConfirmModalOpen && <ConfirmModal />}
+        {isLogModalOpen && <LogModal />}
+        {isSettingsModalOpen && <SettingsModal />}
+        {isMetadataModalOpen && <MetadataModal />}
+        {isExportFormModalOpen && <ExportFormModal />}
+        {isFlattenModalOpen && <FlattenModal />}
+        {isAboutModalOpen && <AboutModal />}
+        {isShortcutsModalOpen && <ShortcutsModal />}
+      </Suspense>
     </div>
   );
 };

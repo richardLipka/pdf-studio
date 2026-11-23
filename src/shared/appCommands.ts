@@ -152,5 +152,7 @@ export const matchCommandShortcut = (e: KeyLike, isDesktop: boolean): AppCommand
   }
   // Redo also as Ctrl+Shift+Z
   if (e.shiftKey && key === 'z') return 'redo';
+  // Layout-safe 100 % zoom alternative (Ctrl+Shift+0) for Czech keyboards where Ctrl+1 types '+'
+  if (e.shiftKey && (key === '0' || e.code === 'Digit0' || e.code === 'Numpad0')) return 'zoomActual';
   return null;
 };

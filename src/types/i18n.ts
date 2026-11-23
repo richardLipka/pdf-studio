@@ -840,5 +840,23 @@ export interface TranslationSchema {
     badgeScale: string;
     badgeReflow: string;
     badgeMove: string;
+    badgeRotate: string;
+    insertImageBtn: string;
+    insertImageDesc: string;
+    imageInserted: string;
+    imageInsertFailed: string;
+    angleLabel: string;
+    rotateHandleHint: string;
+    fontSizeLabel: string;
+    textColorLabel: string;
+    textStyleUpdated: string;
+    textStyleFailed: string;
+    batchMoveTitle: string;
+    batchMoveApply: string;
+    /** {count} */
+    batchTransformed: string;
+    batchTransformFailed: string;
+    nudgeHint: string;
+    snapBypassHint: string;
   };
 }

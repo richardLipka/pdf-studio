@@ -18,7 +18,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 
 2. **Triple-Tab Interface & Unified Right Dock**:
    - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes suite (Rectangle, Ellipse, Line), High-res image cropper, and Eraser.
-   - **Editace (Edit Tab)**: Unified document modification suite for direct structural and stream alterations in PDF files: **Select & Edit** (canvas selection, floating Edit Line / Inspect / Delete bar, hover outlines toggle, batch deletion with undo toast), **Visual Rewrite** (Whiteout + Overlay), **Find & Replace**, and the right-hand **PDF Inspector** (`Elements` / `Replace` / `Stream`).
+   - **Editace (Edit Tab)**: Unified document modification suite for direct structural and stream alterations in PDF files: **Select & Edit** (canvas selection, drag-to-move, image 8-handle resize, text-area proportional corner scale & side-handle width reflow, floating Edit Line / Inspect / Delete bar, hover outlines toggle, batch deletion with undo toast), **Visual Rewrite** (Whiteout + Overlay), **Find & Replace**, and the right-hand **PDF Inspector** (`Elements` with numeric `X/Y/W/H` geometry controls / `Replace` / `Stream`).
    - **Podpis (Sign Tab)**: Dedicated signing & certification workspace: Visual signature pad (Draw/Type/Upload), Reusable stamp library with live counter, and direct Cryptographic PAdES / PKCS#7 signing conforming to ISO 32000-1.
    - **Unified Right Dock**: Automatically switches and maintains mutual exclusivity between the `NotesPanel` (Review & Sign tabs) and the `EditSidePanel` (Edit tab), providing a clean, uncluttered workspace.
 
@@ -32,6 +32,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Segment Isolation & Inspection**: Decodes and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.
    - **Interactive Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly focuses and selects that specific stream segment in the Stream Editor.
    - **Direct Code Editor, Multi-Line Rewrite & Per-Line Deletion**: Live monospaced code editor for direct byte/operator edits, plus a Full Page Stream tab. Block and inline rewrites use the exact page text model (`pdfTextModel.ts`, `pdfTextEditor.ts`), supporting multi-line `BT ... ET` objects, per-line deletion, column preservation, direct PDF `/ToUnicode` CMap parsing (`parseToUnicodeCMap`) for `pdfjs-dist` 6.5+ CID fonts, and automatic substitute-font embedding when required glyphs are missing.
+   - **Interactive Text Area Repositioning, Proportional Scaling & Width Reflow (`pdfElementTransform.ts`)**: Selected `BT ... ET` blocks (and visual block groups) can be dragged to move, corner-resized for uniform proportional scaling (replaying persistent `Tf`/color/spacing operators after `Q` and collapsing repeated edits into one `q % pilsenpdf:xform` wrapper), or side-resized (`W`/`E` handles) to re-wrap lines into a new target width using calibrated glyph advance widths (or exact `PDFFont.widthOfTextAtSize` for substitute fonts). Numeric `X/Y/W/H` controls with Scale/Reflow mode toggle are also available in `EditSidePanel`.
    - **Cascading Double-Replacement Prevention**: Isolates and masks `[...] TJ` kerning arrays first so nested word substitutions (e.g. `test` → `testing`) never produce corrupted duplicates (`testinging`).
    - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time.
    - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
@@ -109,7 +110,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
    - **Deep Image Inspection**: Discovers, isolates, and renders raster images (XObjects, inline images, full-page scans) directly in `EditSidePanel` and on canvas.
    - **Compound 2D Affine Matrix Computation**: Compounds chained `cm` transformation matrices across `q ... Q` blocks to calculate exact physical positions $(X, Y)$ and dimensions in points.
    - **DPI & Format Detection**: Calculates exact DPI ($\text{DPI} = \frac{\text{pixelWidth}}{\text{ptWidth}} \times 72$), identifies `/Filter` encodings (JPEG, PNG/Flate, JBIG2, CCITT Fax TIFF), and flags full-page scans ($\ge 82\ \%$ page coverage).
-   - **Core Operations**: In-place image replacement (preserves matrix geometry in `/Contents`), 1-click lossless PNG export via hardware-rendered canvas crop, and atomic deletion with 100-step Undo/Redo binary snapshots.
+   - **Core Operations**: Drag-to-move and 8-handle interactive resizing on canvas (aspect-locked corners by default with `Shift` free override, live `W × H pt • DPI` readout) plus numeric `X/Y/W/H` inspector inputs (`pdfElementTransform.ts`). Preserves enclosing `W n` clip frames, expands page-local Form XObject `/BBox` boundaries automatically, collapses repeated transforms cleanly, and isolates repeated XObject placements individually. Also supports in-place image replacement (preserving matrix geometry in `/Contents`), 1-click lossless PNG export via hardware-rendered canvas crop, and atomic deletion with 100-step Undo/Redo binary snapshots.
    - **Floating Canvas Quick Actions**: Floating toolbar anchored to selected images with resolution, DPI badges, and instant Download / Replace / Delete buttons.
 
 15. **Semantic Hierarchy, Segmented Filtering & Stacking Order**:
@@ -158,7 +159,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest 5](https://vitest.dev/) | Comprehensive automated unit & integration testing (47 test files, 350 tests across web + desktop) |
+| **Testing** | [Vitest 5](https://vitest.dev/) | Comprehensive automated unit & integration testing (47 test files, 357 tests across web + desktop) |
 
 ---
 
@@ -195,16 +196,18 @@ pdf-editor/
 │   │   ├── settingsBackup.ts # Settings / signatures backup file format
 │   │   ├── logger.ts       # Structured logging, safe serialization, event subscription & issue counters
 │   │   ├── pdfExporter.ts  # Generates final PDF using pdf-lib (burns annotations/signatures/shapes)
+│   │   ├── pdfMetadataService.ts # Document Information dictionary and XMP packet serialization
 │   │   ├── pdfLoader.ts    # Parses and renders PDFs via pdfjs-dist with outlines extraction & WebWorker cleanup
 │   │   ├── pdfSearchService.ts # Full-text document search with character bounding box calculation
 │   │   ├── pdfjsAssets.ts  # URLs of pdf.js runtime assets (wasm decoders, fonts, CMaps) served under pdfjs/
 │   │   ├── pdfFonts.ts     # Standard vs. embedded Unicode (Liberation Sans) font selection for exported text
 │   │   ├── renderQueue.ts  # Prioritized lazy rendering queue for viewport & large files
 │   │   ├── contentStreamEditor.ts # Direct stream parser, token replacer, and structural segment tree
+│   │   ├── streamImageService.ts  # Extracted stream image placement walker and surgical XObject/inline removal
 │   │   ├── pdfContentTokenizer.ts # Low-level PDF content stream tokenizer
 │   │   ├── pdfTextModel.ts # Exact page text/line model, column layout, and PDF /ToUnicode CMap parser
 │   │   ├── pdfTextEditor.ts # Multi-line block/line rewriter, per-line deletion, and font substitution
-│   │   ├── pdfElementTransform.ts # Image & text block move/resize (CTM matrix + clip/Form BBox) and text width reflow
+│   │   ├── pdfElementTransform.ts # Image insert/move/resize/rotate, text scale/rotate/style/mixed-reflow, batch move
 │   │   ├── pdfReadableStream.ts # Decoded readable stream view («text») and round-trip encoder
 │   │   ├── padesSigner.ts  # Client-side PAdES / PKCS#7 detached cryptographic signing via node-forge
 │   │   ├── pdfFlattener.ts # Flatten document pages into image-only PDFs ("as scanned")
@@ -227,7 +230,7 @@ pdf-editor/
 │   ├── index.css
 │   └── main.tsx
 ├── docs/wikipedia/         # Wikipedia article draft (wikitext) and Wikimedia Commons–ready screenshot
-├── tests/                  # Automated Vitest test suite (350 tests across web + desktop)
+├── tests/                  # Automated Vitest test suite (357 tests across web + desktop)
 ├── scripts/verify-dist.mjs # Checks the build is self-contained (Pages, offline bundle, desktop)
 ├── desktop/                # (desktop branch only) Electron shell, see desktop/README.md
 ├── package.json

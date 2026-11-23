@@ -8,14 +8,20 @@ import { buildPageTextModel, FontMetrics, PageTextModel } from '../src/services/
 import {
   computeBoxTransformMatrix,
   displayRectToPdfRect,
+  insertImageOnPage,
   invertMatrix,
   multiplyMatrix,
   pdfRectToDisplayRect,
   reflowTextBlocksOnPage,
+  styleTextBlocksOnPage,
+  transformBatchElementsOnPage,
   transformImageOnPage,
   transformTextBlocksOnPage,
   wrapParagraphsToWidth,
 } from '../src/services/pdfElementTransform';
+import { computeSnapMove, computeSnapResize } from '../src/utils/snapGuides';
+import { matchCommandShortcut } from '../src/shared/appCommands';
+import { searchPdfDocument } from '../src/services/pdfSearchService';
 
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
   bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -28,7 +34,11 @@ const TINY_PNG = Buffer.from(
 async function buildModelWithPdfJs(buf: ArrayBuffer, pageIndex = 0, rotation = 0): Promise<PageTextModel> {
   const { streamText, layout, error } = await getPageContentStream(buf, pageIndex);
   if (error || !layout) throw new Error(error || 'Missing stream layout');
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)), useSystemFonts: true });
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(buf.slice(0)),
+    useSystemFonts: true,
+    fontExtraProperties: true,
+  });
   const doc = await loadingTask.promise;
   try {
     const page = await doc.getPage(pageIndex + 1);
@@ -384,5 +394,229 @@ describe('pdfElementTransform', () => {
     expect(m1.blocks).toHaveLength(2);
     expect(m1.blocks[1].runs[0].fontSize).toBeCloseTo(16, 1);
     expect(m1.blocks[1].text).toBe('Inherited Style Line');
+  });
+
+  it('inserts a new image onto an existing page, then moves and rotates it cleanly without touching page 2', async () => {
+    const doc = await PDFDocument.create();
+    const p1 = doc.addPage([595, 842]);
+    const p2 = doc.addPage([595, 842]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    p1.drawText('Page 1 text', { x: 60, y: 740, size: 12, font });
+    p2.drawText('Page 2 untouched', { x: 60, y: 740, size: 12, font });
+    const bytes = toArrayBuffer(await doc.save());
+
+    const ins = await insertImageOnPage(bytes, 0, TINY_PNG, 'image/png', { x: 100, y: 400, width: 120, height: 80 });
+    expect(ins.error).toBeUndefined();
+    expect(ins.placementId).toBe('img:ImIns1:0');
+
+    const imgs1 = await getPageImages(ins.updatedPdfBytes, 0);
+    expect(imgs1.images).toHaveLength(1);
+    expect(imgs1.images[0].x).toBeCloseTo(100, 1);
+    expect(imgs1.images[0].width).toBeCloseTo(120, 1);
+    expect((await getPageImages(ins.updatedPdfBytes, 1)).images).toHaveLength(0);
+
+    // Rotate 90 degrees clockwise around center: 120x80 box becomes 80x120 bbox centered at (160, 440)
+    const rot = await transformImageOnPage(
+      ins.updatedPdfBytes,
+      0,
+      ins.placementId!,
+      { x: 100, y: 400, width: 120, height: 80 },
+      90
+    );
+    expect(rot.error).toBeUndefined();
+    const imgsRot = await getPageImages(rot.updatedPdfBytes, 0);
+    expect(imgsRot.images[0].width).toBeCloseTo(80, 1);
+    expect(imgsRot.images[0].height).toBeCloseTo(120, 1);
+    // Repeated xform collapses into 1 marker
+    const streamRot = await getPageContentStream(rot.updatedPdfBytes, 0);
+    expect((streamRot.streamText.match(/% pilsenpdf:xform/g) ?? []).length).toBe(1);
+  });
+
+  it('updates text block font size and fill color while isolating sibling text blocks', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595, 842]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText('Styled headline', { x: 60, y: 740, size: 12, font, color: rgb(0, 0, 0) });
+    page.drawText('Untouched paragraph', { x: 60, y: 680, size: 12, font, color: rgb(0, 0, 0) });
+    const bytes = toArrayBuffer(await doc.save());
+
+    const m0 = await buildModelWithPdfJs(bytes, 0);
+    expect(m0.aligned).toBe(true);
+    const res = await styleTextBlocksOnPage(bytes, 0, m0, [m0.blocks[0].segmentId], {
+      fontSizePt: 24,
+      hexColor: '#dc2626',
+    });
+    expect(res.error).toBeUndefined();
+    expect(res.updatedStream).toContain('rg');
+
+    const m1 = await buildModelWithPdfJs(res.updatedPdfBytes, 0);
+    expect(m1.aligned).toBe(true);
+    expect(m1.blocks[0].runs[0].emSize).toBeCloseTo(24, 0);
+    // Sibling block kept its original 12pt size
+    expect(m1.blocks[1].runs[0].emSize).toBeCloseTo(12, 0);
+  });
+
+  it('preserves mixed bold + regular inline styles during width reflow', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595, 842]);
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const reg = await doc.embedFont(StandardFonts.Helvetica);
+    // Seed both fonts onto page resources
+    page.drawText('a', { x: -50, y: -50, size: 12, font: bold });
+    page.drawText('b', { x: -50, y: -50, size: 12, font: reg });
+    const fontDict = safeGetPageResources(page.node)!.lookup(PDFName.of('Font')) as any;
+    const keys = fontDict.keys().map((k: any) => k.asString().replace(/^\//, ''));
+    const [fBold, fReg] = keys;
+    const stream = [
+      'BT',
+      `/${fBold} 12 Tf`,
+      '1 0 0 1 60 720 Tm',
+      '(Important Notice:) Tj',
+      `/${fReg} 12 Tf`,
+      '( please review all attached documents carefully today) Tj',
+      'ET',
+    ].join('\n');
+    page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(stream)));
+    const bytes = toArrayBuffer(await doc.save());
+
+    const m0 = await buildModelWithPdfJs(bytes, 0);
+    expect(m0.aligned).toBe(true);
+    const res = await reflowTextBlocksOnPage(bytes, 0, m0, [m0.blocks[0].segmentId], 140);
+    expect(res.error).toBeUndefined();
+    expect(res.lineCount).toBeGreaterThanOrEqual(2);
+    expect(res.updatedStream).toContain(`/${fBold}`);
+    expect(res.updatedStream).toContain(`/${fReg}`);
+
+    const m1 = await buildModelWithPdfJs(res.updatedPdfBytes, 0);
+    expect(m1.aligned).toBe(true);
+    expect(m1.blocks[0].lines.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('batch-moves multiple selected text blocks and images in a single atomic commit', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595, 842]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const img = await doc.embedPng(TINY_PNG);
+    page.drawText('Block A', { x: 50, y: 750, size: 12, font });
+    page.drawText('Block B', { x: 50, y: 700, size: 12, font });
+    page.drawImage(img, { x: 200, y: 650, width: 100, height: 60 });
+    const bytes = toArrayBuffer(await doc.save());
+
+    const m0 = await buildModelWithPdfJs(bytes, 0);
+    const imgs0 = await getPageImages(bytes, 0);
+    const oldPdfA = displayRectToPdfRect(m0.blocks[0].bbox, m0.viewportTransform!);
+    const oldPdfB = displayRectToPdfRect(m0.blocks[1].bbox, m0.viewportTransform!);
+
+    // Move Block A + Image by (+40, -30) while leaving Block B completely untouched
+    const res = await transformBatchElementsOnPage(bytes, 0, m0, [m0.blocks[0].segmentId], [imgs0.images[0].id], 40, -30);
+    expect(res.error).toBeUndefined();
+
+    const m1 = await buildModelWithPdfJs(res.updatedPdfBytes, 0);
+    const imgs1 = await getPageImages(res.updatedPdfBytes, 0);
+    const newPdfA = displayRectToPdfRect(m1.blocks[0].bbox, m1.viewportTransform!);
+    const newPdfB = displayRectToPdfRect(m1.blocks[1].bbox, m1.viewportTransform!);
+
+    expect(newPdfA.x).toBeCloseTo(oldPdfA.x + 40, 1);
+    expect(newPdfA.y).toBeCloseTo(oldPdfA.y - 30, 1);
+    expect(imgs1.images[0].x).toBeCloseTo(240, 1);
+    expect(imgs1.images[0].y).toBeCloseTo(620, 1);
+    // Block B untouched
+    expect(newPdfB.x).toBeCloseTo(oldPdfB.x, 1);
+    expect(newPdfB.y).toBeCloseTo(oldPdfB.y, 1);
+  });
+
+  it('snaps dragged and resized boxes to page center, margins, and sibling edges, and supports Czech Ctrl+Shift+0 zoomActual', () => {
+    const siblings = [{ x: 100, y: 200, width: 150, height: 40 }];
+    // Near page center X (297.5): center is 298 (dist 0.5pt < sibling right-edge dist 2pt)
+    const snappedCenter = computeSnapMove({ x: 248, y: 120, width: 100, height: 40 }, 595, 842, siblings, 5);
+    expect(snappedCenter.rect.x).toBeCloseTo(247.5, 4);
+    expect(snappedCenter.guides.some((g) => g.axis === 'x' && g.kind === 'page-center')).toBe(true);
+
+    // Near sibling left edge (100) and top edge (200)
+    const snappedSib = computeSnapMove({ x: 103, y: 198, width: 80, height: 30 }, 595, 842, siblings, 5);
+    expect(snappedSib.rect.x).toBe(100);
+    expect(snappedSib.rect.y).toBe(200);
+    expect(snappedSib.guides).toHaveLength(2);
+
+    // Resize east edge snaps to sibling right edge (250)
+    const snappedResize = computeSnapResize({ x: 100, y: 100, width: 147, height: 40 }, 'e', 595, 842, siblings, 16, 8, 5);
+    expect(snappedResize.rect.width).toBe(150);
+    expect(snappedResize.guides.some((g) => g.axis === 'x' && g.position === 250)).toBe(true);
+
+    // Czech keyboard layout: Ctrl+Shift+0 triggers zoomActual cleanly (both when key is '0' on Czech and ')' on US)
+    expect(
+      matchCommandShortcut({ key: '0', code: 'Digit0', ctrlKey: true, metaKey: false, shiftKey: true, altKey: false }, false)
+    ).toBe('zoomActual');
+    expect(
+      matchCommandShortcut({ key: ')', code: 'Digit0', ctrlKey: true, metaKey: false, shiftKey: true, altKey: false }, false)
+    ).toBe('zoomActual');
+  });
+
+  it('verifies insertImage, rotate, style, and batch move across real-world PDFs in src/assets/testfiles', async () => {
+    const adPath = path.resolve('src/assets/testfiles/A-D-edited.pdf');
+    if (fs.existsSync(adPath)) {
+      const buf = toArrayBuffer(new Uint8Array(fs.readFileSync(adPath)));
+      const ins = await insertImageOnPage(buf, 0, TINY_PNG, 'image/png', { x: 80, y: 600, width: 90, height: 60 });
+      expect(ins.error).toBeUndefined();
+      const rot = await transformImageOnPage(ins.updatedPdfBytes, 0, ins.placementId!, { x: 80, y: 600, width: 90, height: 60 }, 45);
+      expect(rot.error).toBeUndefined();
+      const imgsAfter = await getPageImages(rot.updatedPdfBytes, 0);
+      expect(imgsAfter.images.some((i) => i.id === ins.placementId)).toBe(true);
+    }
+
+    const thesisPath = path.resolve('src/assets/testfiles/PhDThesis-Snajberk-RichardRew.pdf');
+    if (fs.existsSync(thesisPath)) {
+      const buf = toArrayBuffer(new Uint8Array(fs.readFileSync(thesisPath)));
+      const m0 = await buildModelWithPdfJs(buf, 0);
+      expect(m0.aligned).toBe(true);
+      const firstTwo = m0.blocks.slice(0, 2).map((b) => b.segmentId);
+      const batch = await transformBatchElementsOnPage(buf, 0, m0, firstTwo, [], 15, -10);
+      expect(batch.error).toBeUndefined();
+      const m1 = await buildModelWithPdfJs(batch.updatedPdfBytes, 0);
+      expect(m1.aligned).toBe(true);
+    }
+
+    const vskpPath = path.resolve('src/assets/testfiles/temata_vskp_-_podklady_pro_zadani_vskp.pdf');
+    if (fs.existsSync(vskpPath)) {
+      const buf = toArrayBuffer(new Uint8Array(fs.readFileSync(vskpPath)));
+      const m0 = await buildModelWithPdfJs(buf, 0);
+      expect(m0.aligned).toBe(true);
+      const blk = m0.blocks.find((b) => b.text.trim().length > 6)!;
+      const styled = await styleTextBlocksOnPage(buf, 0, m0, [blk.segmentId], { hexColor: '#1d4ed8' });
+      expect(styled.error).toBeUndefined();
+      const m1 = await buildModelWithPdfJs(styled.updatedPdfBytes, 0);
+      expect(m1.aligned).toBe(true);
+    }
+  });
+
+  it('streams progressive search results in chunks via onProgress', async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    for (let i = 0; i < 5; i++) {
+      const p = doc.addPage([595, 842]);
+      p.drawText(`PilsenPDF page ${i + 1} search target`, { x: 60, y: 740, size: 12, font });
+    }
+    const bytes = toArrayBuffer(await doc.save());
+    const pages = Array.from({ length: 5 }, (_, i) => ({
+      id: `p_${i}`,
+      sourceDocId: 'src_1',
+      sourceType: 'pdf' as const,
+      originalPageIndex: i,
+      rotation: 0,
+      width: 595,
+      height: 842,
+    }));
+    const sources = [{ id: 'src_1', name: 'test.pdf', arrayBuffer: bytes, pageCount: 5 }];
+    const snapshots: Array<{ count: number; scanned: number }> = [];
+    const finalMatches = await searchPdfDocument(pages, sources, 'target', {
+      chunkSize: 2,
+      onProgress: (matchesSoFar, scanned) => snapshots.push({ count: matchesSoFar.length, scanned }),
+    });
+    expect(finalMatches).toHaveLength(5);
+    expect(snapshots).toEqual([
+      { count: 2, scanned: 2 },
+      { count: 4, scanned: 4 },
+      { count: 5, scanned: 5 },
+    ]);
   });
 });

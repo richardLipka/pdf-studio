@@ -21,6 +21,10 @@ export interface SearchOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   signal?: AbortSignal;
+  /** Optional progressive callback invoked with matches found so far as chunks of pages complete */
+  onProgress?: (matchesSoFar: SearchMatch[], scannedPages: number, totalPages: number) => void;
+  /** Number of pages scanned before yielding to the event loop & emitting progress (default: 6) */
+  chunkSize?: number;
 }
 
 interface CompactTextItem {
@@ -142,7 +146,7 @@ export const searchPdfDocument = async (
     return [];
   }
 
-  const { caseSensitive = false, wholeWord = false, signal } = options;
+  const { caseSensitive = false, wholeWord = false, signal, onProgress, chunkSize = 6 } = options;
   const flags = caseSensitive ? 'g' : 'gi';
   const escaped = escapeRegex(trimmed);
   const regexPattern = wholeWord ? `(?<=^|[\\s.,;:!?'"()\\[\\]{}/<>-])${escaped}(?=$|[\\s.,;:!?'"()\\[\\]{}/<>-])` : escaped;
@@ -291,6 +295,15 @@ export const searchPdfDocument = async (
       // Avoid infinite loop on zero-width match
       if (matchExec.index === regex.lastIndex) {
         regex.lastIndex++;
+      }
+    }
+
+    // Progressive chunk yield: lets the UI stay responsive and stream hits immediately on long PDFs
+    const scannedCount = pageIdx + 1;
+    if (onProgress && (scannedCount % chunkSize === 0 || scannedCount === pages.length)) {
+      onProgress(matches.slice(), scannedCount, pages.length);
+      if (scannedCount < pages.length) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
     }
   }
