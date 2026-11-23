@@ -150,10 +150,88 @@ export interface FontMetrics {
   descent?: number;
   name?: string;
   vertical?: boolean;
-  /** Available when pdf.js runs with fontExtraProperties */
-  toUnicode?: { _map?: unknown[]; firstChar?: number; lastChar?: number } | null;
+  /** Available in pdf.js <=6.3 with fontExtraProperties */
+  toUnicode?: { _map?: unknown[] | Map<number, unknown>; firstChar?: number; lastChar?: number } | null;
+  /** Available in pdf.js 6.5+ with fontExtraProperties: charCode -> Unicode code point (simple fonts) */
+  toFontChar?: Map<number, number> | number[];
+  /** Standard encoding glyph names (length 256) exported with fontExtraProperties */
+  defaultEncoding?: string[];
+  /** Encoding /Differences overrides exported with fontExtraProperties */
+  differences?: Map<number, string> | Record<number, string>;
   composite?: boolean;
   missingFile?: boolean;
+}
+
+/**
+ * Decodes a UTF-16BE hex string from a PDF ToUnicode CMap (e.g. "0159" -> "ř").
+ */
+function decodeCMapUtf16Hex(hex: string): string {
+  const clean = hex.replace(/\s+/g, '');
+  if (!clean || clean.length % 2 !== 0) return '';
+  if (clean.length === 2) {
+    return String.fromCharCode(parseInt(clean, 16));
+  }
+  let out = '';
+  for (let i = 0; i + 3 < clean.length; i += 4) {
+    out += String.fromCharCode(parseInt(clean.slice(i, i + 4), 16));
+  }
+  return out;
+}
+
+/**
+ * Parses an ISO 32000-1 Section 9.10.3 ToUnicode CMap stream (`beginbfchar` / `beginbfrange`)
+ * into a character-code -> Unicode string map.
+ */
+export function parseToUnicodeCMap(cmapText: string): Map<number, string> {
+  const result = new Map<number, string>();
+  if (!cmapText) return result;
+
+  // 1. beginbfchar ... endbfchar: <srcCode> <dstUnicode>
+  const bfcharBlocks = cmapText.matchAll(/beginbfchar\b([\s\S]*?)\bendbfchar\b/g);
+  for (const block of bfcharBlocks) {
+    const pairs = block[1].matchAll(/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g);
+    for (const pair of pairs) {
+      const code = parseInt(pair[1], 16);
+      const unicode = decodeCMapUtf16Hex(pair[2]);
+      if (!Number.isNaN(code) && unicode) result.set(code, unicode);
+    }
+  }
+
+  // 2. beginbfrange ... endbfrange:
+  //    <lo> <hi> <dstStart>   OR   <lo> <hi> [ <dst0> <dst1> ... ]
+  const bfrangeBlocks = cmapText.matchAll(/beginbfrange\b([\s\S]*?)\bendbfrange\b/g);
+  for (const block of bfrangeBlocks) {
+    const entries = block[1].matchAll(
+      /<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*(?:\[([\s\S]*?)\]|<([0-9A-Fa-f]+)>)/g
+    );
+    for (const entry of entries) {
+      const lo = parseInt(entry[1], 16);
+      const hi = parseInt(entry[2], 16);
+      if (Number.isNaN(lo) || Number.isNaN(hi) || hi < lo || hi - lo > 65536) continue;
+      if (entry[3] !== undefined) {
+        let code = lo;
+        for (const item of entry[3].matchAll(/<([0-9A-Fa-f]+)>/g)) {
+          if (code > hi) break;
+          const unicode = decodeCMapUtf16Hex(item[1]);
+          if (unicode) result.set(code, unicode);
+          code++;
+        }
+      } else if (entry[4] !== undefined) {
+        const dstHex = entry[4];
+        const base = decodeCMapUtf16Hex(dstHex);
+        if (!base) continue;
+        const prefix = base.slice(0, -1);
+        const lastUnit = base.charCodeAt(base.length - 1);
+        for (let offset = 0; offset <= hi - lo; offset++) {
+          const unit = lastUnit + offset;
+          if (unit > 0xffff) break;
+          result.set(lo + offset, prefix + String.fromCharCode(unit));
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 export interface PageTextModelInput {
@@ -163,6 +241,8 @@ export interface PageTextModelInput {
   /** pdf.js OPS table */
   ops: Record<string, number>;
   getFont: (fontKey: string) => FontMetrics | null;
+  /** Optional direct PDF /ToUnicode CMap reader (used when pdf.js does not expose toUnicode) */
+  getFontToUnicode?: (fontResource: string, partIndex: number) => Map<number, string> | null;
   /** Content space of the page -> displayed page space (pdf.js viewport at scale 1) */
   toDisplay: (x: number, y: number) => [number, number];
 }
@@ -567,6 +647,7 @@ export function buildPageTextModel(input: PageTextModelInput): PageTextModel {
   if (i !== mine.length) return empty(`${mine.length - i} stream operators without pdf.js counterpart`);
 
   const fontCodeMaps = new Map<string, FontCodeMap>();
+  const fontKeyResources = new Map<string, { fontResource: string; partIndex: number }>();
   for (const run of runs) {
     if (!run.codeBytes) continue;
     let map = fontCodeMaps.get(run.fontKey);
@@ -574,25 +655,64 @@ export function buildPageTextModel(input: PageTextModelInput): PageTextModel {
       map = { codeBytes: run.codeBytes, codes: new Map() };
       fontCodeMaps.set(run.fontKey, map);
     }
+    if (!fontKeyResources.has(run.fontKey) && run.fontResource) {
+      fontKeyResources.set(run.fontKey, { fontResource: run.fontResource, partIndex: run.partIndex });
+    }
     if (map.codeBytes !== run.codeBytes) continue;
     for (const glyph of run.glyphs) {
       if (glyph.unicode && !map.codes.has(glyph.unicode)) map.codes.set(glyph.unicode, glyph.code);
     }
   }
-  // The font's full ToUnicode table adds characters used elsewhere in the document. It is trusted
-  // for composite fonts (their ToUnicode lists glyphs the embedded program contains) and for
-  // non-embedded fonts (drawn from a complete system/standard font); a subset simple font may
-  // lack the glyphs of its encoding, so it keeps the page glyphs only.
+  // The font's full ToUnicode / encoding table adds characters used elsewhere in the document.
+  // It is trusted for composite fonts (their ToUnicode lists glyphs the embedded program contains)
+  // and for non-embedded fonts (drawn from a complete system/standard font); a subset simple font
+  // may lack the glyphs of its encoding, so it keeps the page glyphs only.
   for (const [fontKey, map] of fontCodeMaps) {
     const font = input.getFont(fontKey);
-    const table = font?.toUnicode?._map;
-    if (!font || !Array.isArray(table) || !(font.composite || font.missingFile)) continue;
+    if (!font || !(font.composite || font.missingFile)) continue;
     const limit = map.codeBytes === 1 ? 256 : 65536;
-    table.forEach((value, code) => {
-      if (code >= limit || typeof value !== 'string' || value.length === 0) return;
-      if ([...value].length !== 1 || /[\u0000-\u001F�-]/.test(value)) return;
+    const addEntry = (code: number, value: unknown) => {
+      if (code < 0 || code >= limit || typeof value !== 'string' || value.length === 0) return;
+      if ([...value].length !== 1 || /[\u0000-\u001F\uFFFD\uE000-\uF8FF]/.test(value)) return;
       if (!map.codes.has(value)) map.codes.set(value, code);
-    });
+    };
+
+    // 1. pdf.js <=6.3 exported toUnicode._map directly on FontFaceObject
+    const table = font.toUnicode?._map;
+    if (Array.isArray(table)) {
+      table.forEach((value, code) => addEntry(code, value));
+    } else if (table instanceof Map) {
+      table.forEach((value, code) => addEntry(code, value));
+    }
+
+    // 2. Direct PDF /ToUnicode CMap stream (works across all pdf.js versions, incl. 6.5+ CID fonts)
+    const ref = fontKeyResources.get(fontKey);
+    if (ref && input.getFontToUnicode) {
+      const cmap = input.getFontToUnicode(ref.fontResource, ref.partIndex);
+      if (cmap) {
+        cmap.forEach((value, code) => addEntry(code, value));
+      }
+    }
+
+    // 3. pdf.js 6.5+ non-embedded simple fonts export charCode -> Unicode in toFontChar
+    if (font.missingFile && !font.composite && font.toFontChar) {
+      const hasDifference = (code: number): boolean => {
+        if (!font.differences) return false;
+        if (font.differences instanceof Map) return font.differences.has(code);
+        return Object.prototype.hasOwnProperty.call(font.differences, code);
+      };
+      const addFontChar = (unicodeCodePoint: number, code: number) => {
+        if (typeof unicodeCodePoint !== 'number' || unicodeCodePoint < 0x20 || unicodeCodePoint > 0x10ffff) return;
+        // Skip undefined encoding slots (e.g. WinAnsi 129/141/143/144/157 mapped to fallback bullet)
+        if (font.defaultEncoding && !font.defaultEncoding[code] && !hasDifference(code)) return;
+        addEntry(code, String.fromCodePoint(unicodeCodePoint));
+      };
+      if (font.toFontChar instanceof Map) {
+        font.toFontChar.forEach((u, code) => addFontChar(u, code));
+      } else if (Array.isArray(font.toFontChar)) {
+        font.toFontChar.forEach((u, code) => addFontChar(u, code));
+      }
+    }
   }
 
   const blocks: TextBlock[] = [];

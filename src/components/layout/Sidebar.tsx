@@ -658,7 +658,9 @@ export const Sidebar: React.FC = () => {
               <div
                 key={page.id}
                 data-page-id={page.id}
-                ref={(el) => (thumbnailRefs.current[page.id] = el)}
+                ref={(el) => {
+                  thumbnailRefs.current[page.id] = el;
+                }}
                 style={{ height: cardHeightRef.current }}
                 aria-hidden
               />

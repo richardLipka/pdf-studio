@@ -5,7 +5,7 @@ import { PdfPageModel, SourceDocument, DocumentMetadata, PdfOutlineItem } from '
 import { Annotation } from '../types/annotations';
 import { logger } from './logger';
 import { getPdfjsAssetOptions } from './pdfjsAssets';
-import { buildPageTextModel, groupAdjacentBlocks, FontMetrics, PageTextModel } from './pdfTextModel';
+import { buildPageTextModel, groupAdjacentBlocks, FontMetrics, PageTextModel, parseToUnicodeCMap } from './pdfTextModel';
 import { markupBoxFromLine, markupLineFromQuad } from '../utils/markupGeometry';
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef } from 'pdf-lib';
 import { sanitizePdfBuffer, extractPdfHeader } from './pdfExporter';
@@ -15,6 +15,7 @@ import {
   normalizeTextForSearch,
   getPageImages,
   getCachedPdfLibDocument,
+  decodeStreamObject,
   PageImageInfo,
 } from './contentStreamEditor';
 
@@ -1063,8 +1064,60 @@ export const getPageTextModel = (
         pageModel.originalPageIndex
       );
       if (error || !layout) return null;
-      const pdfDoc = await getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer);
+      const [pdfDoc, pdfLibDoc] = await Promise.all([
+        getCachedPdfDocument(sourceDoc.id, sourceDoc.arrayBuffer),
+        getCachedPdfLibDocument(sourceDoc.arrayBuffer).catch(() => null),
+      ]);
       const page = await pdfDoc.getPage(pageModel.originalPageIndex + 1);
+      const toUnicodeCache = new Map<string, Map<number, string> | null>();
+      const resolveFontToUnicode = (fontResource: string, partIndex: number): Map<number, string> | null => {
+        const cacheKey = `${partIndex}|${fontResource}`;
+        if (toUnicodeCache.has(cacheKey)) return toUnicodeCache.get(cacheKey) ?? null;
+        let parsed: Map<number, string> | null = null;
+        try {
+          if (pdfLibDoc) {
+            const pdfLibPage = pdfLibDoc.getPages()[pageModel.originalPageIndex];
+            const context = pdfLibDoc.context;
+            const lookupFontInResources = (resourcesObj: any): PDFDict | null => {
+              const res = resourcesObj ? context.lookup(resourcesObj) : null;
+              if (!(res instanceof PDFDict)) return null;
+              const fontDict = context.lookup(res.get(PDFName.of('Font')));
+              if (!(fontDict instanceof PDFDict)) return null;
+              const fontObj = context.lookup(fontDict.get(PDFName.of(fontResource)));
+              return fontObj instanceof PDFDict ? fontObj : null;
+            };
+            let fontDictObj: PDFDict | null = null;
+            const part = layout[partIndex];
+            const pageResources = pdfLibPage?.node.Resources();
+            if (part?.kind === 'form' && part.name && pageResources) {
+              const xObjects = context.lookup(pageResources.get(PDFName.of('XObject')));
+              if (xObjects instanceof PDFDict) {
+                const formObj = context.lookup(xObjects.get(PDFName.of(part.name))) as any;
+                if (formObj?.dict instanceof PDFDict) {
+                  fontDictObj = lookupFontInResources(formObj.dict.get(PDFName.of('Resources')));
+                }
+              }
+            }
+            if (!fontDictObj) {
+              fontDictObj = lookupFontInResources(pageResources);
+            }
+            if (fontDictObj) {
+              const toUnicodeStream = context.lookup(fontDictObj.get(PDFName.of('ToUnicode')));
+              if (toUnicodeStream) {
+                const cmapText = decodeStreamObject(toUnicodeStream);
+                if (cmapText) {
+                  const cmap = parseToUnicodeCMap(cmapText);
+                  if (cmap.size > 0) parsed = cmap;
+                }
+              }
+            }
+          }
+        } catch {
+          parsed = null;
+        }
+        toUnicodeCache.set(cacheKey, parsed);
+        return parsed;
+      };
       let model: PageTextModel | null = null;
       try {
         const viewport = page.getViewport({ scale: 1.0, rotation: pageModel.rotation });
@@ -1081,6 +1134,7 @@ export const getPageTextModel = (
               return null;
             }
           },
+          getFontToUnicode: resolveFontToUnicode,
           toDisplay: (x, y) => viewport.convertToViewportPoint(x, y) as [number, number],
         });
         if (!model.aligned) {

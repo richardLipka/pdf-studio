@@ -44,6 +44,9 @@ through the automatic sync; desktop-only items live in `desktop/` on the `deskto
 
 ## Done recently
 
+- [x] Library upgrades (React 19, Vite 8, Vitest 5, `pdfjs-dist` 6.5 with direct PDF `/ToUnicode` CMap parsing, `node-forge` 1.4.4, Electron 45) with zero root security advisories
+- [x] Unified Edit mode UX (PDF Inspector with Elements / Find & Replace / Stream tabs, floating canvas actions, Visual Rewrite, batch element deletion, undo toasts)
+- [x] Multi-line PDF element editing, per-line deletion, and column-layout preservation
 - [x] Desktop edition as an additive branch with automatic sync, shared contract and command table
 - [x] Damaged scans (CCITT `/Rows`) displayed; viewer memory no longer grows with document length
 - [x] Settings backup / restore; desktop settings recovery copy; reload when the file changes on disk
