@@ -540,7 +540,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const exportStampsToJson = () => {
     const pkg: StampExportPackage = {
-      app: 'PDF Studio',
+      app: 'PilsenPDF',
       version: '2.0.0',
       exportedAt: new Date().toISOString(),
       stampsCount: stamps.length,
@@ -552,7 +552,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = `pdf-studio-stamps-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `pilsen-pdf-stamps-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

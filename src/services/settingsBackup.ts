@@ -28,7 +28,7 @@ export interface SettingsBackup {
   format: typeof BACKUP_FORMAT;
   version: number;
   createdAt: string;
-  app: { name: 'PDF Studio'; version: string; edition: 'web' | 'desktop' };
+  app: { name: 'PilsenPDF' | 'PDF Studio'; version: string; edition: 'web' | 'desktop' };
   settings: BackupSettings;
   signatures: SignatureStamp[];
 }
@@ -74,7 +74,7 @@ export const createSettingsBackup = (input: {
   format: BACKUP_FORMAT,
   version: BACKUP_VERSION,
   createdAt: (input.now ?? new Date()).toISOString(),
-  app: { name: 'PDF Studio', version: input.appVersion, edition: input.edition },
+  app: { name: 'PilsenPDF', version: input.appVersion, edition: input.edition },
   settings: input.settings,
   signatures: input.signatures,
 });
@@ -88,8 +88,8 @@ export const parseSettingsBackup = (text: string): { backup: SettingsBackup } | 
   }
   if (!isRecord(raw)) return { error: 'not-a-backup' };
 
-  // Stamp library export of the signature dialog
-  if (raw.app === 'PDF Studio' && Array.isArray(raw.stamps) && raw.format === undefined) {
+  // Stamp library export of the signature dialog (accepts both PilsenPDF and legacy PDF Studio exports)
+  if ((raw.app === 'PilsenPDF' || raw.app === 'PDF Studio') && Array.isArray(raw.stamps) && raw.format === undefined) {
     return {
       backup: createSettingsBackup({
         appVersion: typeof raw.version === 'string' ? raw.version : '',
@@ -120,7 +120,7 @@ export const parseSettingsBackup = (text: string): { backup: SettingsBackup } | 
       version: raw.version,
       createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : '',
       app: {
-        name: 'PDF Studio',
+        name: app.name === 'PDF Studio' ? 'PDF Studio' : 'PilsenPDF',
         version: typeof app.version === 'string' ? app.version : '',
         edition: app.edition === 'desktop' ? 'desktop' : 'web',
       },

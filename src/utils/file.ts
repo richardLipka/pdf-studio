@@ -320,7 +320,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
   });
 
   // Footer
-  drawText(page1, lang === 'cs' ? 'Strana 1 z 2 • PDF Studio' : 'Page 1 of 2 • PDF Studio', {
+  drawText(page1, lang === 'cs' ? 'Strana 1 z 2 • PilsenPDF (P-PDF)' : 'Page 1 of 2 • PilsenPDF (P-PDF)', {
     x: 40,
     y: 30,
     size: 9,
@@ -360,7 +360,7 @@ export const createSamplePdfDoc = async (lang: 'cs' | 'en' = 'cs'): Promise<Arra
     lineHeight: 16,
   });
 
-  drawText(page2, lang === 'cs' ? 'Strana 2 z 2 • PDF Studio' : 'Page 2 of 2 • PDF Studio', {
+  drawText(page2, lang === 'cs' ? 'Strana 2 z 2 • PilsenPDF (P-PDF)' : 'Page 2 of 2 • PilsenPDF (P-PDF)', {
     x: 40,
     y: 30,
     size: 9,
