@@ -654,7 +654,7 @@ const addNativePdfAnnotation = (
   }
 };
 
-// Annotation subtypes that extractPdfAnnotations imports as editable PDF Studio annotations. The
+// Annotation subtypes that extractPdfAnnotations imports as editable PilsenPDF annotations. The
 // exporter drops these from copied pages and writes the (possibly edited or deleted) versions from
 // the editor state instead; every other subtype (Link, Widget, Stamp, FileAttachment...) is preserved.
 const EDITOR_MANAGED_SUBTYPES = new Set([
@@ -1418,7 +1418,7 @@ export const exportEditedPdf = async (
 
     // Filter pre-existing annotations on copied pages:
     // Retain structural annotations like /Link (hyperlinks/TOC) and /Widget (forms)
-    // per ISO 32000-1 Section 12.5, while removing stale review markups managed by PDF Studio
+    // per ISO 32000-1 Section 12.5, while removing stale review markups managed by PilsenPDF
     try {
       removeEditorManagedAnnotations(targetPage);
     } catch {

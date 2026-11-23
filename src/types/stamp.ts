@@ -9,7 +9,7 @@ export interface SignatureStamp {
 }
 
 export interface StampExportPackage {
-  app: 'PilsenPDF' | 'PDF Studio';
+  app: 'PilsenPDF';
   version: string;
   exportedAt: string;
   stampsCount: number;

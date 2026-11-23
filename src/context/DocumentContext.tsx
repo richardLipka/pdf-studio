@@ -617,7 +617,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         subject: _lang === 'cs' ? 'Ukázkový dokument pro PilsenPDF (P-PDF)' : 'Sample document for PilsenPDF (P-PDF)',
         keywords: 'PilsenPDF, P-PDF, sample, contract',
         creator: 'PilsenPDF',
-        producer: 'PilsenPDF (https://richardlipka.github.io/pdf-studio/)',
+        producer: 'PilsenPDF (https://richardlipka.github.io/pilsen-pdf/)',
         creationDate: new Date().toISOString(),
       };
 

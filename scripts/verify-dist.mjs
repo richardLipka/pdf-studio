@@ -1,5 +1,5 @@
 // Checks that the production build in dist/ is self-contained and location-independent, as both
-// editions need it: GitHub Pages serves it under /pdf-studio/, the offline web bundle runs from any
+// editions need it: GitHub Pages serves it under /pilsen-pdf/, the offline web bundle runs from any
 // folder and the desktop edition loads it from file:// without a network connection.
 // Usage: npm run build && npm run verify:dist
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ if (fs.existsSync(indexPath)) {
   check(/src="\.\/assets\/index-[^"]+\.js"/.test(html), 'index.html must load the app script with a relative ./assets/ URL');
   check(/href="\.\/assets\/index-[^"]+\.css"/.test(html), 'index.html must load the stylesheet with a relative ./assets/ URL');
   const rootAbsolute = html.match(/(?:src|href)="\/[^/"][^"]*"/g) || [];
-  check(rootAbsolute.length === 0, `root-absolute URLs break under /pdf-studio/ and file://: ${rootAbsolute.join(', ')}`);
+  check(rootAbsolute.length === 0, `root-absolute URLs break under /pilsen-pdf/ and file://: ${rootAbsolute.join(', ')}`);
   const remote = (html.match(/<script[^>]+src="https?:\/\/[^"]+"/g) || []).concat(
     html.match(/<link[^>]+rel="stylesheet"[^>]+href="https?:\/\/[^"]+"/g) || []
   );
@@ -32,7 +32,7 @@ const assetsDir = path.join(dist, 'assets');
 const assets = fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir) : [];
 check(assets.some((f) => /^pdf\.worker.*\.mjs$/.test(f)), 'the pdf.js worker must be bundled into assets/');
 
-// Root-absolute public files referenced from the bundle (e.g. "/fav-logo.svg") miss under /pdf-studio/
+// Root-absolute public files referenced from the bundle (e.g. "/fav-logo.svg") miss under /pilsen-pdf/
 for (const file of assets.filter((f) => f.endsWith('.js'))) {
   const code = fs.readFileSync(path.join(assetsDir, file), 'utf-8');
   const publicFiles = fs.readdirSync(path.join(root, 'public')).filter((f) => fs.statSync(path.join(root, 'public', f)).isFile());

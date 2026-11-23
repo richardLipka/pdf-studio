@@ -5,22 +5,22 @@
 | name = PilsenPDF
 | logo = P-PDF logo.svg
 | screenshot = PilsenPDF screenshot.png
-| caption = PilsenPDF (P-PDF) 2.1.3 running in a web browser, showing page thumbnails, a rendered document with a highlighted annotation, and the content-stream element inspector
+| caption = PilsenPDF (P-PDF) 2.1.4 running in a web browser, showing page thumbnails, a rendered document with a highlighted annotation, and the content-stream element inspector
 | developer = Richard Lipka ([[University of West Bohemia|Faculty of Applied Sciences, University of West Bohemia]])
-| released = {{Start date and age|2026|08|31|df=yes}}<ref name="github-repo">{{cite web |url=https://github.com/richardLipka/pdf-studio |title=richardLipka/pdf-studio: PilsenPDF (P-PDF) |website=[[GitHub]] |access-date=23 November 2026}}</ref>
-| latest release version = 2.1.3<ref name="github-releases">{{cite web |url=https://github.com/richardLipka/pdf-studio/releases |title=Releases · richardLipka/pdf-studio |website=[[GitHub]] |access-date=23 November 2026}}</ref>
+| released = {{Start date and age|2026|08|31|df=yes}}<ref name="github-repo">{{cite web |url=https://github.com/richardLipka/pilsen-pdf |title=richardLipka/pilsen-pdf: PilsenPDF (P-PDF) |website=[[GitHub]] |access-date=23 November 2026}}</ref>
+| latest release version = 2.1.4<ref name="github-releases">{{cite web |url=https://github.com/richardLipka/pilsen-pdf/releases |title=Releases · richardLipka/pilsen-pdf |website=[[GitHub]] |access-date=23 November 2026}}</ref>
 | latest release date = {{Start date and age|2026|11|23|df=yes}}<ref name="github-releases" />
-| repo = {{URL|https://github.com/richardLipka/pdf-studio}}
+| repo = {{URL|https://github.com/richardLipka/pilsen-pdf}}
 | programming language = [[TypeScript]], [[JavaScript]], [[HTML]], [[CSS]]
 | operating system = [[Cross-platform]] ([[web browser]]), [[Microsoft Windows|Windows]] (desktop edition)
 | platform = [[Web browser]], [[Electron (software framework)|Electron]]
 | language = [[English language|English]], [[Czech language|Czech]]
 | genre = [[PDF]] editor
-| license = [[MIT License]]<ref name="license">{{cite web |url=https://github.com/richardLipka/pdf-studio/blob/master/LICENSE |title=PilsenPDF LICENSE |website=[[GitHub]] |access-date=23 November 2026}}</ref>
-| website = {{URL|https://richardlipka.github.io/pdf-studio/}}
+| license = [[MIT License]]<ref name="license">{{cite web |url=https://github.com/richardLipka/pilsen-pdf/blob/master/LICENSE |title=PilsenPDF LICENSE |website=[[GitHub]] |access-date=23 November 2026}}</ref>
+| website = {{URL|https://richardlipka.github.io/pilsen-pdf/}}
 }}
 
-'''PilsenPDF''' (abbreviated '''P-PDF''') is a [[free and open-source software|free and open-source]] [[Portable Document Format|PDF]] viewer, annotator, and editor developed by Richard Lipka at the Faculty of Applied Sciences (FAV) of the [[University of West Bohemia]] in [[Plzeň]] (Pilsen) and released under the [[MIT License]].<ref name="github-repo" /><ref name="license" /> All document parsing, rendering, editing, and cryptographic signing run locally on the [[client-side]] in a [[web browser]] without uploading files to a remote server.<ref name="official-site">{{cite web |url=https://richardlipka.github.io/pdf-studio/ |title=PilsenPDF (P-PDF) – Client-Side Web PDF Editor |website=richardlipka.github.io |access-date=23 November 2026}}</ref> Alongside the browser edition hosted on [[GitHub Pages]], the project distributes a standalone [[Microsoft Windows|Windows]] desktop edition packaged from the same codebase using [[Electron (software framework)|Electron]].<ref name="github-releases" />
+'''PilsenPDF''' (abbreviated '''P-PDF''') is a [[free and open-source software|free and open-source]] [[Portable Document Format|PDF]] viewer, annotator, and editor developed by Richard Lipka at the Faculty of Applied Sciences (FAV) of the [[University of West Bohemia]] in [[Plzeň]] (Pilsen) and released under the [[MIT License]].<ref name="github-repo" /><ref name="license" /> All document parsing, rendering, editing, and cryptographic signing run locally on the [[client-side]] in a [[web browser]] without uploading files to a remote server.<ref name="official-site">{{cite web |url=https://richardlipka.github.io/pilsen-pdf/ |title=PilsenPDF (P-PDF) – Client-Side Web PDF Editor |website=richardlipka.github.io |access-date=23 November 2026}}</ref> Alongside the browser edition hosted on [[GitHub Pages]], the project distributes a standalone [[Microsoft Windows|Windows]] desktop edition packaged from the same codebase using [[Electron (software framework)|Electron]].<ref name="github-releases" />
 
 == Features ==
 
@@ -51,8 +51,8 @@ The Windows desktop edition wraps the same self-contained web bundle inside an [
 {{Reflist}}
 
 == External links ==
-* {{Official website|https://richardlipka.github.io/pdf-studio/}}
-* [https://github.com/richardLipka/pdf-studio PilsenPDF (P-PDF)] on [[GitHub]]
+* {{Official website|https://richardlipka.github.io/pilsen-pdf/}}
+* [https://github.com/richardLipka/pilsen-pdf PilsenPDF (P-PDF)] on [[GitHub]]
 
 {{DEFAULTSORT:PilsenPDF}}
 [[Category:Free PDF software]]
