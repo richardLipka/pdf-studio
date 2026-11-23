@@ -19,12 +19,12 @@ describe('Global In-Document Search (pdfSearchService)', () => {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
     const page1 = pdfDoc.addPage([600, 400]);
-    page1.drawText('Welcome to PDF Studio editor.', { x: 50, y: 350, size: 16, font, color: rgb(0, 0, 0) });
+    page1.drawText('Welcome to PilsenPDF editor.', { x: 50, y: 350, size: 16, font, color: rgb(0, 0, 0) });
     page1.drawText('Search functionality finds words quickly.', { x: 50, y: 300, size: 14, font, color: rgb(0, 0, 0) });
 
     const page2 = pdfDoc.addPage([600, 400]);
     page2.drawText('Second page has more editor details.', { x: 50, y: 350, size: 16, font, color: rgb(0, 0, 0) });
-    page2.drawText('PDF Studio supports searching across all pages.', { x: 50, y: 300, size: 14, font, color: rgb(0, 0, 0) });
+    page2.drawText('PilsenPDF supports searching across all pages.', { x: 50, y: 300, size: 14, font, color: rgb(0, 0, 0) });
 
     const pdfBytes = await pdfDoc.save();
     const arrayBuffer = pdfBytes.buffer.slice(pdfBytes.byteOffset, pdfBytes.byteOffset + pdfBytes.byteLength);
@@ -59,13 +59,13 @@ describe('Global In-Document Search (pdfSearchService)', () => {
       },
     ];
 
-    // 1. Search for "Studio" (case-insensitive)
-    const matchesStudio = await searchPdfDocument(pages, [sourceDoc], 'studio');
+    // 1. Search for "PilsenPDF" (case-insensitive)
+    const matchesStudio = await searchPdfDocument(pages, [sourceDoc], 'pilsenpdf');
     expect(matchesStudio.length).toBe(2);
     expect(matchesStudio[0].pageIndex).toBe(0);
     expect(matchesStudio[0].globalIndex).toBe(0);
     expect(matchesStudio[0].pageId).toBe('p_1');
-    expect(matchesStudio[0].matchedText).toBe('Studio');
+    expect(matchesStudio[0].matchedText).toBe('PilsenPDF');
     expect(matchesStudio[0].rects.length).toBeGreaterThan(0);
     expect(matchesStudio[0].rects[0].width).toBeGreaterThan(0);
     expect(matchesStudio[0].rects[0].height).toBeGreaterThan(0);
@@ -73,7 +73,7 @@ describe('Global In-Document Search (pdfSearchService)', () => {
     expect(matchesStudio[1].pageIndex).toBe(1);
     expect(matchesStudio[1].globalIndex).toBe(1);
     expect(matchesStudio[1].pageId).toBe('p_2');
-    expect(matchesStudio[1].matchedText).toBe('Studio');
+    expect(matchesStudio[1].matchedText).toBe('PilsenPDF');
 
     // 2. Search for "editor" (case-sensitive)
     const caseMatchesUpper = await searchPdfDocument(pages, [sourceDoc], 'Editor', { caseSensitive: true });

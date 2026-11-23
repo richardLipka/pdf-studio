@@ -272,7 +272,7 @@ export async function generateSelfSignedCertificate(
         const attrs: forge.pki.CertificateField[] = [
           makeAttr('commonName', options.commonName, forge.asn1.Type.UTF8),
           makeAttr('countryName', countryCode, forge.asn1.Type.PRINTABLESTRING),
-          makeAttr('organizationName', options.organization || 'PDF Studio User', forge.asn1.Type.UTF8),
+          makeAttr('organizationName', options.organization || 'PilsenPDF User', forge.asn1.Type.UTF8),
         ];
 
         if (options.organizationalUnit) {

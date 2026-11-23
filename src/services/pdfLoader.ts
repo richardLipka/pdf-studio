@@ -405,8 +405,8 @@ export const extractPdfMetadata = async (
       author: info.Author || '',
       subject: info.Subject || '',
       keywords: info.Keywords || '',
-      creator: info.Creator || 'PDF Studio',
-      producer: info.Producer || 'PDF Studio (pdf-lib)',
+      creator: info.Creator || 'PilsenPDF',
+      producer: info.Producer || 'PilsenPDF (pdf-lib)',
       creationDate: parsePdfDate(info.CreationDate),
       modificationDate: parsePdfDate(info.ModDate),
       pdfVersion: (pdfDoc as any)._pdfInfo?.version || info.PDFFormatVersion || undefined,
@@ -438,8 +438,8 @@ export const extractPdfMetadata = async (
       author: '',
       subject: '',
       keywords: '',
-      creator: 'PDF Studio',
-      producer: 'PDF Studio (pdf-lib)',
+      creator: 'PilsenPDF',
+      producer: 'PilsenPDF (pdf-lib)',
     };
   }
 };

@@ -1,4 +1,4 @@
-# PDF Studio (Web & Desktop PDF Editor)
+# PilsenPDF / P-PDF (Web & Desktop PDF Editor)
 
 A client-side, privacy-first web application for editing, annotating, signing, and managing PDF documents directly in the browser without any backend or database requirements.
 

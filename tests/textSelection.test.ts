@@ -14,7 +14,7 @@ describe('Text Selection, Layer Rendering & Clipboard Support', () => {
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage([600, 400]);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    page.drawText('Hello PDF Studio Text Selection and Clipboard Test', {
+    page.drawText('Hello PilsenPDF Text Selection and Clipboard Test', {
       x: 50,
       y: 350,
       size: 16,
@@ -35,7 +35,7 @@ describe('Text Selection, Layer Rendering & Clipboard Support', () => {
       .join(' ');
 
     expect(allExtractedStrings).toContain('Hello');
-    expect(allExtractedStrings).toContain('PDF Studio');
+    expect(allExtractedStrings).toContain('PilsenPDF');
     expect(allExtractedStrings).toContain('Selection');
   });
 

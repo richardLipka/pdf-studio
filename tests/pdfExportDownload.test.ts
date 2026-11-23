@@ -202,7 +202,7 @@ describe('PDF Export & Download Reliability', () => {
     const { DEFAULT_DOCUMENT_METADATA } = await import('../src/types/document');
     const { extractPdfMetadata } = await import('../src/services/pdfLoader');
 
-    expect(DEFAULT_DOCUMENT_METADATA.creator).toBe('PDF Studio');
+    expect(DEFAULT_DOCUMENT_METADATA.creator).toBe('PilsenPDF');
 
     const sampleDoc = await PDFDocument.create();
     sampleDoc.addPage([500, 700]);
@@ -226,8 +226,8 @@ describe('PDF Export & Download Reliability', () => {
       author: 'Ing. Jan Novák',
       subject: 'Dodatek č. 1',
       keywords: 'smlouva, služby, 2026, finance',
-      creator: 'PDF Studio Creator App',
-      producer: 'PDF Studio Producer Engine',
+      creator: 'PilsenPDF Creator App',
+      producer: 'PilsenPDF Producer Engine',
       creationDate: '2026-05-15T10:30:00.000Z',
     };
 
@@ -251,8 +251,8 @@ describe('PDF Export & Download Reliability', () => {
     expect(loadedDoc.getKeywords()).toContain('smlouva');
     expect(loadedDoc.getKeywords()).toContain('služby');
     expect(loadedDoc.getKeywords()).toContain('finance');
-    expect(loadedDoc.getCreator()).toBe('PDF Studio Creator App');
-    expect(loadedDoc.getProducer()).toBe('PDF Studio Producer Engine');
+    expect(loadedDoc.getCreator()).toBe('PilsenPDF Creator App');
+    expect(loadedDoc.getProducer()).toBe('PilsenPDF Producer Engine');
     expect(loadedDoc.getCreationDate()?.toISOString()).toBe('2026-05-15T10:30:00.000Z');
     expect(loadedDoc.getModificationDate()).toBeDefined();
 

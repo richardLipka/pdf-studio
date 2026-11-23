@@ -1,4 +1,4 @@
-# PDF Studio (Web & Desktop PDF Editor) 📄✨
+# PilsenPDF / P-PDF (Web & Desktop PDF Editor) 📄✨
 
 [![Live Demo: GitHub Pages](https://img.shields.io/badge/Live%20Demo-richardlipka.github.io%2Fpdf--studio-blue?style=for-the-badge&logo=githubpages&logoColor=white)](https://richardlipka.github.io/pdf-studio/)
 [![Desktop: Windows](https://img.shields.io/badge/Desktop-Windows%20releases-blueviolet?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/richardLipka/pdf-studio/releases)
@@ -15,8 +15,8 @@ A modern, fast, and privacy-first application for editing, annotating, signing, 
 
 | | Web edition | Desktop edition |
 | :--- | :--- | :--- |
-| **Get it** | [richardlipka.github.io/pdf-studio](https://richardlipka.github.io/pdf-studio/), or `pdf-studio-web.zip` from [Releases](https://github.com/richardLipka/pdf-studio/releases) for your own web server | Installer, portable `.exe` or zip from [Releases](https://github.com/richardLipka/pdf-studio/releases) |
-| **Open** | file picker, drag & drop | native dialog, drag & drop, recent files, command line (`"PDF Studio.exe" file.pdf`), "Open with" |
+| **Get it** | [richardlipka.github.io/pdf-studio](https://richardlipka.github.io/pdf-studio/), or `pilsen-pdf-web.zip` from [Releases](https://github.com/richardLipka/pdf-studio/releases) for your own web server | Installer, portable `.exe` or zip from [Releases](https://github.com/richardLipka/pdf-studio/releases) |
+| **Open** | file picker, drag & drop | native dialog, drag & drop, recent files, command line (`"PilsenPDF.exe" file.pdf`), "Open with" |
 | **Save** | download | writes the opened file in place (asks before overwriting), *Save as* |
 | **Unsaved changes** | `●` next to the file name, warning before leaving the page | `●` in the window title, *Save & close / Discard / Cancel* when closing |
 | **Settings** | saved automatically in the browser (language, theme, raster settings, signatures); backup / restore to a JSON file | saved automatically in a settings file with a copy of the last working version (also window size, startup and overwrite options); backup / restore from the menu |
@@ -179,9 +179,9 @@ Everything else — editing, annotations, forms, signing, search — is identica
 
 ### 21. 💻 Desktop Edition (Windows)
 - **Native Files**: Open / Save / Save As dialogs, saving in place with an overwrite confirmation (*Do not ask again* available), atomic writes that never leave a half-written file, recent files on the start screen and in the menu.
-- **Command Line & "Open With"**: `"PDF Studio.exe" document.pdf`; the installer registers PDF Studio for PDF files and a second launch passes the file to the running window.
+- **Command Line & "Open With"**: `"PilsenPDF.exe" document.pdf`; the installer registers PilsenPDF for PDF files and a second launch passes the file to the running window.
 - **Persistent Settings**: Language, theme, rasterization settings, signatures, window size and the startup / overwrite options are saved automatically to a settings file (the portable build keeps it next to the executable). Each start keeps a copy of the last working version, which is used if the file gets damaged; *Settings → Back up / Restore* writes and reads a backup file.
-- **Files Changed Elsewhere**: When another program saves the opened file, PDF Studio offers to load the new version.
+- **Files Changed Elsewhere**: When another program saves the opened file, PilsenPDF offers to load the new version.
 - **Windows Integration**: Recent files in the taskbar jump list, *File → Show in Folder*, drag & drop from Explorer.
 - **Native Menu**: Localized Czech / English menu with the same commands and shortcuts as the toolbar.
 
@@ -215,7 +215,7 @@ length of the document.
 
 ## 🔒 Privacy & Security
 
-PDF Studio processes all documents **100% locally in your browser memory**:
+PilsenPDF (P-PDF) processes all documents **100% locally in your browser memory**:
 - ❌ **No backend server required.**
 - ❌ **No files are ever uploaded or transmitted across the internet.**
 - ❌ **No telemetry or tracking of document contents.**
@@ -279,7 +279,7 @@ All shortcuts come from one table ([`src/shared/appCommands.ts`](src/shared/appC
 
 ## 🧪 Automated Testing
 
-PDF Studio includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, document outlines, full-text search, the page text model and block text rewriting, geometric shapes, and PDF export:
+PilsenPDF includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, document outlines, full-text search, the page text model and block text rewriting, geometric shapes, and PDF export:
 
 ```bash
 # Run all unit tests

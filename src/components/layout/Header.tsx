@@ -8,7 +8,6 @@ import {
   Download,
   Undo2,
   Redo2,
-  FileText,
   ShieldCheck,
   Loader2,
   Sparkles,
@@ -25,6 +24,7 @@ import {
 } from 'lucide-react';
 import { logger } from '../../services/logger';
 import { useFiles } from '../../context/FileContext';
+import { PPdfLogo } from '../common/PPdfLogo';
 
 export const Header: React.FC = () => {
   const { language, setLanguage, t } = useI18n();
@@ -91,17 +91,7 @@ export const Header: React.FC = () => {
       {/* Brand & Document Name */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2.5">
-          <div
-            className={`w-9 h-9 flex items-center justify-center font-bold text-lg ${
-              isMinimal
-                ? 'rounded-md bg-black text-white'
-                : isLcars
-                ? 'rounded-full bg-[#ff9900] text-black'
-                : 'rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-500 shadow-lg shadow-sky-500/20 text-white'
-            }`}
-          >
-            <FileText className={`w-5 h-5 ${isLcars ? 'text-black' : 'text-white'}`} />
-          </div>
+          <PPdfLogo theme={theme} size="md" className="shadow-md" />
           <div>
             <div className="flex items-center gap-2">
               <span

@@ -614,10 +614,10 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const sampleMeta: DocumentMetadata = {
         title: _lang === 'cs' ? 'Ukázková smlouva o dílo' : 'Sample Agreement',
         author: 'Richard Lipka',
-        subject: _lang === 'cs' ? 'Ukázkový dokument pro PDF Studio' : 'Sample document for PDF Studio',
-        keywords: 'PDF Studio, sample, contract',
-        creator: 'PDF Studio',
-        producer: 'PDF Studio (https://richardlipka.github.io/pdf-studio/)',
+        subject: _lang === 'cs' ? 'Ukázkový dokument pro PilsenPDF (P-PDF)' : 'Sample document for PilsenPDF (P-PDF)',
+        keywords: 'PilsenPDF, P-PDF, sample, contract',
+        creator: 'PilsenPDF',
+        producer: 'PilsenPDF (https://richardlipka.github.io/pdf-studio/)',
         creationDate: new Date().toISOString(),
       };
 

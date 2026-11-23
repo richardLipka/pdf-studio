@@ -1,7 +1,7 @@
 {
-  "name": "pdf-studio",
-  "version": "2.1.2",
-  "description": "Client-side privacy-first PDF editor, annotator and PAdES signer (web edition; the desktop edition lives on the desktop branch)",
+  "name": "pilsen-pdf",
+  "version": "2.1.3",
+  "description": "PilsenPDF (P-PDF) — Client-side privacy-first PDF editor, annotator and PAdES signer (web edition; the desktop edition lives on the desktop branch)",
   "author": "Richard Lipka <lipka@fav.zcu.cz>",
   "homepage": "https://richardlipka.github.io/pdf-studio/",
   "repository": {

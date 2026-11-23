@@ -3,7 +3,6 @@ import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useEditor } from '../../context/EditorContext';
 import {
-  FileText,
   X,
   ExternalLink,
   Mail,
@@ -14,6 +13,7 @@ import {
 import { isDesktopApp } from '../../services/desktopBridge';
 import { APP_VERSION } from '../../utils/appInfo';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
+import { PPdfLogo } from '../common/PPdfLogo';
 
 const GithubIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
@@ -142,17 +142,7 @@ export const AboutModal: React.FC = () => {
           }`}
         >
           <div className="flex items-center gap-3">
-            <div
-              className={`p-2 rounded-xl flex items-center justify-center ${
-                isMinimal
-                  ? 'bg-neutral-100 text-neutral-800 border border-neutral-200'
-                  : isLcars
-                  ? 'bg-[#ff9900] text-black font-bold'
-                  : 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-              }`}
-            >
-              <FileText className="w-5 h-5" />
-            </div>
+            <PPdfLogo theme={theme} size="md" />
             <div>
               <h2
                 className={`text-base font-bold tracking-wide ${
@@ -201,7 +191,18 @@ export const AboutModal: React.FC = () => {
           >
             <div className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xl font-bold tracking-tight">PDF Studio</span>
+                <span className="text-xl font-bold tracking-tight">PilsenPDF</span>
+                <span
+                  className={`text-[10.5px] font-bold font-mono px-1.5 py-0.5 rounded ${
+                    isMinimal
+                      ? 'bg-black text-white'
+                      : isLcars
+                      ? 'bg-black text-[#ff9900] border border-[#ff9900]'
+                      : 'bg-slate-900 text-sky-400 border border-sky-500/40'
+                  }`}
+                >
+                  P-PDF
+                </span>
                 <span
                   className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
                     isMinimal

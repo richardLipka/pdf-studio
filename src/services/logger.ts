@@ -157,7 +157,7 @@ class LoggerService {
     this.notify();
 
     // Also forward to console for developer inspectability
-    const prefix = `[PDF Studio][${category.toUpperCase()}]`;
+    const prefix = `[PilsenPDF][${category.toUpperCase()}]`;
     if (level === 'error') {
       console.error(prefix, title, details || '');
     } else if (level === 'warn') {
@@ -207,7 +207,7 @@ class LoggerService {
     try {
       listener([...this.logs]);
     } catch (err) {
-      console.error('[PDF Studio][LOGGER] Error initializing log listener:', err);
+      console.error('[PilsenPDF][LOGGER] Error initializing log listener:', err);
     }
     return () => {
       this.listeners.delete(listener);
@@ -220,7 +220,7 @@ class LoggerService {
       try {
         l(snapshot);
       } catch (err) {
-        console.error('[PDF Studio][LOGGER] Error executing log listener:', err);
+        console.error('[PilsenPDF][LOGGER] Error executing log listener:', err);
       }
     });
   }

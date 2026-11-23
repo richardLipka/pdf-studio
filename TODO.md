@@ -1,4 +1,4 @@
-# PDF Studio — TODO
+# PilsenPDF (P-PDF) — TODO
 
 Open work for both editions. Shared items are done on `master` and reach the desktop edition
 through the automatic sync; desktop-only items live in `desktop/` on the `desktop` branch.
