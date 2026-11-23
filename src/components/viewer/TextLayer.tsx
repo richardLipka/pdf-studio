@@ -28,7 +28,10 @@ import {
   RefreshCw,
   Pencil,
   SlidersHorizontal,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+import type { TextLine } from '../../services/pdfTextModel';
 import { VisualTextBlock } from '../../utils/textSnap';
 import {
   isEditCanvasOverlayActive,
@@ -63,6 +66,10 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     selectedStreamBlockId,
     selectedStreamBlockPageId,
     setSelectedStreamBlockId,
+    selectedLineId,
+    setSelectedLineId,
+    hoveredLineId,
+    setHoveredLineId,
     hoveredBlockId,
     hoveredBlockPageId,
     setHoveredBlockId,
@@ -79,6 +86,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     pages,
     removeMultiplePageElements,
     applyLineTextEdit,
+    removeLineText,
     removePageImage,
     replacePageImage,
     exportPageImage,
@@ -120,9 +128,10 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     }
   };
   const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
+  const [selectedBlockLines, setSelectedBlockLines] = useState<TextLine[]>([]);
   const visualLoadRef = useRef(0);
   const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
-  // Inline editor for one line of text, opened by double-clicking a text block or via floating pill
+  // Inline editor for one line of text, opened by double-clicking a line or via floating pill
   const [lineEditor, setLineEditor] = useState<{
     lineId: string;
     text: string;
@@ -131,6 +140,44 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   } | null>(null);
   const [isSavingLine, setIsSavingLine] = useState(false);
 
+  // Load individual lines of the currently selected multi-line text block from the cached text model
+  useEffect(() => {
+    let cancelled = false;
+    if (!isEditOverlayActive || !selectionOnThisPage || !selectedStreamBlockId || page.sourceType !== 'pdf') {
+      setSelectedBlockLines([]);
+      return;
+    }
+    const visualBlock = visualBlocks.find(
+      (b) => b.id === selectedStreamBlockId || Boolean(b.segmentIds && b.segmentIds.includes(selectedStreamBlockId))
+    );
+    if (!visualBlock || visualBlock.type === 'image') {
+      setSelectedBlockLines([]);
+      return;
+    }
+    const targetIds = new Set(
+      visualBlock.segmentIds && visualBlock.segmentIds.length > 0 ? visualBlock.segmentIds : [selectedStreamBlockId]
+    );
+    getPageTextModel(sourceDoc, page).then((model) => {
+      if (cancelled) return;
+      if (!model?.aligned) {
+        setSelectedBlockLines([]);
+        return;
+      }
+      const lines = model.blocks
+        .filter((b) => targetIds.has(b.segmentId))
+        .flatMap((b) => b.lines);
+      setSelectedBlockLines(lines);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditOverlayActive, selectionOnThisPage, selectedStreamBlockId, visualBlocks, sourceDoc, page]);
+
+  const openLineEditorForLine = (line: TextLine) => {
+    setSelectedLineId(line.id);
+    setLineEditor({ lineId: line.id, text: line.text, original: line.text, box: line.bbox });
+  };
+
   const openLineEditorAtPdfPoint = async (x: number, y: number, fallbackBlockId?: string) => {
     if (page.sourceType !== 'pdf') return;
     const model = await getPageTextModel(sourceDoc, page);
@@ -138,7 +185,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
       showEditNotice({ type: 'error', text: t.editPanel.lineNotMapped });
       return;
     }
-    let line: (typeof model.blocks)[number]['lines'][number] | undefined = model.blocks
+    let line: TextLine | undefined = model.blocks
       .flatMap((b) => b.lines)
       .filter(
         (l) => x >= l.bbox.x - 2 && x <= l.bbox.x + l.bbox.width + 2 && y >= l.bbox.y - 2 && y <= l.bbox.y + l.bbox.height + 2
@@ -159,8 +206,64 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         )[0];
     }
     if (!line) return;
-    setLineEditor({ lineId: line.id, text: line.text, original: line.text, box: line.bbox });
+    openLineEditorForLine(line);
   };
+
+  const selectLineAtClientPoint = async (clientX: number, clientY: number, block: VisualTextBlock) => {
+    const container = containerRef.current;
+    if (!container || page.sourceType !== 'pdf') return;
+    const rect = container.getBoundingClientRect();
+    const x = (clientX - rect.left) / scale;
+    const y = (clientY - rect.top) / scale;
+    const model = await getPageTextModel(sourceDoc, page);
+    if (!model?.aligned) return;
+    const targetIds = new Set(block.segmentIds && block.segmentIds.length > 0 ? block.segmentIds : [block.id]);
+    const blockLines = model.blocks.filter((b) => targetIds.has(b.segmentId)).flatMap((b) => b.lines);
+    if (blockLines.length <= 1) return;
+    const hit =
+      blockLines
+        .filter(
+          (l) => x >= l.bbox.x - 2 && x <= l.bbox.x + l.bbox.width + 2 && y >= l.bbox.y - 2 && y <= l.bbox.y + l.bbox.height + 2
+        )
+        .sort((a, b) => a.bbox.width * a.bbox.height - b.bbox.width * b.bbox.height)[0] ||
+      blockLines.sort(
+        (a, b) =>
+          Math.abs(a.bbox.y + a.bbox.height / 2 - y) - Math.abs(b.bbox.y + b.bbox.height / 2 - y)
+      )[0];
+    if (hit) setSelectedLineId(hit.id);
+  };
+
+  const deleteSingleLineOnCanvas = useCallback(
+    async (line: TextLine) => {
+      const targetPageIndex = pages.findIndex((p) => p.id === page.id);
+      if (targetPageIndex < 0 || deletingBlockId) return;
+      setDeletingBlockId(line.id);
+      try {
+        const res = await removeLineText(line.id, targetPageIndex);
+        if (res.success) {
+          showEditNotice({ type: 'success', text: t.editPanel.lineDeleted, canUndo: true });
+          setSelectedLineId(null);
+          setHoveredLineId(null);
+          setLineEditor(null);
+        } else {
+          showEditNotice({ type: 'error', text: res.error || t.editPanel.lineDeleteFailed });
+        }
+      } finally {
+        setDeletingBlockId(null);
+      }
+    },
+    [
+      pages,
+      page.id,
+      deletingBlockId,
+      removeLineText,
+      showEditNotice,
+      t.editPanel.lineDeleted,
+      t.editPanel.lineDeleteFailed,
+      setSelectedLineId,
+      setHoveredLineId,
+    ]
+  );
 
   const openLineEditor = async (clientX: number, clientY: number, fallbackBlockId?: string) => {
     const container = containerRef.current;
@@ -334,12 +437,24 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setSelectedStreamBlockId(null);
+        if (selectedLineId) {
+          setSelectedLineId(null);
+        } else {
+          setSelectedStreamBlockId(null);
+        }
         return;
       }
       // When EditSidePanel is open, it owns Delete/Backspace (handling both batch & single selection).
-      // When EditSidePanel is closed, the canvas handles deleting the selected element directly.
+      // When EditSidePanel is closed, the canvas handles deleting the targeted line or element directly.
       if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditSidePanelOpen) {
+        if (selectedLineId && selectedBlockLines.length > 1) {
+          const targetLine = selectedBlockLines.find((l) => l.id === selectedLineId);
+          if (targetLine) {
+            e.preventDefault();
+            void deleteSingleLineOnCanvas(targetLine);
+            return;
+          }
+        }
         const block = visualBlocks.find(
           (b) =>
             b.id === selectedStreamBlockId ||
@@ -360,10 +475,14 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     isEditOverlayActive,
     selectionOnThisPage,
     selectedStreamBlockId,
+    selectedLineId,
+    selectedBlockLines,
     lineEditor,
     isEditSidePanelOpen,
     visualBlocks,
+    setSelectedLineId,
     setSelectedStreamBlockId,
+    deleteSingleLineOnCanvas,
     deleteVisualImageBlock,
     deleteVisualTextBlock,
   ]);
@@ -885,6 +1004,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                         y: block.y + block.height / 2,
                       });
                       setStreamReplaceTargetText(block.text);
+                      void selectLineAtClientPoint(e.clientX, e.clientY, block);
                     }
 
                     // If the inspector panel is open on Find & Replace, switch cleanly to Elements Inspector
@@ -920,94 +1040,216 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                       : `${block.text}\n(${t.editPanel.canvasDoubleClickHint})`
                   }
                 >
-                  {/* Text Block Contextual Floating Action Pill on Selection */}
-                  {!isImage && isSelected && !lineEditor && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      className={`absolute z-50 flex items-center gap-1 px-2 py-1 shadow-2xl rounded-xl border text-xs whitespace-nowrap backdrop-blur-xl pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150 ${
-                        placeBarBelow ? 'top-full mt-1.5 left-0' : '-top-10 left-0'
-                      } ${
-                        isMinimal
-                          ? 'bg-white/95 border-neutral-300 text-neutral-800 shadow-lg'
-                          : isLcars
-                          ? 'bg-black border-2 border-[#99ccff] text-[#99ccff] shadow-[0_0_15px_rgba(153,204,255,0.35)]'
-                          : 'bg-slate-900/95 border-indigo-500/70 text-slate-100 shadow-slate-950/80 ring-1 ring-indigo-500/30'
-                      }`}
-                    >
-                      {/* Inline Edit Line */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void openLineEditorAtPdfPoint(
-                            block.x + Math.min(block.width / 2, 24),
-                            block.y + Math.min(block.height / 2, 8),
-                            block.id
-                          );
-                        }}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
-                          isMinimal
-                            ? 'hover:bg-indigo-50 text-indigo-700'
-                            : isLcars
-                            ? 'hover:bg-[#99ccff]/20 text-[#ffff66]'
-                            : 'hover:bg-indigo-950/70 text-indigo-300 hover:text-indigo-200'
-                        }`}
-                        title={t.editPanel.canvasEditLine}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">{t.editPanel.canvasEditLine}</span>
-                      </button>
-
-                      {/* Open / Focus Inspector */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditSidePanelTab('remove');
-                          setIsEditSidePanelOpen(true);
-                        }}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
-                          isMinimal
-                            ? 'hover:bg-neutral-100 text-neutral-700'
-                            : isLcars
-                            ? 'hover:bg-[#ff9900]/20 text-[#ff9900]'
-                            : 'hover:bg-slate-800 text-slate-300 hover:text-white'
-                        }`}
-                        title={t.editPanel.canvasInspect}
-                      >
-                        <SlidersHorizontal className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">{t.editPanel.canvasInspect}</span>
-                      </button>
-
-                      <div
-                        className={`h-4 w-px mx-0.5 ${
-                          isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#99ccff]/30' : 'bg-slate-700'
-                        }`}
-                      />
-
-                      {/* Delete Block (immediate + Undo toast) */}
-                      <button
-                        type="button"
-                        disabled={Boolean(deletingBlockId)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deleteVisualTextBlock(block);
-                        }}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                          isMinimal
-                            ? 'hover:bg-rose-50 text-rose-700'
-                            : isLcars
-                            ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
-                            : 'hover:bg-rose-950/60 text-rose-300 hover:text-rose-200'
-                        }`}
-                        title={t.editPanel.deleteBlockBtn}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">{t.editPanel.canvasDelete}</span>
-                      </button>
+                  {/* Per-line interactive hitboxes inside a selected multi-line PDF text block */}
+                  {!isImage && isSelected && !lineEditor && selectedBlockLines.length > 1 && (
+                    <div className="absolute inset-0 pointer-events-none">
+                      {selectedBlockLines.map((ln) => {
+                        const isLineSelected = selectedLineId === ln.id;
+                        const isLineHovered = hoveredLineId === ln.id;
+                        return (
+                          <div
+                            key={ln.id}
+                            data-line-id={ln.id}
+                            onMouseEnter={(e) => {
+                              e.stopPropagation();
+                              setHoveredLineId(ln.id);
+                            }}
+                            onMouseLeave={(e) => {
+                              e.stopPropagation();
+                              setHoveredLineId(null);
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLineId(ln.id);
+                            }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              openLineEditorForLine(ln);
+                            }}
+                            style={{
+                              left: `${(ln.bbox.x - block.x) * scale}px`,
+                              top: `${(ln.bbox.y - block.y) * scale}px`,
+                              width: `${Math.max(8, ln.bbox.width * scale)}px`,
+                              height: `${Math.max(8, ln.bbox.height * scale)}px`,
+                            }}
+                            title={`${t.editPanel.lineProgressBadge
+                              .replace('{current}', String(ln.index + 1))
+                              .replace('{total}', String(selectedBlockLines.length))}: ${ln.text}\n(${t.editPanel.canvasDoubleClickHint})`}
+                            className={`absolute pointer-events-auto rounded-[2px] transition-colors cursor-text ${
+                              isLineSelected
+                                ? isMinimal
+                                  ? 'border border-black bg-sky-500/20 ring-1 ring-black/60'
+                                  : isLcars
+                                  ? 'border border-[#ffcc00] bg-[#ffcc00]/25 ring-1 ring-[#ffcc00]'
+                                  : 'border border-sky-400 bg-sky-400/25 ring-1 ring-sky-400/80'
+                                : isLineHovered
+                                ? isMinimal
+                                  ? 'border border-indigo-600/80 bg-indigo-500/15'
+                                  : isLcars
+                                  ? 'border border-[#ff9900] bg-[#ff9900]/20'
+                                  : 'border border-sky-400/80 bg-sky-400/15'
+                                : 'border border-transparent hover:border-sky-400/70 hover:bg-sky-400/10'
+                            }`}
+                          />
+                        );
+                      })}
                     </div>
                   )}
+
+                  {/* Text Block Contextual Floating Action Pill on Selection */}
+                  {!isImage && isSelected && !lineEditor && (() => {
+                    const isMultiLine = selectedBlockLines.length > 1;
+                    const activeLine =
+                      isMultiLine && selectedLineId
+                        ? selectedBlockLines.find((l) => l.id === selectedLineId) || null
+                        : null;
+                    const activeLineIdx = activeLine ? selectedBlockLines.indexOf(activeLine) : -1;
+
+                    return (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        className={`absolute z-50 flex items-center gap-1 px-2 py-1 shadow-2xl rounded-xl border text-xs whitespace-nowrap backdrop-blur-xl pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150 ${
+                          placeBarBelow ? 'top-full mt-1.5 left-0' : '-top-10 left-0'
+                        } ${
+                          isMinimal
+                            ? 'bg-white/95 border-neutral-300 text-neutral-800 shadow-lg'
+                            : isLcars
+                            ? 'bg-black border-2 border-[#99ccff] text-[#99ccff] shadow-[0_0_15px_rgba(153,204,255,0.35)]'
+                            : 'bg-slate-900/95 border-indigo-500/70 text-slate-100 shadow-slate-950/80 ring-1 ring-indigo-500/30'
+                        }`}
+                      >
+                        {/* Multi-line position badge */}
+                        {isMultiLine && (
+                          <>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                                isMinimal
+                                  ? 'bg-neutral-100 text-neutral-700'
+                                  : isLcars
+                                  ? 'bg-[#ff9900]/20 text-[#ffcc00]'
+                                  : 'bg-indigo-500/20 text-indigo-300'
+                              }`}
+                            >
+                              {activeLineIdx >= 0
+                                ? t.editPanel.lineProgressBadge
+                                    .replace('{current}', String(activeLineIdx + 1))
+                                    .replace('{total}', String(selectedBlockLines.length))
+                                : `${selectedBlockLines.length} ${t.editPanel.linesShort}`}
+                            </span>
+                            <div
+                              className={`h-4 w-px mx-0.5 ${
+                                isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#99ccff]/30' : 'bg-slate-700'
+                              }`}
+                            />
+                          </>
+                        )}
+
+                        {/* Inline Edit Line (targets exact selected line in multi-line blocks!) */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (activeLine) {
+                              openLineEditorForLine(activeLine);
+                            } else if (selectedBlockLines.length > 0) {
+                              openLineEditorForLine(selectedBlockLines[0]);
+                            } else {
+                              void openLineEditorAtPdfPoint(
+                                block.x + Math.min(block.width / 2, 24),
+                                block.y + Math.min(block.height / 2, 8),
+                                block.id
+                              );
+                            }
+                          }}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                            isMinimal
+                              ? 'hover:bg-indigo-50 text-indigo-700'
+                              : isLcars
+                              ? 'hover:bg-[#99ccff]/20 text-[#ffff66]'
+                              : 'hover:bg-indigo-950/70 text-indigo-300 hover:text-indigo-200'
+                          }`}
+                          title={t.editPanel.canvasEditLine}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">{t.editPanel.canvasEditLine}</span>
+                        </button>
+
+                        {/* Open / Focus Inspector */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditSidePanelTab('remove');
+                            setIsEditSidePanelOpen(true);
+                          }}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                            isMinimal
+                              ? 'hover:bg-neutral-100 text-neutral-700'
+                              : isLcars
+                              ? 'hover:bg-[#ff9900]/20 text-[#ff9900]'
+                              : 'hover:bg-slate-800 text-slate-300 hover:text-white'
+                          }`}
+                          title={t.editPanel.canvasInspect}
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">{t.editPanel.canvasInspect}</span>
+                        </button>
+
+                        <div
+                          className={`h-4 w-px mx-0.5 ${
+                            isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#99ccff]/30' : 'bg-slate-700'
+                          }`}
+                        />
+
+                        {/* Delete ONLY the targeted line (when a specific line is selected in a multi-line block) */}
+                        {activeLine && (
+                          <button
+                            type="button"
+                            disabled={Boolean(deletingBlockId)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void deleteSingleLineOnCanvas(activeLine);
+                            }}
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                              isMinimal
+                                ? 'hover:bg-amber-50 text-amber-800'
+                                : isLcars
+                                ? 'hover:bg-[#ff9900]/25 text-[#ffcc00]'
+                                : 'hover:bg-amber-950/60 text-amber-300 hover:text-amber-200'
+                            }`}
+                            title={t.editPanel.deleteLineBtn}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">{t.editPanel.deleteLineBtn}</span>
+                          </button>
+                        )}
+
+                        {/* Delete Whole Block (immediate + Undo toast) */}
+                        <button
+                          type="button"
+                          disabled={Boolean(deletingBlockId)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteVisualTextBlock(block);
+                          }}
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                            isMinimal
+                              ? 'hover:bg-rose-50 text-rose-700'
+                              : isLcars
+                              ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
+                              : 'hover:bg-rose-950/60 text-rose-300 hover:text-rose-200'
+                          }`}
+                          title={t.editPanel.deleteBlockBtn}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">
+                            {activeLine ? t.editPanel.deleteBlockBtn : t.editPanel.canvasDelete}
+                          </span>
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {/* Image Quick Action Floating Bar on Selection */}
                   {isImage && isSelected && (
@@ -1151,11 +1393,54 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
               );
             })}
 
-        {/* Inline line editor (boundary-clamped, theme-aware, click-outside dismiss) */}
+        {/* Inline line editor (boundary-clamped, theme-aware, click-outside dismiss, multi-line stepping) */}
         {lineEditor && (() => {
           const layout = clampInlineEditorPosition(lineEditor.box, page.width, page.height, scale);
+          const curLineIdx = selectedBlockLines.findIndex((l) => l.id === lineEditor.lineId);
+          const hasSiblingLines = selectedBlockLines.length > 1 && curLineIdx >= 0;
+          const stepToSiblingLine = (delta: -1 | 1) => {
+            if (!hasSiblingLines) return;
+            const nextIdx = (curLineIdx + delta + selectedBlockLines.length) % selectedBlockLines.length;
+            openLineEditorForLine(selectedBlockLines[nextIdx]);
+          };
+
           const controlsBar = (
             <div className={`${layout.placeControlsAbove ? 'mb-1' : 'mt-1'} flex items-center gap-1 text-[10px]`}>
+              {hasSiblingLines && (
+                <div
+                  className={`flex items-center gap-0.5 px-1 py-0.5 rounded border ${
+                    isMinimal
+                      ? 'bg-white border-neutral-300 text-neutral-800'
+                      : isLcars
+                      ? 'bg-black border-[#ff9900] text-[#ffcc00]'
+                      : 'bg-slate-900 border-slate-700 text-slate-200'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => stepToSiblingLine(-1)}
+                    className="p-0.5 hover:opacity-100 opacity-75"
+                    title={t.editPanel.prevLine}
+                    aria-label={t.editPanel.prevLine}
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                  </button>
+                  <span className="font-mono px-0.5">
+                    {t.editPanel.lineProgressBadge
+                      .replace('{current}', String(curLineIdx + 1))
+                      .replace('{total}', String(selectedBlockLines.length))}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => stepToSiblingLine(1)}
+                    className="p-0.5 hover:opacity-100 opacity-75"
+                    title={t.editPanel.nextLine}
+                    aria-label={t.editPanel.nextLine}
+                  >
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={saveLineEditor}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFName, rgb, StandardFonts } from 'pdf-lib';
 import {
   isEditCanvasOverlayActive,
   shouldAllowGlobalPageDelete,
@@ -21,6 +21,13 @@ import {
   replaceTextInPageContentStream,
   replaceTextInAllPagesContentStream,
 } from '../src/services/contentStreamEditor';
+import { getPageTextModel } from '../src/services/pdfLoader';
+import {
+  replaceTextBlockContent,
+  replaceTextLineContent,
+  removeTextLineContent,
+} from '../src/services/pdfTextEditor';
+import { PdfPageModel, SourceDocument } from '../src/types/document';
 
 describe('Unified Edit UX State & Safety Guards (Priority 1 + 2)', () => {
   it('disables PDF element overlays whenever Whiteout tool is active or outside Edit tab', () => {
@@ -191,5 +198,220 @@ describe('Unified Edit UX State & Safety Guards (Priority 1 + 2)', () => {
     const allP2Text = parseStreamSegments(allP2.streamText).map((s) => s.previewText).join(' ');
     expect(allP1Text).toContain('Contract Signed 2025');
     expect(allP2Text).toContain('Appendix Signed 2025');
+  });
+});
+
+describe('Multi-Line PDF Elements (Voucher Columns, Custom Gaps, Mixed Fonts & Single-Line Delete)', () => {
+  const buildVoucherPdf = async (streamBody: string) => {
+    const doc = await PDFDocument.create();
+    const courier = await doc.embedFont(StandardFonts.Courier);
+    const helv = await doc.embedFont(StandardFonts.Helvetica);
+    const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const page = doc.addPage([600, 800]);
+    // Ensure page has /Resources /Font dictionary
+    page.drawText(' ', { x: 1, y: 1, size: 1, font: helv });
+    const fonts = page.node.Resources()!.lookup(PDFName.of('Font')) as any;
+    fonts.set(PDFName.of('FC'), courier.ref);
+    fonts.set(PDFName.of('FH'), helv.ref);
+    fonts.set(PDFName.of('FB'), helvBold.ref);
+
+    const stream = doc.context.register(doc.context.flateStream(streamBody));
+    page.node.set(PDFName.of('Contents'), stream);
+
+    const saved = await doc.save();
+    const buf = saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength) as ArrayBuffer;
+    const source: SourceDocument = {
+      id: `voucher_${Math.random().toString(36).slice(2, 8)}`,
+      name: 'voucher.pdf',
+      arrayBuffer: buf,
+      updatedAt: Date.now(),
+    };
+    const pageModel: PdfPageModel = {
+      id: 'p_voucher_0',
+      sourceDocId: source.id,
+      sourceType: 'pdf',
+      originalPageIndex: 0,
+      rotation: 0,
+      width: 600,
+      height: 800,
+    };
+    return { source, pageModel };
+  };
+
+  const VOUCHER_STREAM = [
+    'BT',
+    '/FC 11 Tf',
+    '1 0 0 1 180 680 Tm (Lago Hotel) Tj',
+    '0 -14 Td (Side - Sorgun) Tj',
+    '0 -56 Td (41131187) Tj',
+    '0 -70 Td (1 FRAU 40J. NATALIE SLADKOVA) Tj',
+    '0 -14 Td (2 HERR 44J. PETR SLADEK) Tj',
+    '-130 -286 Td (Akay Travel Service) Tj',
+    'ET',
+  ].join('\n');
+
+  it('preserves exact coordinates, custom gaps, and column shifts when editing a multi-line BT...ET via Full Block edit', async () => {
+    const { source, pageModel } = await buildVoucherPdf(VOUCHER_STREAM);
+    const before = (await getPageTextModel(source, pageModel))!;
+    expect(before.aligned).toBe(true);
+    expect(before.blocks).toHaveLength(1);
+    const block = before.blocks[0];
+    expect(block.lines.map((l) => l.text)).toEqual([
+      'Lago Hotel',
+      'Side - Sorgun',
+      '41131187',
+      '1 FRAU 40J. NATALIE SLADKOVA',
+      '2 HERR 44J. PETR SLADEK',
+      'Akay Travel Service',
+    ]);
+
+    // Edit ONLY line 3 in the full-block multi-line text
+    const editedFullText = block.lines
+      .map((l, idx) => (idx === 3 ? '1 FRAU 40J. JANA NOVAKOVA' : l.text))
+      .join('\n');
+    const res = await replaceTextBlockContent(source.arrayBuffer, 0, before, block.segmentId, editedFullText);
+    expect(res.error).toBeUndefined();
+
+    const afterSource: SourceDocument = { ...source, id: `${source.id}_after`, arrayBuffer: res.updatedPdfBytes };
+    const after = (await getPageTextModel(afterSource, { ...pageModel, sourceDocId: afterSource.id }))!;
+    expect(after.aligned).toBe(true);
+    const afterBlock = after.blocks[0];
+    expect(afterBlock.lines.map((l) => l.text)).toEqual([
+      'Lago Hotel',
+      'Side - Sorgun',
+      '41131187',
+      '1 FRAU 40J. JANA NOVAKOVA',
+      '2 HERR 44J. PETR SLADEK',
+      'Akay Travel Service',
+    ]);
+
+    // Every single line — including huge vertical gaps and X-column shift to x=50 — kept its exact position!
+    for (let i = 0; i < block.lines.length; i++) {
+      expect(afterBlock.lines[i].bbox.x).toBeCloseTo(block.lines[i].bbox.x, 1);
+      expect(afterBlock.lines[i].bbox.y).toBeCloseTo(block.lines[i].bbox.y, 1);
+    }
+  });
+
+  it('deletes a single line inside a multi-line BT...ET without moving or deleting sibling lines', async () => {
+    const { source, pageModel } = await buildVoucherPdf(VOUCHER_STREAM);
+    const before = (await getPageTextModel(source, pageModel))!;
+    const block = before.blocks[0];
+    const line4Before = block.lines[4].bbox; // 2 HERR 44J. PETR SLADEK
+    const line5Before = block.lines[5].bbox; // Akay Travel Service (x=50, y=240)
+
+    const res = await removeTextLineContent(source.arrayBuffer, 0, before, block.lines[3].id);
+    expect(res.error).toBeUndefined();
+
+    const afterSource: SourceDocument = { ...source, id: `${source.id}_del`, arrayBuffer: res.updatedPdfBytes };
+    const after = (await getPageTextModel(afterSource, { ...pageModel, sourceDocId: afterSource.id }))!;
+    expect(after.aligned).toBe(true);
+    const afterBlock = after.blocks[0];
+    expect(afterBlock.lines.map((l) => l.text)).toEqual([
+      'Lago Hotel',
+      'Side - Sorgun',
+      '41131187',
+      '2 HERR 44J. PETR SLADEK',
+      'Akay Travel Service',
+    ]);
+    // Sibling lines kept their exact X and Y coordinates!
+    expect(afterBlock.lines[3].bbox.x).toBeCloseTo(line4Before.x, 1);
+    expect(afterBlock.lines[3].bbox.y).toBeCloseTo(line4Before.y, 1);
+    expect(afterBlock.lines[4].bbox.x).toBeCloseTo(line5Before.x, 1);
+    expect(afterBlock.lines[4].bbox.y).toBeCloseTo(line5Before.y, 1);
+  });
+
+  it('clearing a line to empty string via replaceTextLineContent removes it cleanly without shifting siblings', async () => {
+    const { source, pageModel } = await buildVoucherPdf(VOUCHER_STREAM);
+    const before = (await getPageTextModel(source, pageModel))!;
+    const block = before.blocks[0];
+    const lastBefore = block.lines[5].bbox;
+
+    const res = await replaceTextLineContent(source.arrayBuffer, 0, before, block.lines[2].id, '   ');
+    expect(res.error).toBeUndefined();
+
+    const afterSource: SourceDocument = { ...source, id: `${source.id}_clr`, arrayBuffer: res.updatedPdfBytes };
+    const after = (await getPageTextModel(afterSource, { ...pageModel, sourceDocId: afterSource.id }))!;
+    expect(after.blocks[0].lines.map((l) => l.text)).not.toContain('41131187');
+    const lastAfter = after.blocks[0].lines[after.blocks[0].lines.length - 1];
+    expect(lastAfter.text).toBe('Akay Travel Service');
+    expect(lastAfter.bbox.x).toBeCloseTo(lastBefore.x, 1);
+    expect(lastAfter.bbox.y).toBeCloseTo(lastBefore.y, 1);
+  });
+
+  it('preserves bold/regular fonts on untouched lines inside a mixed-font multi-line BT...ET', async () => {
+    const mixedStream = [
+      'BT',
+      '/FB 12 Tf',
+      '1 0 0 1 60 700 Tm (Online Check-In) Tj',
+      '/FH 11 Tf',
+      '0 -18 Td (Bitte erscheinen Sie rechtzeitig am Gate.) Tj',
+      'ET',
+    ].join('\n');
+    const { source, pageModel } = await buildVoucherPdf(mixedStream);
+    const before = (await getPageTextModel(source, pageModel))!;
+    const block = before.blocks[0];
+
+    const res = await replaceTextBlockContent(
+      source.arrayBuffer,
+      0,
+      before,
+      block.segmentId,
+      'Online Check-In\nUpdated boarding instructions.'
+    );
+    expect(res.error).toBeUndefined();
+
+    const afterSource: SourceDocument = { ...source, id: `${source.id}_mix`, arrayBuffer: res.updatedPdfBytes };
+    const after = (await getPageTextModel(afterSource, { ...pageModel, sourceDocId: afterSource.id }))!;
+    const afterBlock = after.blocks[0];
+    expect(afterBlock.lines.map((l) => l.text)).toEqual([
+      'Online Check-In',
+      'Updated boarding instructions.',
+    ]);
+    // Line 0 must STILL be Helvetica-Bold!
+    expect(afterBlock.lines[0].runs[0].fontName).toMatch(/Bold/i);
+  });
+
+  it('splits distant same-row columns inside one BT...ET into independently editable entries', async () => {
+    const twoColStream = [
+      'BT',
+      '/FH 11 Tf',
+      '1 0 0 1 50 680 Tm (Hotelname) Tj',
+      '170 0 Td (Lago Hotel) Tj',
+      'ET',
+    ].join('\n');
+    const { source, pageModel } = await buildVoucherPdf(twoColStream);
+    const before = (await getPageTextModel(source, pageModel))!;
+    const block = before.blocks[0];
+    expect(block.lines.map((l) => l.text)).toEqual(['Hotelname', 'Lago Hotel']);
+
+    const col0Before = block.lines[0].bbox;
+    const col1Before = block.lines[1].bbox;
+    const res = await replaceTextLineContent(source.arrayBuffer, 0, before, block.lines[1].id, 'Grand Resort');
+    expect(res.error).toBeUndefined();
+
+    const afterSource: SourceDocument = { ...source, id: `${source.id}_col`, arrayBuffer: res.updatedPdfBytes };
+    const after = (await getPageTextModel(afterSource, { ...pageModel, sourceDocId: afterSource.id }))!;
+    expect(after.blocks[0].lines.map((l) => l.text)).toEqual(['Hotelname', 'Grand Resort']);
+    expect(after.blocks[0].lines[0].bbox.x).toBeCloseTo(col0Before.x, 1);
+    expect(after.blocks[0].lines[1].bbox.x).toBeCloseTo(col1Before.x, 1);
+  });
+
+  it('appends newly added lines below a multi-line BT...ET while keeping existing lines pinned', async () => {
+    const { source, pageModel } = await buildVoucherPdf(VOUCHER_STREAM);
+    const before = (await getPageTextModel(source, pageModel))!;
+    const block = before.blocks[0];
+
+    const appended = [...block.lines.map((l) => l.text), '+90 530 6098849'].join('\n');
+    const res = await replaceTextBlockContent(source.arrayBuffer, 0, before, block.segmentId, appended);
+    expect(res.error).toBeUndefined();
+
+    const afterSource: SourceDocument = { ...source, id: `${source.id}_add`, arrayBuffer: res.updatedPdfBytes };
+    const after = (await getPageTextModel(afterSource, { ...pageModel, sourceDocId: afterSource.id }))!;
+    const afterLines = after.blocks[0].lines;
+    expect(afterLines).toHaveLength(7);
+    expect(afterLines[6].text).toBe('+90 530 6098849');
+    expect(afterLines[6].bbox.y).toBeGreaterThan(afterLines[5].bbox.y + 5);
+    expect(afterLines[5].bbox.x).toBeCloseTo(block.lines[5].bbox.x, 1);
+    expect(afterLines[5].bbox.y).toBeCloseTo(block.lines[5].bbox.y, 1);
   });
 });

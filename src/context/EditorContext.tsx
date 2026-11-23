@@ -110,6 +110,12 @@ interface EditorContextType {
   selectedStreamBlockId: string | null;
   selectedStreamBlockPageId: string | null;
   setSelectedStreamBlockId: (id: string | null, pageId?: string | null) => void;
+  /** Currently targeted line inside a multi-line PDF text block (`segmentId#index`) */
+  selectedLineId: string | null;
+  setSelectedLineId: (lineId: string | null) => void;
+  /** Currently hovered line inside a multi-line PDF text block (synced between canvas & Inspector) */
+  hoveredLineId: string | null;
+  setHoveredLineId: (lineId: string | null) => void;
   hoveredBlockId: string | null;
   hoveredBlockPageId: string | null;
   setHoveredBlockId: (id: string | null, pageId?: string | null) => void;
@@ -211,12 +217,22 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const [selection, setSelection] = useState<{ id: string | null; pageId: string | null }>({ id: null, pageId: null });
   const [hover, setHover] = useState<{ id: string | null; pageId: string | null }>({ id: null, pageId: null });
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  const [hoveredLineId, setHoveredLineId] = useState<string | null>(null);
   const selectedStreamBlockId = selection.id;
   const selectedStreamBlockPageId = selection.pageId;
   const hoveredBlockId = hover.id;
   const hoveredBlockPageId = hover.pageId;
   const setSelectedStreamBlockId = useCallback(
-    (id: string | null, pageId: string | null = null) => setSelection({ id, pageId: id ? pageId : null }),
+    (id: string | null, pageId: string | null = null) => {
+      setSelection((prev) => {
+        if (prev.id !== id || (id ? pageId : null) !== prev.pageId) {
+          setSelectedLineId(null);
+          setHoveredLineId(null);
+        }
+        return { id, pageId: id ? pageId : null };
+      });
+    },
     []
   );
   const setHoveredBlockId = useCallback(
@@ -232,6 +248,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     setActiveTool((tool) => getDefaultToolForTab('review', tool));
     setSelection({ id: null, pageId: null });
     setHover({ id: null, pageId: null });
+    setSelectedLineId(null);
+    setHoveredLineId(null);
   };
 
   const setActiveTab = (tab: EditorTab) => {
@@ -240,6 +258,8 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     if (tab !== 'edit') {
       setSelection({ id: null, pageId: null });
       setHover({ id: null, pageId: null });
+      setSelectedLineId(null);
+      setHoveredLineId(null);
     }
     if (tab === 'edit') {
       setIsNotesPanelOpenState(false);
@@ -669,6 +689,10 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     selectedStreamBlockId,
     selectedStreamBlockPageId,
     setSelectedStreamBlockId,
+    selectedLineId,
+    setSelectedLineId,
+    hoveredLineId,
+    setHoveredLineId,
     hoveredBlockId,
     hoveredBlockPageId,
     setHoveredBlockId,

@@ -1,6 +1,6 @@
 import { ParseSpeeds, PDFDict, PDFDocument, PDFFont, PDFName, PDFRawStream, PDFRef } from 'pdf-lib';
 import { ContentOperation, TEXT_SHOW_OPERATORS, tokenizeContentStream } from './pdfContentTokenizer';
-import { FontCodeMap, PageTextModel, TextBlock, TextRun, measureLineLeading } from './pdfTextModel';
+import { FontCodeMap, PageTextModel, TextBlock, TextLine, TextRun, measureLineLeading } from './pdfTextModel';
 import {
   getPageContentStream,
   getPageLocalResourceDict,
@@ -165,8 +165,51 @@ function buildTextObject(
 }
 
 /**
+ * Rebuilds the stream slice of a single TextLine in-place: replaces its text-showing operators
+ * (or removes them when `replacementOp === null`) while keeping every positioning (`Td`, `TD`,
+ * `Tm`, `T*`), font (`Tf`), colour, and graphics-state operator intact so following lines inside
+ * the same `BT ... ET` never shift or lose their styling.
+ */
+function rebuildLineSlice(
+  streamText: string,
+  line: TextLine,
+  replacementOp: string | null,
+  fontPrefix: string,
+  fontRestore: string
+): { start: number; end: number; replacement: string } {
+  const first = line.runs[0];
+  const lineStart = first.start;
+  const lineEnd = line.runs[line.runs.length - 1].end;
+  const runStarts = new Set(line.runs.map((r) => r.start));
+  const firstShowStart = first.start;
+
+  let rebuilt = '';
+  let cursor = lineStart;
+  for (const op of tokenizeContentStream(streamText, lineStart, lineEnd)) {
+    if (!TEXT_SHOW_OPERATORS.has(op.operator) || !runStarts.has(op.start)) continue;
+    rebuilt += streamText.substring(cursor, op.start);
+    cursor = op.end;
+    // ' and " also move to the next line (and " sets spacing); keep that effect
+    const lineMove =
+      op.operator === "'"
+        ? 'T* '
+        : op.operator === '"'
+        ? `${op.operands[0]?.raw ?? '0'} Tw ${op.operands[1]?.raw ?? '0'} Tc T* `
+        : '';
+    if (replacementOp !== null && op.start === firstShowStart) {
+      rebuilt += lineMove + fontPrefix + replacementOp + fontRestore;
+    } else {
+      rebuilt += lineMove.trim();
+    }
+  }
+  rebuilt += streamText.substring(cursor, lineEnd);
+  return { start: lineStart, end: lineEnd, replacement: rebuilt };
+}
+
+/**
  * Text-showing operations for the given lines: the original font's codes when it has every
  * character, otherwise a substitute font registered in the resources of the run's stream part.
+ * Optional `substituteCache` avoids embedding duplicate substitute fonts across multiple lines.
  */
 async function encodeForRun(
   pdfDoc: PDFDocument,
@@ -175,7 +218,9 @@ async function encodeForRun(
   layout: { kind: string; name?: string }[] | undefined,
   run: TextRun,
   partIndex: number,
-  lines: string[]
+  lines: string[],
+  substituteCache?: Map<string, { font: PDFFont; resourceName: string }>,
+  fontProvider?: PdfFontProvider
 ): Promise<{ fontOperator: string | null; originalFontOperator: string | null; lineOperations: string[]; substituteFont: PDFFont | null } | { error: string }> {
   const originalFontOperator = run.fontResource ? `/${run.fontResource} ${formatNumber(run.fontSize)} Tf` : null;
   const codeMap = model.fontCodeMaps.get(run.fontKey);
@@ -184,18 +229,84 @@ async function encodeForRun(
     return { fontOperator: originalFontOperator, originalFontOperator, lineOperations: originalEncoded, substituteFont: null };
   }
   const { family, bold, italic } = describeOriginalFont(run.fontName);
-  const substituteFont = await new PdfFontProvider(pdfDoc).fontFor(family, bold, italic, lines.join(''));
-  const partLayout = layout?.[partIndex];
-  const fontDict = fontDictForPart(pdfDoc, pageIndex, partLayout?.kind === 'form' ? partLayout.name : undefined);
-  if (!fontDict) return { error: 'Nelze přidat náhradní písmo do zdrojů stránky.' };
-  const resourceName = uniqueResourceName(fontDict, 'PSF');
-  fontDict.set(PDFName.of(resourceName), substituteFont.ref as PDFRef);
+  const provider = fontProvider ?? new PdfFontProvider(pdfDoc);
+  const substituteFont = await provider.fontFor(family, bold, italic, lines.join(''));
+  const cacheKey = `${partIndex}|${substituteFont.ref.toString()}`;
+  let cached = substituteCache?.get(cacheKey);
+  if (!cached) {
+    const partLayout = layout?.[partIndex];
+    const fontDict = fontDictForPart(pdfDoc, pageIndex, partLayout?.kind === 'form' ? partLayout.name : undefined);
+    if (!fontDict) return { error: 'Nelze přidat náhradní písmo do zdrojů stránky.' };
+    const resourceName = uniqueResourceName(fontDict, 'PSF');
+    fontDict.set(PDFName.of(resourceName), substituteFont.ref as PDFRef);
+    cached = { font: substituteFont, resourceName };
+    substituteCache?.set(cacheKey, cached);
+  }
   return {
-    fontOperator: `/${resourceName} ${formatNumber(run.fontSize)} Tf`,
+    fontOperator: `/${cached.resourceName} ${formatNumber(run.fontSize)} Tf`,
     originalFontOperator,
-    lineOperations: lines.map((line) => `${substituteFont.encodeText(prepareTextForFont(substituteFont, line)).toString()} Tj`),
-    substituteFont,
+    lineOperations: lines.map((line) => `${cached!.font.encodeText(prepareTextForFont(cached!.font, line)).toString()} Tj`),
+    substituteFont: cached.font,
   };
+}
+
+/**
+ * Removes a single line from a text object (`BT ... ET`) without affecting any other lines in
+ * that same text object. When the line is the only remaining line in the block, the entire
+ * `BT ... ET` segment is cleanly removed.
+ */
+export async function removeTextLineContent(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  model: PageTextModel,
+  lineId: string
+): Promise<TextBlockEditResult> {
+  const fail = (error: string): TextBlockEditResult => ({
+    updatedPdfBytes: pdfDocBytes,
+    updatedStream: model.streamText,
+    fontSubstituted: false,
+    error,
+  });
+  const line = model.linesById.get(lineId);
+  const block = line ? model.blocksById.get(line.segmentId) : undefined;
+  if (!model.aligned || !line || !block || line.runs.length === 0) {
+    return fail('Řádek textu nelze na stránce spolehlivě určit.');
+  }
+  const current = await getPageContentStream(pdfDocBytes, pageIndex);
+  if (current.error || current.streamText !== model.streamText) {
+    return fail('Obsah stránky se mezitím změnil. Vyberte řádek znovu.');
+  }
+
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
+    });
+
+    let newStreamText: string;
+    if (block.lines.length <= 1) {
+      newStreamText =
+        model.streamText.substring(0, block.startIndex) + model.streamText.substring(block.endIndex);
+    } else {
+      const slice = rebuildLineSlice(model.streamText, line, null, '', '');
+      newStreamText =
+        model.streamText.substring(0, slice.start) + slice.replacement + model.streamText.substring(slice.end);
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+    const updatedStream = writePageStreamText(pdfDoc, page, newStreamText);
+    const saved = await pdfDoc.save({ objectsPerTick: 500 });
+    logger.success('edit', `Řádek ${lineId} na straně ${pageIndex + 1} byl odstraněn`, { lineId });
+    return {
+      updatedPdfBytes: saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength) as ArrayBuffer,
+      updatedStream,
+      fontSubstituted: false,
+    };
+  } catch (err: any) {
+    logger.error('edit', `Odstranění řádku ${lineId} selhalo: ${err?.message || err}`);
+    return fail(err?.message || String(err));
+  }
 }
 
 /**
@@ -219,12 +330,16 @@ export async function replaceTextLineContent(
   });
   const line = model.linesById.get(lineId);
   if (!model.aligned || !line || line.runs.length === 0) return fail('Řádek textu nelze na stránce spolehlivě určit.');
+  const text = newText.replace(/[\r\n]+/g, ' ');
+  if (text === line.text) return fail('Text řádku se nezměnil.');
+  if (text.trim() === '') {
+    return removeTextLineContent(pdfDocBytes, pageIndex, model, lineId);
+  }
+
   const current = await getPageContentStream(pdfDocBytes, pageIndex);
   if (current.error || current.streamText !== model.streamText) {
     return fail('Obsah stránky se mezitím změnil. Vyberte řádek znovu.');
   }
-  const text = newText.replace(/[\r\n]+/g, ' ');
-  if (text === line.text) return fail('Text řádku se nezměnil.');
 
   try {
     const pdfDoc = await PDFDocument.load(pdfDocBytes, {
@@ -236,36 +351,12 @@ export async function replaceTextLineContent(
     const encoded = await encodeForRun(pdfDoc, pageIndex, model, current.layout, first, first.partIndex, [text]);
     if ('error' in encoded) return fail(encoded.error);
 
-    const lineStart = first.start;
-    const lineEnd = line.runs[line.runs.length - 1].end;
-    const runStarts = new Set(line.runs.map((r) => r.start));
-    const firstShowStart = first.start;
-    let rebuilt = '';
-    let cursor = lineStart;
-    for (const op of tokenizeContentStream(model.streamText, lineStart, lineEnd)) {
-      if (!TEXT_SHOW_OPERATORS.has(op.operator) || !runStarts.has(op.start)) continue;
-      rebuilt += model.streamText.substring(cursor, op.start);
-      cursor = op.end;
-      // ' and " also move to the next line (and " sets spacing); keep that effect
-      const lineMove =
-        op.operator === "'"
-          ? 'T* '
-          : op.operator === '"'
-          ? `${op.operands[0]?.raw ?? '0'} Tw ${op.operands[1]?.raw ?? '0'} Tc T* `
-          : '';
-      if (op.start === firstShowStart) {
-        const useSubstitute = Boolean(encoded.substituteFont);
-        rebuilt +=
-          lineMove +
-          (useSubstitute && encoded.fontOperator ? `${encoded.fontOperator} ` : '') +
-          encoded.lineOperations[0] +
-          (useSubstitute && encoded.originalFontOperator ? ` ${encoded.originalFontOperator}` : '');
-      } else {
-        rebuilt += lineMove.trim();
-      }
-    }
-    rebuilt += model.streamText.substring(cursor, lineEnd);
-    const newStreamText = model.streamText.substring(0, lineStart) + rebuilt + model.streamText.substring(lineEnd);
+    const useSubstitute = Boolean(encoded.substituteFont);
+    const fontPrefix = useSubstitute && encoded.fontOperator ? `${encoded.fontOperator} ` : '';
+    const fontRestore = useSubstitute && encoded.originalFontOperator ? ` ${encoded.originalFontOperator}` : '';
+    const slice = rebuildLineSlice(model.streamText, line, encoded.lineOperations[0], fontPrefix, fontRestore);
+    const newStreamText =
+      model.streamText.substring(0, slice.start) + slice.replacement + model.streamText.substring(slice.end);
 
     const page = pdfDoc.getPage(pageIndex);
     const updatedStream = writePageStreamText(pdfDoc, page, newStreamText);
@@ -311,8 +402,142 @@ export async function replaceTextBlockContent(
   }
 
   try {
+    const newLines = newText.replace(/\r\n?/g, '\n').split('\n');
+
+    // Multi-line PDF element (BT ... ET containing 2+ positioned lines):
+    // Apply surgical per-line replacements so unchanged lines keep their exact original bytes,
+    // coordinates, vertical gaps, columns, fonts, bold/italic styles, and colors!
+    if (block.lines.length > 1) {
+      const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+        ignoreEncryption: true,
+        updateMetadata: false,
+        parseSpeed: ParseSpeeds.Fast,
+      });
+
+      if (newLines.every((l) => l.trim() === '')) {
+        const newStreamText =
+          model.streamText.substring(0, block.startIndex) + model.streamText.substring(block.endIndex);
+        const page = pdfDoc.getPage(pageIndex);
+        const updatedStream = writePageStreamText(pdfDoc, page, newStreamText);
+        const saved = await pdfDoc.save({ objectsPerTick: 500 });
+        return {
+          updatedPdfBytes: saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength) as ArrayBuffer,
+          updatedStream,
+          fontSubstituted: false,
+        };
+      }
+
+      const substituteCache = new Map<string, { font: PDFFont; resourceName: string }>();
+      const fontProvider = new PdfFontProvider(pdfDoc);
+      const splices: Array<{ start: number; end: number; replacement: string }> = [];
+      let anyFontSubstituted = false;
+      let lastSubstituteName: string | undefined;
+
+      for (let idx = 0; idx < block.lines.length; idx++) {
+        const origLine = block.lines[idx];
+        const targetText = idx < newLines.length ? newLines[idx] : '';
+        if (targetText === origLine.text) continue; // Untouched line stays 100% intact
+
+        if (targetText.trim() === '') {
+          splices.push(rebuildLineSlice(model.streamText, origLine, null, '', ''));
+          continue;
+        }
+
+        const firstRun = origLine.runs[0];
+        const encoded = await encodeForRun(
+          pdfDoc,
+          pageIndex,
+          model,
+          current.layout,
+          firstRun,
+          firstRun.partIndex,
+          [targetText],
+          substituteCache,
+          fontProvider
+        );
+        if ('error' in encoded) return fail(encoded.error);
+        const useSub = Boolean(encoded.substituteFont);
+        if (useSub) {
+          anyFontSubstituted = true;
+          lastSubstituteName = encoded.substituteFont?.name;
+        }
+        const fontPrefix = useSub && encoded.fontOperator ? `${encoded.fontOperator} ` : '';
+        const fontRestore = useSub && encoded.originalFontOperator ? ` ${encoded.originalFontOperator}` : '';
+        splices.push(rebuildLineSlice(model.streamText, origLine, encoded.lineOperations[0], fontPrefix, fontRestore));
+      }
+
+      // Append any newly added lines below the last original line using measured leading
+      if (newLines.length > block.lines.length) {
+        const extraLines = newLines.slice(block.lines.length);
+        const lastOrigLine = block.lines[block.lines.length - 1];
+        const lastRun = lastOrigLine.runs[0];
+        const insertAt = lastOrigLine.runs[lastOrigLine.runs.length - 1].end;
+        const leading = measureLineLeading(block) ?? Math.abs(lastRun.fontSize) * 1.2;
+
+        const encodedExtra = await encodeForRun(
+          pdfDoc,
+          pageIndex,
+          model,
+          current.layout,
+          lastRun,
+          lastRun.partIndex,
+          extraLines,
+          substituteCache,
+          fontProvider
+        );
+        if ('error' in encodedExtra) return fail(encodedExtra.error);
+        const useSub = Boolean(encodedExtra.substituteFont);
+        if (useSub) {
+          anyFontSubstituted = true;
+          lastSubstituteName = encodedExtra.substituteFont?.name;
+        }
+        const extraChunks: string[] = [];
+        if (useSub && encodedExtra.fontOperator) extraChunks.push(encodedExtra.fontOperator);
+        for (const op of encodedExtra.lineOperations) {
+          extraChunks.push(`0 ${formatNumber(-leading)} Td`);
+          extraChunks.push(op);
+        }
+        if (useSub && encodedExtra.originalFontOperator) extraChunks.push(encodedExtra.originalFontOperator);
+        splices.push({ start: insertAt, end: insertAt, replacement: `\n${extraChunks.join('\n')}` });
+      }
+
+      if (splices.length === 0) {
+        return {
+          updatedPdfBytes: pdfDocBytes,
+          updatedStream: model.streamText,
+          fontSubstituted: false,
+        };
+      }
+
+      // Apply splices from end to start so earlier offsets remain valid
+      splices.sort((a, b) => b.start - a.start || b.end - a.end);
+      let newStreamText = model.streamText;
+      for (const sp of splices) {
+        newStreamText = newStreamText.substring(0, sp.start) + sp.replacement + newStreamText.substring(sp.end);
+      }
+
+      const page = pdfDoc.getPage(pageIndex);
+      const updatedStream = writePageStreamText(pdfDoc, page, newStreamText);
+      const saved = await pdfDoc.save({ objectsPerTick: 500 });
+
+      logger.success('edit', `Víceřádkový blok ${segmentId} na straně ${pageIndex + 1} byl přepsán po řádcích`, {
+        segmentId,
+        linesCount: block.lines.length,
+        changedSlices: splices.length,
+        fontSubstituted: anyFontSubstituted,
+      });
+
+      return {
+        updatedPdfBytes: saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength) as ArrayBuffer,
+        updatedStream,
+        fontSubstituted: anyFontSubstituted,
+        substituteFontName: lastSubstituteName,
+      };
+    }
+
+    // Single-line PDF element (may remain 1 line or expand into multiple lines)
     const first = block.runs[0];
-    const lines = newText.replace(/\r\n?/g, '\n').split('\n');
+    const lines = newLines;
     const leading = measureLineLeading(block) ?? Math.abs(first.fontSize) * 1.2;
     const originalFontOperator = first.fontResource
       ? `/${first.fontResource} ${formatNumber(first.fontSize)} Tf`
