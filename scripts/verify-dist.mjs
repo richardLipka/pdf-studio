@@ -51,6 +51,8 @@ check(list('cmaps').length > 50, 'pdfjs/cmaps is missing or incomplete (CJK text
 check(list('wasm').some((f) => f.includes('openjpeg')), 'pdfjs/wasm has no OpenJPEG decoder (JPEG 2000 images)');
 check(list('iccs').length > 0, 'pdfjs/iccs is missing (colour profiles)');
 check(!list('wasm').some((f) => f.startsWith('quickjs')), 'pdfjs/wasm should not ship the unused QuickJS sandbox');
+check(fs.existsSync(path.join(dist, 'manifest.webmanifest')), 'PWA manifest.webmanifest is missing from dist/');
+check(fs.existsSync(path.join(dist, 'sw.js')), 'offline PWA service worker sw.js is missing from dist/');
 
 if (failures.length > 0) {
   console.error(`verify-dist: ${failures.length} problem(s) in ${dist}`);

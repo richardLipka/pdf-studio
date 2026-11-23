@@ -90,16 +90,29 @@ export const SearchBar: React.FC = () => {
       }
 
       setIsSearching(true);
+      let publishedFirstBatch = false;
       try {
         const matches = await searchPdfDocument(pages, sources, trimmed, {
           caseSensitive: caseSens,
           wholeWord: wholeW,
           signal: controller.signal,
+          chunkSize: 8,
+          onProgress: (partial) => {
+            if (run !== searchRunRef.current || controller.signal.aborted) return;
+            if (partial.length > 0 || !publishedFirstBatch) {
+              setSearchResults(partial);
+              if (!publishedFirstBatch && partial.length > 0) {
+                publishedFirstBatch = true;
+                setActiveSearchMatchIndex(0);
+              }
+            }
+          },
         });
         if (run !== searchRunRef.current || controller.signal.aborted) return;
-        // The effect below navigates to the first match
         setSearchResults(matches);
-        setActiveSearchMatchIndex(0);
+        if (!publishedFirstBatch) {
+          setActiveSearchMatchIndex(0);
+        }
       } catch (err) {
         if (run !== searchRunRef.current || controller.signal.aborted) return;
         console.warn('Search execution failed:', err);

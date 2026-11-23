@@ -62,6 +62,22 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(appVersion),
   },
   plugins: [react(), pdfjsRuntimeAssets()],
+  build: {
+    chunkSizeWarningLimit: 900,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'vendor-react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/, priority: 30 },
+            { name: 'vendor-pdfjs', test: /[\\/]node_modules[\\/]pdfjs-dist[\\/]/, priority: 25 },
+            { name: 'vendor-pdflib', test: /[\\/]node_modules[\\/](pdf-lib|@pdf-lib|pako)[\\/]/, priority: 20 },
+            { name: 'vendor-forge', test: /[\\/]node_modules[\\/]node-forge[\\/]/, priority: 20 },
+            { name: 'vendor-icons', test: /[\\/]node_modules[\\/]lucide-react[\\/]/, priority: 15 },
+          ],
+        },
+      },
+    },
+  },
   optimizeDeps: {
     include: ['pdfjs-dist/legacy/build/pdf.mjs', 'pdf-lib', 'signature_pad']
   },

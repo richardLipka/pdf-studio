@@ -28,15 +28,13 @@ import {
   RefreshCw,
   Pencil,
   SlidersHorizontal,
-  ChevronLeft,
-  ChevronRight,
+  RotateCw,
 } from 'lucide-react';
 import type { TextLine } from '../../services/pdfTextModel';
 import { VisualTextBlock } from '../../utils/textSnap';
-import {
-  isEditCanvasOverlayActive,
-  clampInlineEditorPosition,
-} from '../../utils/editModeState';
+import { isEditCanvasOverlayActive } from '../../utils/editModeState';
+import { computeSnapMove, computeSnapResize, SnapGuide } from '../../utils/snapGuides';
+import { InlineLineEditor } from './InlineLineEditor';
 
 interface TextLayerProps {
   page: PdfPageModel;
@@ -136,20 +134,23 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
   const [isTransforming, setIsTransforming] = useState(false);
 
-  // Interactive canvas drag-to-move & resize gesture for selected native PDF images and text blocks
+  // Interactive canvas drag-to-move, resize & rotate gesture for selected native PDF images and text blocks
   type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
   interface ActiveTransformGesture {
     block: VisualTextBlock;
-    mode: 'move' | 'resize';
+    mode: 'move' | 'resize' | 'rotate';
     handle?: ResizeHandle;
     startClientX: number;
     startClientY: number;
+    startAngleRad?: number;
     origRect: { x: number; y: number; width: number; height: number };
     currentRect: { x: number; y: number; width: number; height: number };
+    rotationDeg: number;
     committedDrag: boolean;
     isReflow: boolean;
   }
   const [dragOp, setDragOp] = useState<ActiveTransformGesture | null>(null);
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const dragOpRef = useRef<ActiveTransformGesture | null>(null);
   dragOpRef.current = dragOp;
   const suppressNextClickRef = useRef(false);
@@ -355,6 +356,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   useEffect(() => {
     setLineEditor(null);
     setDragOp(null);
+    setSnapGuides([]);
     setPendingRect(null);
   }, [sourceDoc.updatedAt, page.id, page.rotation]);
 
@@ -369,6 +371,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         startClientY: e.clientY,
         origRect: orig,
         currentRect: orig,
+        rotationDeg: 0,
         committedDrag: false,
         isReflow: false,
       });
@@ -391,6 +394,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         startClientY: e.clientY,
         origRect: orig,
         currentRect: orig,
+        rotationDeg: 0,
         committedDrag: true,
         isReflow,
       });
@@ -398,13 +402,42 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     [lineEditor, deletingBlockId, isTransforming]
   );
 
+  const startElementRotate = useCallback(
+    (e: React.MouseEvent, block: VisualTextBlock) => {
+      if (e.button !== 0 || lineEditor || deletingBlockId || isTransforming) return;
+      const container = containerRef.current;
+      if (!container) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const cRect = container.getBoundingClientRect();
+      const cx = cRect.left + (block.x + block.width / 2) * scale;
+      const cy = cRect.top + (block.y + block.height / 2) * scale;
+      const startAngleRad = Math.atan2(e.clientY - cy, e.clientX - cx);
+      const orig = { x: block.x, y: block.y, width: block.width, height: block.height };
+      setDragOp({
+        block,
+        mode: 'rotate',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startAngleRad,
+        origRect: orig,
+        currentRect: orig,
+        rotationDeg: 0,
+        committedDrag: true,
+        isReflow: false,
+      });
+    },
+    [lineEditor, deletingBlockId, isTransforming, scale]
+  );
+
   const commitTransformGesture = useCallback(
     async (op: ActiveTransformGesture) => {
       const targetPageIndex = pages.findIndex((p) => p.id === page.id);
       if (targetPageIndex < 0) return;
 
-      const { block, origRect, currentRect, isReflow } = op;
+      const { block, origRect, currentRect, isReflow, rotationDeg } = op;
       const unchanged =
+        Math.abs(rotationDeg) < 0.25 &&
         Math.abs(origRect.x - currentRect.x) < 0.25 &&
         Math.abs(origRect.y - currentRect.y) < 0.25 &&
         Math.abs(origRect.width - currentRect.width) < 0.25 &&
@@ -418,6 +451,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
           const res = await transformPageImage(block.id, currentRect, {
             space: 'display',
             pageIndex: targetPageIndex,
+            rotationDeg,
           });
           if (res.success) {
             showEditNotice({ type: 'success', text: t.editPanel.imageTransformed, canUndo: true });
@@ -448,6 +482,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         const res = await transformPageTextBlocks(segIds, origRect, currentRect, {
           space: 'display',
           pageIndex: targetPageIndex,
+          rotationDeg,
         });
         if (res.success) {
           showEditNotice({ type: 'success', text: t.editPanel.textTransformed, canUndo: true });
@@ -475,14 +510,33 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     ]
   );
 
-  // Global mousemove / mouseup / Escape listeners while dragging or resizing a native PDF element
+  // Global mousemove / mouseup / Escape listeners while dragging, resizing, or rotating a native PDF element
   const isDragActive = Boolean(dragOp);
+  const visualBlocksRef = useRef(visualBlocks);
+  visualBlocksRef.current = visualBlocks;
   useEffect(() => {
     if (!isDragActive) return;
 
     const handleMouseMove = (ev: MouseEvent) => {
       const op = dragOpRef.current;
       if (!op) return;
+
+      if (op.mode === 'rotate') {
+        const container = containerRef.current;
+        if (!container) return;
+        const cRect = container.getBoundingClientRect();
+        const cx = cRect.left + (op.origRect.x + op.origRect.width / 2) * scale;
+        const cy = cRect.top + (op.origRect.y + op.origRect.height / 2) * scale;
+        const curRad = Math.atan2(ev.clientY - cy, ev.clientX - cx);
+        let deg = ((curRad - (op.startAngleRad ?? 0)) * 180) / Math.PI;
+        while (deg > 180) deg -= 360;
+        while (deg < -180) deg += 360;
+        if (ev.shiftKey) deg = Math.round(deg / 15) * 15;
+        else deg = Math.round(deg);
+        setSnapGuides([]);
+        setDragOp((prev) => (prev ? { ...prev, committedDrag: true, rotationDeg: deg } : null));
+        return;
+      }
 
       const rawDx = ev.clientX - op.startClientX;
       const rawDy = ev.clientY - op.startClientY;
@@ -492,9 +546,20 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
       const dy = rawDy / scale;
       const o = op.origRect;
       let next = { ...o };
+      const siblings = visualBlocksRef.current
+        .filter((b) => b.id !== op.block.id)
+        .map((b) => ({ x: b.x, y: b.y, width: b.width, height: b.height }));
 
       if (op.mode === 'move') {
-        next = { x: o.x + dx, y: o.y + dy, width: o.width, height: o.height };
+        const rawMoved = { x: o.x + dx, y: o.y + dy, width: o.width, height: o.height };
+        if (ev.altKey) {
+          next = rawMoved;
+          setSnapGuides([]);
+        } else {
+          const snapped = computeSnapMove(rawMoved, page.width, page.height, siblings, 5);
+          next = snapped.rect;
+          setSnapGuides(snapped.guides);
+        }
       } else if (op.handle) {
         const h = op.handle;
         const isImage = op.block.type === 'image';
@@ -503,15 +568,22 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         const minH = 8;
 
         if (op.isReflow) {
-          // Width-only reflow: keep top & height steady while showing the new target width
+          let rawNext = { ...o };
           if (h === 'e') {
-            next = { ...o, width: Math.max(minW, o.width + dx) };
+            rawNext = { ...o, width: Math.max(minW, o.width + dx) };
           } else if (h === 'w') {
             const newW = Math.max(minW, o.width - dx);
-            next = { ...o, x: o.x + (o.width - newW), width: newW };
+            rawNext = { ...o, x: o.x + (o.width - newW), width: newW };
+          }
+          if (ev.altKey) {
+            next = rawNext;
+            setSnapGuides([]);
+          } else {
+            const snapped = computeSnapResize(rawNext, h, page.width, page.height, siblings, minW, minH, 5);
+            next = snapped.rect;
+            setSnapGuides(snapped.guides);
           }
         } else if (isCorner && (!isImage || !ev.shiftKey)) {
-          // Uniform aspect-locked scaling anchored at the opposite corner
           const aspect = o.width > 0 && o.height > 0 ? o.width / o.height : 1;
           const anchorX = h === 'nw' || h === 'sw' ? o.x + o.width : o.x;
           const anchorY = h === 'nw' || h === 'ne' ? o.y + o.height : o.y;
@@ -527,8 +599,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
           const finalX = signX < 0 ? anchorX - finalW : anchorX;
           const finalY = signY < 0 ? anchorY - finalH : anchorY;
           next = { x: finalX, y: finalY, width: finalW, height: finalH };
+          setSnapGuides([]);
         } else {
-          // Free-axis resize (image edges, or image corners while holding Shift)
           let left = o.x;
           let top = o.y;
           let right = o.x + o.width;
@@ -537,7 +609,15 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
           if (h.includes('e')) right = Math.max(left + minW, o.x + o.width + dx);
           if (h.includes('n')) top = Math.min(bottom - minH, o.y + dy);
           if (h.includes('s')) bottom = Math.max(top + minH, o.y + o.height + dy);
-          next = { x: left, y: top, width: right - left, height: bottom - top };
+          const rawNext = { x: left, y: top, width: right - left, height: bottom - top };
+          if (ev.altKey) {
+            next = rawNext;
+            setSnapGuides([]);
+          } else {
+            const snapped = computeSnapResize(rawNext, h, page.width, page.height, siblings, minW, minH, 5);
+            next = snapped.rect;
+            setSnapGuides(snapped.guides);
+          }
         }
       }
 
@@ -547,6 +627,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     const handleMouseUp = () => {
       const op = dragOpRef.current;
       setDragOp(null);
+      setSnapGuides([]);
       if (!op || !op.committedDrag) return;
       suppressNextClickRef.current = true;
       setTimeout(() => {
@@ -560,6 +641,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         ev.preventDefault();
         ev.stopPropagation();
         setDragOp(null);
+        setSnapGuides([]);
       }
     };
 
@@ -571,7 +653,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [isDragActive, scale, commitTransformGesture]);
+  }, [isDragActive, scale, page.width, page.height, commitTransformGesture]);
 
   const refreshVisualBlocks = useCallback(async () => {
     // Newest load wins: a slower load started for an older version of the document must not
@@ -688,6 +770,39 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         }
         return;
       }
+      // Arrow-key micro-nudge (1 pt, Shift = 10 pt) for the selected native PDF element
+      if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !isTransforming &&
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+      ) {
+        const block = visualBlocks.find(
+          (b) =>
+            b.id === selectedStreamBlockId ||
+            Boolean(b.segmentIds && b.segmentIds.includes(selectedStreamBlockId))
+        );
+        if (!block) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 10 : 1;
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+        const origRect = { x: block.x, y: block.y, width: block.width, height: block.height };
+        const nextRect = { x: block.x + dx, y: block.y + dy, width: block.width, height: block.height };
+        void commitTransformGesture({
+          block,
+          mode: 'move',
+          startClientX: 0,
+          startClientY: 0,
+          origRect,
+          currentRect: nextRect,
+          rotationDeg: 0,
+          committedDrag: true,
+          isReflow: false,
+        });
+        return;
+      }
       // When EditSidePanel is open, it owns Delete/Backspace (handling both batch & single selection).
       // When EditSidePanel is closed, the canvas handles deleting the targeted line or element directly.
       if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditSidePanelOpen) {
@@ -713,8 +828,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         }
       }
     };
-    window.addEventListener('keydown', handleCanvasEditKey);
-    return () => window.removeEventListener('keydown', handleCanvasEditKey);
+    window.addEventListener('keydown', handleCanvasEditKey, true);
+    return () => window.removeEventListener('keydown', handleCanvasEditKey, true);
   }, [
     isEditOverlayActive,
     selectionOnThisPage,
@@ -723,12 +838,14 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     selectedBlockLines,
     lineEditor,
     isEditSidePanelOpen,
+    isTransforming,
     visualBlocks,
     setSelectedLineId,
     setSelectedStreamBlockId,
     deleteSingleLineOnCanvas,
     deleteVisualImageBlock,
     deleteVisualTextBlock,
+    commitTransformGesture,
   ]);
 
   useEffect(() => {
@@ -1126,6 +1243,47 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
             ));
           })}
 
+        {/* Smart Alignment Snap Guide Lines during Drag / Resize */}
+        {snapGuides.map((g, idx) =>
+          g.axis === 'x' ? (
+            <div
+              key={`snap-x-${idx}`}
+              style={{
+                left: `${g.position * scale}px`,
+                top: `${g.start * scale}px`,
+                height: `${Math.max(2, (g.end - g.start) * scale)}px`,
+              }}
+              className={`absolute w-px pointer-events-none z-50 border-l border-dashed ${
+                g.kind === 'page-center'
+                  ? isLcars
+                    ? 'border-[#ffcc00]'
+                    : 'border-fuchsia-500'
+                  : isLcars
+                  ? 'border-[#99ccff]'
+                  : 'border-cyan-400'
+              }`}
+            />
+          ) : (
+            <div
+              key={`snap-y-${idx}`}
+              style={{
+                top: `${g.position * scale}px`,
+                left: `${g.start * scale}px`,
+                width: `${Math.max(2, (g.end - g.start) * scale)}px`,
+              }}
+              className={`absolute h-px pointer-events-none z-50 border-t border-dashed ${
+                g.kind === 'page-center'
+                  ? isLcars
+                    ? 'border-[#ffcc00]'
+                    : 'border-fuchsia-500'
+                  : isLcars
+                  ? 'border-[#99ccff]'
+                  : 'border-cyan-400'
+              }`}
+            />
+          )
+        )}
+
         {/* Hover-First Interactive PDF Element Overlays (Edit Tab, Non-Whiteout) */}
         {isEditOverlayActive &&
           [...visualBlocks]
@@ -1291,6 +1449,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                     top: `${activeBox.y * scale}px`,
                     width: `${activeBox.width * scale}px`,
                     height: `${activeBox.height * scale}px`,
+                    transform: isDraggingThis && dragOp?.rotationDeg ? `rotate(${dragOp.rotationDeg}deg)` : undefined,
                     zIndex: isDraggingThis ? 55 : zIndex,
                   }}
                   className={`group pointer-events-auto absolute rounded-[2px] ${
@@ -1304,9 +1463,35 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                       : `${block.text}\n(${t.editPanel.canvasDoubleClickHint} • ${t.editPanel.dragToMoveHint})`
                   }
                 >
-                  {/* Resize handles for selected PDF Image (8 handles) and Text Block (4 corners = scale, W/E = reflow width) */}
+                  {/* Resize & Rotate handles for selected PDF Image (8 handles + rotate) and Text Block (4 corners = scale, W/E = reflow width + rotate) */}
                   {showHandles && (
                     <>
+                      {/* Top-Center Rotation Knob (Shift = 15° steps) */}
+                      <div
+                        data-rotate-handle="true"
+                        onMouseDown={(e) => startElementRotate(e, block)}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        title={t.editPanel.rotateHandleHint}
+                        className={`absolute left-1/2 -translate-x-1/2 ${
+                          placeBarBelow ? '-bottom-6' : '-top-6'
+                        } w-4 h-4 rounded-full border-2 flex items-center justify-center shadow-sm pointer-events-auto z-50 cursor-grab active:cursor-grabbing ${
+                          isImage
+                            ? isMinimal
+                              ? 'bg-white border-amber-600 text-amber-700 hover:bg-amber-100'
+                              : isLcars
+                              ? 'bg-black border-[#ffcc00] text-[#ffcc00] hover:bg-[#ffcc00] hover:text-black'
+                              : 'bg-slate-900 border-amber-400 text-amber-300 hover:bg-amber-400 hover:text-slate-950'
+                            : isMinimal
+                            ? 'bg-white border-indigo-600 text-indigo-700 hover:bg-indigo-100'
+                            : isLcars
+                            ? 'bg-black border-[#99ccff] text-[#99ccff] hover:bg-[#99ccff] hover:text-black'
+                            : 'bg-slate-900 border-indigo-400 text-indigo-300 hover:bg-indigo-400 hover:text-slate-950'
+                        }`}
+                      >
+                        <RotateCw className="w-2.5 h-2.5" />
+                      </div>
+
                       {/* 4 Corner Handles (Images: aspect-locked by default, Shift=free; Text: proportional scale) */}
                       {(
                         [
@@ -1408,7 +1593,11 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                           : 'bg-slate-900/95 border-sky-400/80 text-sky-100'
                       }`}
                     >
-                      {dragOp.mode === 'move' ? (
+                      {dragOp.mode === 'rotate' ? (
+                        <span>
+                          {t.editPanel.badgeRotate} • {dragOp.rotationDeg}°
+                        </span>
+                      ) : dragOp.mode === 'move' ? (
                         <span>
                           {t.editPanel.badgeMove} • X: {Math.round(activeBox.x)}, Y: {Math.round(activeBox.y)} pt
                         </span>
@@ -1793,126 +1982,24 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
             })}
 
         {/* Inline line editor (boundary-clamped, theme-aware, click-outside dismiss, multi-line stepping) */}
-        {lineEditor && (() => {
-          const layout = clampInlineEditorPosition(lineEditor.box, page.width, page.height, scale);
-          const curLineIdx = selectedBlockLines.findIndex((l) => l.id === lineEditor.lineId);
-          const hasSiblingLines = selectedBlockLines.length > 1 && curLineIdx >= 0;
-          const stepToSiblingLine = (delta: -1 | 1) => {
-            if (!hasSiblingLines) return;
-            const nextIdx = (curLineIdx + delta + selectedBlockLines.length) % selectedBlockLines.length;
-            openLineEditorForLine(selectedBlockLines[nextIdx]);
-          };
-
-          const controlsBar = (
-            <div className={`${layout.placeControlsAbove ? 'mb-1' : 'mt-1'} flex items-center gap-1 text-[10px]`}>
-              {hasSiblingLines && (
-                <div
-                  className={`flex items-center gap-0.5 px-1 py-0.5 rounded border ${
-                    isMinimal
-                      ? 'bg-white border-neutral-300 text-neutral-800'
-                      : isLcars
-                      ? 'bg-black border-[#ff9900] text-[#ffcc00]'
-                      : 'bg-slate-900 border-slate-700 text-slate-200'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => stepToSiblingLine(-1)}
-                    className="p-0.5 hover:opacity-100 opacity-75"
-                    title={t.editPanel.prevLine}
-                    aria-label={t.editPanel.prevLine}
-                  >
-                    <ChevronLeft className="w-3 h-3" />
-                  </button>
-                  <span className="font-mono px-0.5">
-                    {t.editPanel.lineProgressBadge
-                      .replace('{current}', String(curLineIdx + 1))
-                      .replace('{total}', String(selectedBlockLines.length))}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => stepToSiblingLine(1)}
-                    className="p-0.5 hover:opacity-100 opacity-75"
-                    title={t.editPanel.nextLine}
-                    aria-label={t.editPanel.nextLine}
-                  >
-                    <ChevronRight className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={saveLineEditor}
-                disabled={isSavingLine}
-                className={`px-2 py-0.5 font-semibold transition-colors disabled:opacity-50 ${
-                  isMinimal
-                    ? 'rounded bg-black text-white hover:bg-neutral-800'
-                    : isLcars
-                    ? 'rounded-full bg-[#ff9900] text-black hover:bg-[#ffcc00] font-bold uppercase'
-                    : 'rounded bg-indigo-600 text-white hover:bg-indigo-500'
-                }`}
-              >
-                {isSavingLine ? t.editPanel.saving : t.editPanel.inlineSave}
-              </button>
-              <button
-                type="button"
-                onClick={() => setLineEditor(null)}
-                className={`px-2 py-0.5 font-medium transition-colors ${
-                  isMinimal
-                    ? 'rounded bg-neutral-200 text-neutral-800 hover:bg-neutral-300'
-                    : isLcars
-                    ? 'rounded-full bg-[#222222] text-[#ff9966] border border-[#ff9966] hover:bg-[#333333]'
-                    : 'rounded bg-slate-700 text-white hover:bg-slate-600'
-                }`}
-              >
-                {t.editPanel.inlineCancel}
-              </button>
-            </div>
-          );
-          return (
-            <div
-              ref={inlineEditorRef}
-              className="absolute z-50 pointer-events-auto"
-              style={{
-                left: `${layout.left}px`,
-                top: `${layout.top}px`,
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              {layout.placeControlsAbove && controlsBar}
-              <input
-                autoFocus
-                value={lineEditor.text}
-                disabled={isSavingLine}
-                aria-label={t.editPanel.inlineEditorAria}
-                onChange={(e) => setLineEditor({ ...lineEditor, text: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    void saveLineEditor();
-                  } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    setLineEditor(null);
-                  }
-                }}
-                style={{
-                  width: `${layout.width}px`,
-                  height: `${layout.height}px`,
-                  fontSize: `${Math.max(lineEditor.box.height * scale * 0.72, 11)}px`,
-                }}
-                className={`px-1.5 shadow-xl outline-none font-sans border-2 ${
-                  isMinimal
-                    ? 'rounded border-black bg-white text-black'
-                    : isLcars
-                    ? 'rounded-md border-[#ff9900] bg-white text-black'
-                    : 'rounded border-indigo-500 bg-white text-slate-900'
-                }`}
-              />
-              {!layout.placeControlsAbove && controlsBar}
-            </div>
-          );
-        })()}
+        {lineEditor && (
+          <InlineLineEditor
+            editorRef={inlineEditorRef}
+            lineEditor={lineEditor}
+            selectedBlockLines={selectedBlockLines}
+            pageWidth={page.width}
+            pageHeight={page.height}
+            scale={scale}
+            isSavingLine={isSavingLine}
+            isMinimal={isMinimal}
+            isLcars={isLcars}
+            t={t}
+            onChangeText={(text) => setLineEditor({ ...lineEditor, text })}
+            onStepToLine={openLineEditorForLine}
+            onSave={saveLineEditor}
+            onClose={() => setLineEditor(null)}
+          />
+        )}
 
         {/* Floating Quick Action Selection Toolbar */}
         {floatingMenuPos && (

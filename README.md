@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-350%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-357%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first application for editing, annotating, signing, and managing PDF documents on your own machine with **zero server uploads** and **zero database requirements** — as a zero-install **web app** and as a **Windows desktop app** built from the same code.
@@ -50,7 +50,7 @@ Everything else — editing, annotations, forms, signing, search — is identica
 
 ### 2. 🎛️ Triple-Tab Interface & Unified Right Dock
 - **Revize & Anotace (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes suite (Rectangle, Ellipse, Line), Digital signatures & stamps, High-res image cropper, and Eraser.
-- **Editace PDF (Edit Tab)**: Unified document modification suite for direct structural and stream alterations in PDF files: **Select & Edit** (interactive canvas selection with floating Edit Line / Inspect / Delete actions, hover outlines toggle, and batch element deletion with undo toast), **Visual Rewrite** (Whiteout + Overlay), **Find & Replace**, and the right-hand **PDF Inspector** (`Elements` / `Replace` / `Stream`).
+- **Editace PDF (Edit Tab)**: Unified document modification suite for direct structural and stream alterations in PDF files: **Select & Edit** (interactive canvas selection with drag-to-move, 8-handle image resize, text-area proportional corner scaling & side-handle width reflow, floating Edit Line / Inspect / Delete actions, hover outlines toggle, and batch element deletion with undo toast), **Visual Rewrite** (Whiteout + Overlay), **Find & Replace**, and the right-hand **PDF Inspector** (`Elements` with numeric `X/Y/W/H` geometry controls / `Replace` / `Stream`).
 - **Podpis & Certifikáty (Sign Tab)**: Dedicated signing & certification workspace: Visual signature pad (Draw/Type/Upload), Reusable stamp library with live counter, and direct Cryptographic PAdES / PKCS#7 digital signing.
 - **Unified Right Dock**: Automatically switches and maintains mutual exclusivity between the `NotesPanel` (Review & Sign tabs) and the `EditSidePanel` (Edit tab), providing a clean, uncluttered workspace.
 
@@ -66,7 +66,7 @@ Everything else — editing, annotations, forms, signing, search — is identica
 - **Interactive Page Click-to-Edit**: In Edit mode, clicking on any text element on the canvas pre-selects the text object drawn under the cursor; the trash badge on a highlighted block deletes it with a single click.
 - **Segment Selector & Live Previews**: Lists all text blocks on the active page with decoded text previews, font specifications (`/F1 12pt`), coordinates, and character counts.
 - **Block Text Rewrite & Multi-Line Editing**: Type the new text of the selected block and it is written at the same position, size and colour. It is encoded with the original font's own codes when the font has all needed glyphs, otherwise a substitute font (standard or embedded Liberation) is added for that block only. Multi-line `BT ... ET` blocks preserve per-line coordinates, columns and line spacing, and individual lines can be edited or deleted without disturbing neighboring lines.
-- **Interactive Text Area Repositioning, Proportional Scaling & Width Reflow**: Drag any selected PDF text block on the canvas to reposition it cleanly; drag corner handles to scale text proportionally without distorting glyphs (lossless across subset CID fonts, preserving inherited graphics/text state for subsequent blocks); drag side (`W`/`E`) handles to change text area width and automatically wrap/reflow lines; or type exact `X`, `Y`, `W`, `H` values (pt) in the PDF Inspector. Repeated drags collapse into a single `cm` transform wrapper.
+- **Interactive Text Area Repositioning, Proportional Scaling, Rotation, Styling & Width Reflow**: Drag any selected PDF text block on the canvas (with smart alignment snap guides to page center/margins/siblings; hold `Alt` to bypass), nudge with arrow keys (`1 pt`, `Shift+Arrow` = `10 pt`), drag the top rotation knob (`Shift` = `15°` steps), drag corner handles to scale text proportionally without distorting glyphs, drag side (`W`/`E`) handles to re-wrap lines (preserving mixed bold/italic inline styles), or set exact `X`, `Y`, `W`, `H`, `Angle (°)`, font size, and text color in the PDF Inspector. Batch-selected elements can also be shifted together atomically. Repeated transforms collapse into a single `cm` wrapper.
 - **Inline Line Editing**: Double-click any text on the page in Edit mode to rewrite just that line in place (Enter saves, Esc cancels). Only the line's text-showing operators change; positioning and state operators stay, so the other lines of the same text object do not move.
 - **Readable Stream Code**: The stream editor shows string operands as `«decoded text»` instead of font codes (hex glyph ids of CID fonts, re-encoded simple fonts). Changed strings are re-encoded with the font selected at that point; untouched strings keep their original bytes.
 - **Wider Character Set (Direct `/ToUnicode` CMap Parsing)**: Rewrites can use every character in the font's full `/ToUnicode` CMap (`beginbfchar`/`beginbfrange` parsed directly from the PDF via `pdf-lib`) as well as non-embedded standard font encodings (`toFontChar` in `pdfjs-dist` 6.5+), not just characters already shown on the page.
@@ -149,7 +149,7 @@ Everything else — editing, annotations, forms, signing, search — is identica
 - **Deep Image Inspection**: Discovers, isolates, and renders raster images (XObjects, inline images, full-page scans) directly in `EditSidePanel` and on canvas.
 - **Compound 2D Affine Matrix Computation**: Compounds chained `cm` transformation matrices across `q ... Q` blocks to calculate exact physical positions $(X, Y)$ and dimensions in points.
 - **DPI & Format Detection**: Calculates exact DPI ($\text{DPI} = \frac{\text{pixelWidth}}{\text{ptWidth}} \times 72$), identifies `/Filter` encodings (JPEG, PNG/Flate, JBIG2, CCITT Fax TIFF), and flags full-page scans ($\ge 82\ \%$ page coverage).
-- **Core Operations**: Drag any selected image directly on the canvas to reposition it, resize it with 8 handles (corner handles lock aspect ratio by default, hold `Shift` for free aspect; edge handles resize freely) with live dimension/DPI readout, or enter exact `X`, `Y`, `W`, `H` coordinates (pt) in the PDF Inspector. Handles repeated image placements individually, preserves enclosing `W n` clipping paths, expands Form XObject `/BBox` boundaries automatically, and collapses repeated transforms cleanly. Also supports in-place image replacement, 1-click lossless PNG export via hardware-rendered canvas crop, and atomic deletion with 100-step Undo/Redo binary snapshots. Deleting an image removes exactly its invocation (token-based), never text or graphics drawn before it in the same graphics group; a selected image or text block can also be deleted with the Delete key. Every painted image is its own element — images repeated on a page, inline images and images inside the page's forms are listed and deleted one placement at a time.
+- **Core Operations**: Insert new PNG/JPEG/WebP images directly onto any existing PDF page, drag selected images on the canvas with smart alignment snap guides (`Alt` bypass) and arrow-key micro-nudge (`1 pt` / `Shift` = `10 pt`), rotate via the top knob (`Shift` = `15°` steps), resize with 8 handles (corner handles lock aspect ratio by default, hold `Shift` for free aspect; edge handles resize freely) with live dimension/DPI readout, or enter exact `X`, `Y`, `W`, `H`, and `Angle (°)` coordinates in the PDF Inspector. Handles repeated image placements individually, preserves enclosing `W n` clipping paths, expands Form XObject `/BBox` boundaries automatically, and collapses repeated transforms cleanly. Also supports in-place image replacement, 1-click lossless PNG export via hardware-rendered canvas crop, and atomic deletion with 100-step Undo/Redo binary snapshots. Deleting an image removes exactly its invocation (token-based), never text or graphics drawn before it in the same graphics group; a selected image or text block can also be deleted with the Delete key. Every painted image is its own element — images repeated on a page, inline images and images inside the page's forms are listed and deleted one placement at a time.
 - **Floating Canvas Quick Actions**: Floating toolbar anchored to selected images with resolution, DPI badges, and instant Download / Replace / Delete buttons.
 
 ### 17. 🌳 Semantic Document Tree, Hierarchical Nesting & Segmented Filtering
@@ -248,10 +248,11 @@ Full localization available in **Czech (Čeština)** and **English (English)** w
 | <kbd>Enter</kbd> / <kbd>Shift</kbd> + <kbd>Enter</kbd> | Next / previous search match (in the search bar) |
 | <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select all pages |
 | <kbd>Delete</kbd> / <kbd>Backspace</kbd> | Delete the selected annotation / element, or the selected pages (with confirmation) |
-| <kbd>Escape</kbd> | Close the search bar, a dialog or an inline editor |
+| <kbd>Escape</kbd> | Close the search bar, a dialog or an inline editor; cancel an active drag/resize or clear selection |
 | <kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>Ctrl</kbd> + <kbd>-</kbd> | Zoom in / out |
 | <kbd>Ctrl</kbd> + <kbd>0</kbd> | Fit the page |
-| <kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>Ctrl</kbd> + <kbd>2</kbd> | Actual size (100 %) / fit the width |
+| <kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>0</kbd> | Actual size (100 %; <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>0</kbd> is safe on Czech keyboards) |
+| <kbd>Ctrl</kbd> + <kbd>2</kbd> | Fit the width |
 | <kbd>Ctrl</kbd> + <kbd>B</kbd> | Show / hide the sidebar |
 | <kbd>Ctrl</kbd> + <kbd>/</kbd> | Keyboard shortcuts dialog |
 | <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> / <kbd>PageUp</kbd> <kbd>PageDown</kbd> | Previous / next page |
@@ -274,13 +275,13 @@ All shortcuts come from one table ([`src/shared/appCommands.ts`](src/shared/appC
 | **PDF Manipulation & Fonts** | [`pdf-lib`](https://pdf-lib.js.org/) + [`@pdf-lib/fontkit`](https://github.com/foliojs/fontkit) | Native vector page preservation, PageTree repair, Unicode font subsetting, annotations, forms & shapes |
 | **Digital Signatures** | [`node-forge`](https://github.com/digitalbazaar/forge) + [`signature_pad`](https://github.com/szimek/signature_pad) | Client-side PAdES / PKCS#7 cryptography and smooth vector handwriting capture |
 | **Icons & Styling** | [`lucide-react`](https://lucide.dev/) + [Tailwind CSS](https://tailwindcss.com/) | Vector iconography and responsive Studio, Minimal, and LCARS themes |
-| **Unit Testing** | [Vitest 5](https://vitest.dev/) | Automated unit & integration testing (44 web test files + desktop shell/corpus suites, 342 tests total) |
+| **Unit Testing** | [Vitest 5](https://vitest.dev/) | Automated unit & integration testing (45 web test files + 2 desktop suites: 47 test files, 357 tests total) |
 
 ---
 
 ## 🧪 Automated Testing
 
-PilsenPDF includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, document outlines, full-text search, the page text model and block text rewriting, geometric shapes, and PDF export:
+PilsenPDF includes a comprehensive automated test suite covering page management, keyboard shortcuts, history stack, color extraction, image cropping, stream replacement, document outlines, full-text search, the page text model, block/line text rewriting, element repositioning/resizing/reflow, geometric shapes, and PDF export:
 
 ```bash
 # Run all unit tests

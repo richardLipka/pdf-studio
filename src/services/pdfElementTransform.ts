@@ -11,13 +11,14 @@ import {
 import {
   findImagePlacements,
   getPageContentStream,
+  getPageLocalResourceDict,
   safeGetPageResources,
   StreamPartLayout,
   writePageStreamText,
 } from './contentStreamEditor';
 import { ContentOperation, tokenizeContentStream } from './pdfContentTokenizer';
 import { buildTextObject, encodeForRun, formatNumber } from './pdfTextEditor';
-import { measureLineLeading, PageTextModel, TextBlock } from './pdfTextModel';
+import { measureLineLeading, PageTextModel, TextBlock, TextRun } from './pdfTextModel';
 import { PdfFontProvider } from './pdfFonts';
 import { logger } from './logger';
 
@@ -35,6 +36,8 @@ export interface ElementTransformResult {
   updatedStream?: string;
   fontSubstituted?: boolean;
   lineCount?: number;
+  placementId?: string;
+  pdfRect?: PdfRect;
   error?: string;
 }
 
@@ -123,13 +126,31 @@ export function pdfRectToDisplayRect(rect: PdfRect, viewportTransform: PdfMatrix
   };
 }
 
-/** Page-space affine transform mapping `oldRect` -> `newRect` (PDF user space) */
-export function computeBoxTransformMatrix(oldRect: PdfRect, newRect: PdfRect): PdfMatrix {
+/**
+ * Page-space affine transform mapping `oldRect` -> `newRect` (PDF user space), with optional
+ * clockwise display rotation in degrees around the target box center.
+ */
+export function computeBoxTransformMatrix(oldRect: PdfRect, newRect: PdfRect, rotationDeg = 0): PdfMatrix {
   const sx = oldRect.width > 1e-4 ? newRect.width / oldRect.width : 1;
   const sy = oldRect.height > 1e-4 ? newRect.height / oldRect.height : 1;
-  const tx = newRect.x - sx * oldRect.x;
-  const ty = newRect.y - sy * oldRect.y;
-  return [sx, 0, 0, sy, tx, ty];
+  if (Math.abs(rotationDeg) < 1e-4) {
+    const tx = newRect.x - sx * oldRect.x;
+    const ty = newRect.y - sy * oldRect.y;
+    return [sx, 0, 0, sy, tx, ty];
+  }
+  const ocx = oldRect.x + oldRect.width / 2;
+  const ocy = oldRect.y + oldRect.height / 2;
+  const ncx = newRect.x + newRect.width / 2;
+  const ncy = newRect.y + newRect.height / 2;
+  // PDF user space has Y pointing up, so clockwise visual rotation is negative angle
+  const rad = (-rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const toOrigin: PdfMatrix = [1, 0, 0, 1, -ocx, -ocy];
+  const scaleM: PdfMatrix = [sx, 0, 0, sy, 0, 0];
+  const rotM: PdfMatrix = [cos, sin, -sin, cos, 0, 0];
+  const toTarget: PdfMatrix = [1, 0, 0, 1, ncx, ncy];
+  return multiplyMatrix(toTarget, multiplyMatrix(rotM, multiplyMatrix(scaleM, toOrigin)));
 }
 
 const formatMatrix = (m: PdfMatrix): string =>
@@ -541,7 +562,8 @@ export async function transformImageOnPage(
   pdfDocBytes: ArrayBuffer,
   pageIndex: number,
   placementId: string,
-  newPdfRect: PdfRect
+  newPdfRect: PdfRect,
+  rotationDeg = 0
 ): Promise<ElementTransformResult> {
   if (newPdfRect.width < 2 || newPdfRect.height < 2) {
     return { updatedPdfBytes: pdfDocBytes, error: 'Neplatné rozměry obrázku.' };
@@ -616,6 +638,7 @@ export async function transformImageOnPage(
 
     // Skip no-op transform
     if (
+      Math.abs(rotationDeg) < 0.05 &&
       Math.abs(oldRect.x - newPdfRect.x) < 0.05 &&
       Math.abs(oldRect.y - newPdfRect.y) < 0.05 &&
       Math.abs(oldRect.width - newPdfRect.width) < 0.05 &&
@@ -626,7 +649,7 @@ export async function transformImageOnPage(
 
     const part = layout[placement.partIndex];
     const partInitialCtm = findPartInitialCtm(pdfDoc, pageIndex, streamText, layout, placement.partIndex);
-    const pageTransform = computeBoxTransformMatrix(oldRect, newPdfRect);
+    const pageTransform = computeBoxTransformMatrix(oldRect, newPdfRect, rotationDeg);
 
     const modifiedStream = applyTransformSplices(
       streamText,
@@ -671,7 +694,8 @@ export async function transformTextBlocksOnPage(
   model: PageTextModel,
   segmentIds: string[],
   oldPdfRect: PdfRect,
-  newPdfRect: PdfRect
+  newPdfRect: PdfRect,
+  rotationDeg = 0
 ): Promise<ElementTransformResult> {
   if (!model.aligned || segmentIds.length === 0) {
     return { updatedPdfBytes: pdfDocBytes, error: 'Textový blok nelze na stránce spolehlivě určit.' };
@@ -682,6 +706,7 @@ export async function transformTextBlocksOnPage(
 
   // Skip no-op transform
   if (
+    Math.abs(rotationDeg) < 0.05 &&
     Math.abs(oldPdfRect.x - newPdfRect.x) < 0.05 &&
     Math.abs(oldPdfRect.y - newPdfRect.y) < 0.05 &&
     Math.abs(oldPdfRect.width - newPdfRect.width) < 0.05 &&
@@ -709,7 +734,7 @@ export async function transformTextBlocksOnPage(
       parseSpeed: ParseSpeeds.Fast,
     });
     const page = pdfDoc.getPage(pageIndex);
-    const pageTransform = computeBoxTransformMatrix(oldPdfRect, newPdfRect);
+    const pageTransform = computeBoxTransformMatrix(oldPdfRect, newPdfRect, rotationDeg);
 
     // Group targets by stream partIndex (page vs Form XObject), process later parts first
     const byPart = new Map<number, TextBlock[]>();
@@ -898,54 +923,158 @@ export async function reflowTextBlocksOnPage(
       parseSpeed: ParseSpeeds.Fast,
     });
     const fontProvider = new PdfFontProvider(pdfDoc);
+    const substituteCache = new Map<string, { font: PDFFont; resourceName: string }>();
 
-    // Probe encoding first on the joined text to see whether original font or a substitute PDFFont will be used
-    const probeLines = wrapParagraphsToWidth(paragraphs, clampedWidth, (s) => stringWeight(s) * unitWidthPt);
-    const encodedProbe = await encodeForRun(
-      pdfDoc,
-      pageIndex,
-      model,
-      current.layout,
-      firstRun,
-      firstRun.partIndex,
-      probeLines,
-      undefined,
-      fontProvider
-    );
-    if ('error' in encodedProbe) {
-      return { updatedPdfBytes: pdfDocBytes, error: encodedProbe.error };
-    }
+    // Check whether the selected block(s) contain mixed inline font styles (e.g. bold + regular)
+    const distinctStyles = new Set(blocks.flatMap((b) => b.runs).map((r) => `${r.fontKey}|${r.fontSize.toFixed(2)}`));
+    const hasMixedStyles = distinctStyles.size > 1;
 
-    let finalLines = probeLines;
-    let finalEncoded = encodedProbe;
+    let finalLines: string[] = [];
+    let finalLineOperations: string[] = [];
+    let finalFontOperator: string | null = null;
+    let finalRestoreFontOperator: string | null = null;
+    let anyFontSubstituted = false;
 
-    // If a substitute PDFFont was embedded, re-wrap with its exact glyph advance metrics!
-    if (encodedProbe.substituteFont) {
-      const subFont: PDFFont = encodedProbe.substituteFont;
-      const exactWrapped = wrapParagraphsToWidth(paragraphs, clampedWidth, (s) => {
-        try {
-          return subFont.widthOfTextAtSize(s, effectiveEm);
-        } catch {
-          return stringWeight(s) * unitWidthPt;
+    if (hasMixedStyles) {
+      // Preserve mixed inline font runs (e.g., bold lead-in + regular body) across wrapped lines
+      interface StyledWord {
+        word: string;
+        run: TextRun;
+      }
+      const styledParagraphs: StyledWord[][] = [];
+      let curPara: StyledWord[] = [];
+      for (let i = 0; i < allLines.length; i++) {
+        const ln = allLines[i];
+        if (i > 0 && curPara.length > 0 && ln.bbox.y - allLines[i - 1].bbox.y > lineHeightEst * 1.65) {
+          styledParagraphs.push(curPara);
+          curPara = [];
         }
-      });
-      if (exactWrapped.join('\n') !== probeLines.join('\n')) {
-        const reEncoded = await encodeForRun(
-          pdfDoc,
-          pageIndex,
-          model,
-          current.layout,
-          firstRun,
-          firstRun.partIndex,
-          exactWrapped,
-          undefined,
-          fontProvider
-        );
-        if (!('error' in reEncoded)) {
-          finalLines = exactWrapped;
-          finalEncoded = reEncoded;
+        for (const run of ln.runs) {
+          const words = run.text.trim().split(/\s+/).filter(Boolean);
+          for (const w of words) curPara.push({ word: w, run });
         }
       }
+      if (curPara.length > 0) styledParagraphs.push(curPara);
+
+      const wrappedStyledLines: StyledWord[][] = [];
+      for (const para of styledParagraphs) {
+        if (para.length === 0) continue;
+        let lineWords: StyledWord[] = [para[0]];
+        let lineText = para[0].word;
+        for (let i = 1; i < para.length; i++) {
+          const candidate = `${lineText} ${para[i].word}`;
+          if (stringWeight(candidate) * unitWidthPt <= clampedWidth) {
+            lineWords.push(para[i]);
+            lineText = candidate;
+          } else {
+            wrappedStyledLines.push(lineWords);
+            lineWords = [para[i]];
+            lineText = para[i].word;
+          }
+        }
+        wrappedStyledLines.push(lineWords);
+      }
+
+      const spaceOpByKey = new Map<string, string>();
+      let lastFontOp: string | null = null;
+      for (const sLine of wrappedStyledLines) {
+        finalLines.push(sLine.map((w) => w.word).join(' '));
+        // Group consecutive words sharing the same run style into spans
+        const spans: Array<{ run: TextRun; text: string }> = [];
+        for (const sw of sLine) {
+          const prev = spans[spans.length - 1];
+          const styleKey = `${sw.run.fontKey}|${sw.run.fontSize.toFixed(2)}`;
+          const prevKey = prev ? `${prev.run.fontKey}|${prev.run.fontSize.toFixed(2)}` : '';
+          if (prev && styleKey === prevKey) {
+            prev.text += ` ${sw.word}`;
+          } else {
+            if (prev) prev.text += ' ';
+            spans.push({ run: sw.run, text: sw.word });
+          }
+        }
+        const opParts: string[] = [];
+        for (const sp of spans) {
+          const encoded = await encodeForRun(
+            pdfDoc,
+            pageIndex,
+            model,
+            current.layout,
+            sp.run,
+            sp.run.partIndex,
+            [sp.text],
+            substituteCache,
+            fontProvider
+          );
+          if ('error' in encoded) return { updatedPdfBytes: pdfDocBytes, error: encoded.error };
+          if (encoded.substituteFont) anyFontSubstituted = true;
+          if (!finalFontOperator && encoded.fontOperator) {
+            finalFontOperator = encoded.fontOperator;
+            lastFontOp = encoded.fontOperator;
+          }
+          if (encoded.fontOperator && encoded.fontOperator !== lastFontOp) {
+            opParts.push(encoded.fontOperator);
+            lastFontOp = encoded.fontOperator;
+          }
+          opParts.push(encoded.lineOperations[0]);
+          if (encoded.originalFontOperator) {
+            spaceOpByKey.set('restore', encoded.originalFontOperator);
+          }
+        }
+        finalLineOperations.push(opParts.join('\n'));
+      }
+      finalRestoreFontOperator = anyFontSubstituted ? (spaceOpByKey.get('restore') ?? null) : null;
+    } else {
+      // Single-style paragraph: probe encoding, then re-wrap with exact PDFFont widths if substituted
+      const probeLines = wrapParagraphsToWidth(paragraphs, clampedWidth, (s) => stringWeight(s) * unitWidthPt);
+      const encodedProbe = await encodeForRun(
+        pdfDoc,
+        pageIndex,
+        model,
+        current.layout,
+        firstRun,
+        firstRun.partIndex,
+        probeLines,
+        substituteCache,
+        fontProvider
+      );
+      if ('error' in encodedProbe) {
+        return { updatedPdfBytes: pdfDocBytes, error: encodedProbe.error };
+      }
+
+      finalLines = probeLines;
+      let finalEncoded = encodedProbe;
+
+      if (encodedProbe.substituteFont) {
+        const subFont: PDFFont = encodedProbe.substituteFont;
+        const exactWrapped = wrapParagraphsToWidth(paragraphs, clampedWidth, (s) => {
+          try {
+            return subFont.widthOfTextAtSize(s, effectiveEm);
+          } catch {
+            return stringWeight(s) * unitWidthPt;
+          }
+        });
+        if (exactWrapped.join('\n') !== probeLines.join('\n')) {
+          const reEncoded = await encodeForRun(
+            pdfDoc,
+            pageIndex,
+            model,
+            current.layout,
+            firstRun,
+            firstRun.partIndex,
+            exactWrapped,
+            substituteCache,
+            fontProvider
+          );
+          if (!('error' in reEncoded)) {
+            finalLines = exactWrapped;
+            finalEncoded = reEncoded;
+          }
+        }
+      }
+      finalFontOperator = finalEncoded.fontOperator;
+      finalLineOperations = finalEncoded.lineOperations;
+      anyFontSubstituted = Boolean(finalEncoded.substituteFont);
+      finalRestoreFontOperator = finalEncoded.substituteFont ? finalEncoded.originalFontOperator : null;
     }
 
     // 3. Optionally shift the starting textMatrix when the user dragged the left (W) edge
@@ -953,7 +1082,6 @@ export async function reflowTextBlocksOnPage(
     if (Math.abs(deltaXPt) > 0.05 || Math.abs(deltaYPt) > 0.05) {
       const part = current.layout[firstRun.partIndex];
       const partInitialCtm = findPartInitialCtm(pdfDoc, pageIndex, model.streamText, current.layout, firstRun.partIndex);
-      // Determine CTM active at primaryBlock
       const actions = resolveWrapperActions(
         model.streamText,
         part.start,
@@ -974,10 +1102,10 @@ export async function reflowTextBlocksOnPage(
     const textObject = buildTextObject(
       model.streamText,
       primaryBlock,
-      finalEncoded.fontOperator,
-      finalEncoded.lineOperations,
+      finalFontOperator,
+      finalLineOperations,
       leading,
-      finalEncoded.substituteFont ? finalEncoded.originalFontOperator : null,
+      finalRestoreFontOperator,
       nextTm
     );
 
@@ -1014,17 +1142,455 @@ export async function reflowTextBlocksOnPage(
       segmentIds,
       newWidthPt: clampedWidth,
       lineCount: finalLines.length,
-      fontSubstituted: Boolean(finalEncoded.substituteFont),
+      fontSubstituted: anyFontSubstituted,
+      mixedStyles: hasMixedStyles,
     });
 
     return {
       updatedPdfBytes: toExactArrayBuffer(saved),
       updatedStream,
-      fontSubstituted: Boolean(finalEncoded.substituteFont),
+      fontSubstituted: anyFontSubstituted,
       lineCount: finalLines.length,
     };
   } catch (err: any) {
     logger.error('edit', `Zalamování textového bloku selhalo: ${err?.message || err}`);
+    return { updatedPdfBytes: pdfDocBytes, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Inserts a new raster image (PNG or JPEG) directly into an existing PDF page's `/Contents` stream
+ * as a native Image XObject wrapped in `q % pilsenpdf:xform ... Q`, so it is immediately selectable,
+ * draggable, resizable, rotatable, and deletable in Edit mode without altering any other page.
+ */
+export async function insertImageOnPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  imageBytes: ArrayBuffer | Uint8Array,
+  mimeType: 'image/png' | 'image/jpeg' = 'image/png',
+  targetPdfRect?: PdfRect
+): Promise<ElementTransformResult> {
+  try {
+    const { streamText, layout, error: streamErr } = await getPageContentStream(pdfDocBytes, pageIndex);
+    if (streamErr || !layout) {
+      return { updatedPdfBytes: pdfDocBytes, error: streamErr || 'Obsah stránky nelze načíst.' };
+    }
+
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
+    });
+    if (pageIndex < 0 || pageIndex >= pdfDoc.getPageCount()) {
+      return { updatedPdfBytes: pdfDocBytes, error: `Neplatný index stránky ${pageIndex + 1}` };
+    }
+
+    const page = pdfDoc.getPage(pageIndex);
+    const embedded =
+      mimeType === 'image/jpeg' ? await pdfDoc.embedJpg(imageBytes) : await pdfDoc.embedPng(imageBytes);
+
+    const xObjectDict = getPageLocalResourceDict(pdfDoc, page, 'XObject');
+    const existingNames = new Set(xObjectDict.keys().map((k) => k.asString().replace(/^\//, '')));
+    let n = 1;
+    while (existingNames.has(`ImIns${n}`)) n++;
+    const imageName = `ImIns${n}`;
+    xObjectDict.set(PDFName.of(imageName), embedded.ref);
+
+    const pageW = page.getWidth();
+    const pageH = page.getHeight();
+    let rect: PdfRect;
+    if (targetPdfRect && targetPdfRect.width >= 4 && targetPdfRect.height >= 4) {
+      rect = targetPdfRect;
+    } else {
+      const natW = Math.max(1, embedded.width);
+      const natH = Math.max(1, embedded.height);
+      const maxW = Math.max(64, pageW * 0.42);
+      const maxH = Math.max(64, pageH * 0.42);
+      const fitScale = Math.min(maxW / natW, maxH / natH, 1);
+      const w = Math.max(32, natW * fitScale);
+      const h = Math.max(32, natH * fitScale);
+      rect = {
+        x: Math.round(((pageW - w) / 2) * 10) / 10,
+        y: Math.round(((pageH - h) / 2) * 10) / 10,
+        width: Math.round(w * 10) / 10,
+        height: Math.round(h * 10) / 10,
+      };
+    }
+
+    const imgOp = `\nq ${XFORM_MARKER}\n${formatMatrix([rect.width, 0, 0, rect.height, rect.x, rect.y])} cm\n/${imageName} Do\nQ\n`;
+    // Insert at the end of the page stream part (before any Form XObject marker sections!)
+    const pagePart = layout.find((p) => p.kind === 'page');
+    const insertPos = pagePart ? pagePart.end : streamText.length;
+    const modifiedStream = streamText.substring(0, insertPos) + imgOp + streamText.substring(insertPos);
+
+    const updatedStream = writePageStreamText(pdfDoc, page, modifiedStream);
+    const saved = await pdfDoc.save({ objectsPerTick: 500 });
+    const placementId = `img:${imageName}:0`;
+    logger.success('edit', `Obrázek /${imageName} vložen na stranu ${pageIndex + 1}`, {
+      placementId,
+      rect,
+    });
+
+    return {
+      updatedPdfBytes: toExactArrayBuffer(saved),
+      updatedStream,
+      placementId,
+      pdfRect: rect,
+    };
+  } catch (err: any) {
+    logger.error('edit', `Vložení obrázku na stranu ${pageIndex + 1} selhalo: ${err?.message || err}`);
+    return { updatedPdfBytes: pdfDocBytes, error: err?.message || String(err) };
+  }
+}
+
+const FILL_COLOR_OPERATORS = new Set(['rg', 'g', 'k', 'sc', 'scn', 'cs']);
+
+function parseHexToRgb(hex: string): [number, number, number] | null {
+  const clean = hex.trim().replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return null;
+  return [
+    parseInt(clean.slice(0, 2), 16) / 255,
+    parseInt(clean.slice(2, 4), 16) / 255,
+    parseInt(clean.slice(4, 6), 16) / 255,
+  ];
+}
+
+/**
+ * Updates font size (in pt, anchored at top-left via lossless uniform scaling) and/or RGB fill color
+ * for one or more PDF text blocks while isolating subsequent blocks from side effects.
+ */
+export async function styleTextBlocksOnPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  model: PageTextModel,
+  segmentIds: string[],
+  style: { fontSizePt?: number; hexColor?: string }
+): Promise<ElementTransformResult> {
+  if (!model.aligned || segmentIds.length === 0) {
+    return { updatedPdfBytes: pdfDocBytes, error: 'Textový blok nelze na stránce spolehlivě určit.' };
+  }
+  const blocks = segmentIds
+    .map((id) => model.blocksById.get(id))
+    .filter((b): b is TextBlock => Boolean(b && b.runs.length > 0))
+    .sort((a, b) => a.startIndex - b.startIndex);
+  if (blocks.length === 0) {
+    return { updatedPdfBytes: pdfDocBytes, error: 'Textový blok nebyl na stránce nalezen.' };
+  }
+
+  const rgbColor = style.hexColor ? parseHexToRgb(style.hexColor) : null;
+  const currentEm = Math.max(2, blocks[0].runs[0].emSize || Math.abs(blocks[0].runs[0].fontSize) || 12);
+  const targetSize =
+    style.fontSizePt !== undefined && Number.isFinite(style.fontSizePt) && style.fontSizePt >= 4 && style.fontSizePt <= 240
+      ? style.fontSizePt
+      : undefined;
+  const scaleFactor = targetSize !== undefined && Math.abs(targetSize - currentEm) > 0.15 ? targetSize / currentEm : 1;
+
+  if (!rgbColor && Math.abs(scaleFactor - 1) < 1e-4) {
+    return { updatedPdfBytes: pdfDocBytes, updatedStream: model.streamText };
+  }
+
+  const current = await getPageContentStream(pdfDocBytes, pageIndex);
+  if (current.error || !current.layout || current.streamText !== model.streamText) {
+    return { updatedPdfBytes: pdfDocBytes, error: 'Obsah stránky se mezitím změnil. Vyberte blok znovu.' };
+  }
+
+  try {
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
+    });
+    const page = pdfDoc.getPage(pageIndex);
+    let modifiedStream = model.streamText;
+
+    // 1. Apply RGB fill color inside an isolated `q ... Q` around each target BT ... ET (end-to-start)
+    if (rgbColor) {
+      const colorOp = `${formatNumber(rgbColor[0])} ${formatNumber(rgbColor[1])} ${formatNumber(rgbColor[2])} rg`;
+      const revBlocks = [...blocks].sort((a, b) => b.startIndex - a.startIndex);
+      for (const blk of revBlocks) {
+        // Strip internal fill-color ops inside BT ... ET so the chosen color governs every run in the block
+        const ops = tokenizeContentStream(modifiedStream, blk.startIndex, blk.endIndex) as ContentOperation[];
+        let cleaned = modifiedStream.substring(blk.startIndex, blk.endIndex);
+        const stripRanges = ops
+          .filter((op) => FILL_COLOR_OPERATORS.has(op.operator))
+          .map((op) => ({ start: op.start - blk.startIndex, end: op.end - blk.startIndex }))
+          .sort((a, b) => b.start - a.start);
+        for (const r of stripRanges) {
+          cleaned = cleaned.substring(0, r.start) + cleaned.substring(r.end);
+        }
+        // Replay non-color persistent text state (Tf, Tc, Tw, Tz, TL, Tr, Ts) after Q so subsequent blocks stay valid
+        const nonColorState = ops
+          .filter((op) => PERSISTENT_STATE_OPERATORS.has(op.operator) && !FILL_COLOR_OPERATORS.has(op.operator))
+          .map((op) => modifiedStream.substring(op.start, op.end));
+        const replay = nonColorState.length > 0 ? `\n${nonColorState.join('\n')}` : '';
+        const wrapped = `q\n${colorOp}\n${cleaned}\nQ${replay}`;
+        modifiedStream = modifiedStream.substring(0, blk.startIndex) + wrapped + modifiedStream.substring(blk.endIndex);
+      }
+    }
+
+    // 2. Apply top-left-anchored font size scaling if requested
+    if (Math.abs(scaleFactor - 1) >= 1e-4 && model.viewportTransform) {
+      // If we also modified color above, re-locate target blocks in the updated stream via write+reload or compute transform
+      if (rgbColor) {
+        writePageStreamText(pdfDoc, page, modifiedStream);
+        const midBytes = toExactArrayBuffer(await pdfDoc.save({ objectsPerTick: 500 }));
+        const unionDisp = {
+          x: Math.min(...blocks.map((b) => b.bbox.x)),
+          y: Math.min(...blocks.map((b) => b.bbox.y)),
+          width: Math.max(...blocks.map((b) => b.bbox.x + b.bbox.width)) - Math.min(...blocks.map((b) => b.bbox.x)),
+          height: Math.max(...blocks.map((b) => b.bbox.y + b.bbox.height)) - Math.min(...blocks.map((b) => b.bbox.y)),
+        };
+        const oldPdf = displayRectToPdfRect(unionDisp, model.viewportTransform);
+        const newW = oldPdf.width * scaleFactor;
+        const newH = oldPdf.height * scaleFactor;
+        // Anchor top-left in PDF user space (x fixed, top = y + height fixed)
+        const newPdf: PdfRect = { x: oldPdf.x, y: oldPdf.y + oldPdf.height - newH, width: newW, height: newH };
+        // Re-tokenize to find the newly shifted BT ... ET ranges cleanly
+        const midStream = await getPageContentStream(midBytes, pageIndex);
+        if (!midStream.error && midStream.layout) {
+          const midDoc = await PDFDocument.load(midBytes, { ignoreEncryption: true, updateMetadata: false, parseSpeed: ParseSpeeds.Fast });
+          const midPage = midDoc.getPage(pageIndex);
+          const pageTransform = computeBoxTransformMatrix(oldPdf, newPdf);
+          // Match target blocks by segment order
+          const allBtRanges: Array<{ start: number; end: number }> = [];
+          const allOps = tokenizeContentStream(midStream.streamText);
+          for (let i = 0; i < allOps.length; i++) {
+            if (allOps[i].operator !== 'BT') continue;
+            let j = i + 1;
+            while (j < allOps.length && allOps[j].operator !== 'ET') j++;
+            allBtRanges.push({ start: allOps[i].operatorStart, end: j < allOps.length ? allOps[j].end : midStream.streamText.length });
+            i = j;
+          }
+          const targets = segmentIds
+            .map((id) => {
+              const m = /^block_(\d+)$/.exec(id);
+              return m ? allBtRanges[Number(m[1]) - 1] : undefined;
+            })
+            .filter((r): r is { start: number; end: number } => Boolean(r));
+          if (targets.length > 0) {
+            const partIdx = blocks[0].runs[0].partIndex;
+            const part = midStream.layout[partIdx];
+            const initCtm = findPartInitialCtm(midDoc, pageIndex, midStream.streamText, midStream.layout, partIdx);
+            const scaledStream = applyTransformSplices(midStream.streamText, part.start, part.end, initCtm, targets, pageTransform, true);
+            const updatedStream = writePageStreamText(midDoc, midPage, scaledStream);
+            const finalSaved = await midDoc.save({ objectsPerTick: 500 });
+            return { updatedPdfBytes: toExactArrayBuffer(finalSaved), updatedStream };
+          }
+        }
+        return { updatedPdfBytes: midBytes };
+      }
+
+      const unionDisp = {
+        x: Math.min(...blocks.map((b) => b.bbox.x)),
+        y: Math.min(...blocks.map((b) => b.bbox.y)),
+        width: Math.max(...blocks.map((b) => b.bbox.x + b.bbox.width)) - Math.min(...blocks.map((b) => b.bbox.x)),
+        height: Math.max(...blocks.map((b) => b.bbox.y + b.bbox.height)) - Math.min(...blocks.map((b) => b.bbox.y)),
+      };
+      const oldPdf = displayRectToPdfRect(unionDisp, model.viewportTransform);
+      const newW = oldPdf.width * scaleFactor;
+      const newH = oldPdf.height * scaleFactor;
+      const newPdf: PdfRect = { x: oldPdf.x, y: oldPdf.y + oldPdf.height - newH, width: newW, height: newH };
+      return transformTextBlocksOnPage(pdfDocBytes, pageIndex, model, segmentIds, oldPdf, newPdf);
+    }
+
+    const updatedStream = writePageStreamText(pdfDoc, page, modifiedStream);
+    const saved = await pdfDoc.save({ objectsPerTick: 500 });
+    logger.success('edit', `Styl textového bloku ${segmentIds.join(', ')} na straně ${pageIndex + 1} byl upraven`, {
+      segmentIds,
+      style,
+    });
+    return {
+      updatedPdfBytes: toExactArrayBuffer(saved),
+      updatedStream,
+    };
+  } catch (err: any) {
+    logger.error('edit', `Změna stylu textového bloku selhala: ${err?.message || err}`);
+    return { updatedPdfBytes: pdfDocBytes, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Atomically translates (and optionally scales around the group center) multiple selected text blocks
+ * and/or image placements in a single PDF content-stream edit & Undo step.
+ */
+export async function transformBatchElementsOnPage(
+  pdfDocBytes: ArrayBuffer,
+  pageIndex: number,
+  model: PageTextModel | null,
+  segmentIds: string[],
+  imageIds: string[],
+  deltaPdfX: number,
+  deltaPdfY: number,
+  scaleFactor = 1
+): Promise<ElementTransformResult> {
+  if (segmentIds.length === 0 && imageIds.length === 0) {
+    return { updatedPdfBytes: pdfDocBytes, error: 'Nejsou vybrány žádné prvky.' };
+  }
+  if (Math.abs(deltaPdfX) < 0.05 && Math.abs(deltaPdfY) < 0.05 && Math.abs(scaleFactor - 1) < 1e-4) {
+    return { updatedPdfBytes: pdfDocBytes };
+  }
+
+  try {
+    const current = await getPageContentStream(pdfDocBytes, pageIndex);
+    if (current.error || !current.layout) {
+      return { updatedPdfBytes: pdfDocBytes, error: current.error || 'Obsah stránky nelze načíst.' };
+    }
+    if (segmentIds.length > 0 && (!model?.aligned || current.streamText !== model.streamText)) {
+      return { updatedPdfBytes: pdfDocBytes, error: 'Obsah stránky se mezitím změnil. Vyberte prvky znovu.' };
+    }
+
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
+    });
+    const page = pdfDoc.getPage(pageIndex);
+    const context = page.node.context;
+
+    interface BatchTarget {
+      partIndex: number;
+      start: number;
+      end: number;
+      isText: boolean;
+      pdfRect: PdfRect;
+    }
+    const targets: BatchTarget[] = [];
+
+    // 1. Collect text targets
+    if (segmentIds.length > 0 && model?.aligned) {
+      for (const id of segmentIds) {
+        const blk = model.blocksById.get(id);
+        if (!blk || blk.runs.length === 0) continue;
+        const pdfRect = model.viewportTransform
+          ? displayRectToPdfRect(blk.bbox, model.viewportTransform)
+          : blk.bbox;
+        targets.push({
+          partIndex: blk.runs[0].partIndex,
+          start: blk.startIndex,
+          end: blk.endIndex,
+          isText: true,
+          pdfRect,
+        });
+      }
+    }
+
+    // 2. Collect image targets
+    if (imageIds.length > 0) {
+      const wanted = new Set(imageIds);
+      const pageResources = safeGetPageResources(page.node);
+      const xObjectsOf = (resources: unknown): PDFDict | undefined => {
+        const dict = resources instanceof PDFDict ? resources.lookup(PDFName.of('XObject')) : undefined;
+        return dict instanceof PDFDict ? dict : undefined;
+      };
+      const streamDict = (obj: unknown): PDFDict | undefined =>
+        obj instanceof PDFDict ? obj : (obj as any)?.dict instanceof PDFDict ? (obj as any).dict : undefined;
+      const pageXObjects = xObjectsOf(pageResources);
+      const partXObjects = current.layout.map((part) => {
+        if (part.kind !== 'form' || !part.name || !pageXObjects) return pageXObjects;
+        const formDict = streamDict(context.lookup(pageXObjects.get(PDFName.of(part.name))));
+        return xObjectsOf(formDict?.lookup(PDFName.of('Resources'))) || pageXObjects;
+      });
+      const placements = findImagePlacements(current.streamText, current.layout, (partIndex, name) => {
+        const dict = streamDict(context.lookup(partXObjects[partIndex]?.get(PDFName.of(name))));
+        if (!dict) return null;
+        const subtype = dict.get(PDFName.of('Subtype'))?.toString();
+        if (subtype === '/Image') return { kind: 'image' };
+        if (subtype === '/Form') {
+          const matrixArr = dict.lookup(PDFName.of('Matrix'));
+          const nums =
+            matrixArr instanceof PDFArray
+              ? matrixArr.asArray().map((n) => (n instanceof PDFNumber ? n.asNumber() : NaN))
+              : [];
+          const matrix = (nums.length === 6 && nums.every((n) => Number.isFinite(n)) ? nums : IDENTITY) as PdfMatrix;
+          const formPart =
+            current.layout![partIndex]?.kind === 'page'
+              ? current.layout!.findIndex((p) => p.kind === 'form' && p.name === name)
+              : -1;
+          return { kind: 'form', partIndex: formPart >= 0 ? formPart : undefined, matrix };
+        }
+        return null;
+      });
+      for (const p of placements) {
+        if (!wanted.has(p.id)) continue;
+        targets.push({
+          partIndex: p.partIndex,
+          start: p.start,
+          end: p.end,
+          isText: false,
+          pdfRect: { x: p.bbox[0], y: p.bbox[1], width: p.bbox[2] - p.bbox[0], height: p.bbox[3] - p.bbox[1] },
+        });
+      }
+    }
+
+    if (targets.length === 0) {
+      return { updatedPdfBytes: pdfDocBytes, error: 'Vybrané prvky se nepodařilo na stránce najít.' };
+    }
+
+    // Shared group bounding box & page transform
+    const minX = Math.min(...targets.map((t) => t.pdfRect.x));
+    const minY = Math.min(...targets.map((t) => t.pdfRect.y));
+    const maxX = Math.max(...targets.map((t) => t.pdfRect.x + t.pdfRect.width));
+    const maxY = Math.max(...targets.map((t) => t.pdfRect.y + t.pdfRect.height));
+    const oldUnion: PdfRect = { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+    const newW = oldUnion.width * scaleFactor;
+    const newH = oldUnion.height * scaleFactor;
+    const newUnion: PdfRect = {
+      x: oldUnion.x + (oldUnion.width - newW) / 2 + deltaPdfX,
+      y: oldUnion.y + (oldUnion.height - newH) / 2 + deltaPdfY,
+      width: newW,
+      height: newH,
+    };
+    const pageTransform = computeBoxTransformMatrix(oldUnion, newUnion);
+
+    // Group targets by stream partIndex (later parts first)
+    const byPart = new Map<number, BatchTarget[]>();
+    for (const t of targets) {
+      const list = byPart.get(t.partIndex) ?? [];
+      list.push(t);
+      byPart.set(t.partIndex, list);
+    }
+
+    let modifiedStream = current.streamText;
+    const touchedForms: Array<{ name: string; initialCtm: PdfMatrix }> = [];
+    const sortedPartIndices = Array.from(byPart.keys()).sort((a, b) => b - a);
+    for (const partIdx of sortedPartIndices) {
+      const part = current.layout[partIdx];
+      if (!part) continue;
+      const partTargets = byPart.get(partIdx)!;
+      const initCtm = findPartInitialCtm(pdfDoc, pageIndex, current.streamText, current.layout, partIdx);
+      const anyText = partTargets.some((t) => t.isText);
+      modifiedStream = applyTransformSplices(
+        modifiedStream,
+        part.start,
+        part.end,
+        initCtm,
+        partTargets.map((t) => ({ start: t.start, end: t.end })),
+        pageTransform,
+        anyText
+      );
+      if (part.kind === 'form' && part.name) {
+        touchedForms.push({ name: part.name, initialCtm: initCtm });
+      }
+    }
+
+    const updatedStream = writePageStreamText(pdfDoc, page, modifiedStream);
+    for (const tf of touchedForms) {
+      expandFormXObjectBBox(pdfDoc, pageIndex, tf.name, tf.initialCtm, newUnion);
+    }
+
+    const saved = await pdfDoc.save({ objectsPerTick: 500 });
+    logger.success('edit', `Hromadná transformace ${targets.length} prvků na straně ${pageIndex + 1}`, {
+      count: targets.length,
+      deltaPdfX,
+      deltaPdfY,
+      scaleFactor,
+    });
+    return {
+      updatedPdfBytes: toExactArrayBuffer(saved),
+      updatedStream,
+    };
+  } catch (err: any) {
+    logger.error('edit', `Hromadná transformace prvků selhala: ${err?.message || err}`);
     return { updatedPdfBytes: pdfDocBytes, error: err?.message || String(err) };
   }
 }

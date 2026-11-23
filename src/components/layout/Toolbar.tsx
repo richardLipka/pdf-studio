@@ -33,6 +33,7 @@ import {
   ListOrdered,
   Replace,
   Scan,
+  ImagePlus,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -85,6 +86,8 @@ export const Toolbar: React.FC = () => {
     toggleEditSidePanel,
     showAllEditOutlines,
     toggleShowAllEditOutlines,
+    showEditNotice,
+    setSelectedStreamBlockId,
   } = useEditor();
 
   const {
@@ -92,6 +95,9 @@ export const Toolbar: React.FC = () => {
     deleteAnnotation,
     updateAnnotation,
     annotations,
+    pages,
+    activePageIndex,
+    insertPageImage,
   } = useDocument();
 
   const selectedAnn = annotations.find((a) => a.id === selectedAnnotationId);
@@ -601,6 +607,44 @@ export const Toolbar: React.FC = () => {
                 <Replace className="w-4 h-4" />
                 <span>{t.editPanel.findAndReplace}</span>
               </button>
+
+              {/* Action 4: Insert New Image onto Active PDF Page */}
+              <label
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                  isMinimal
+                    ? 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                    : isLcars
+                    ? 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ffcc00] border border-[#ffcc00]'
+                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-amber-300 hover:text-amber-200 border border-slate-700/60'
+                }`}
+                title={t.editPanel.insertImageDesc}
+              >
+                <ImagePlus className="w-4 h-4" />
+                <span className="hidden lg:inline">{t.editPanel.insertImageBtn}</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file) return;
+                    if (activeTool === 'whiteout') {
+                      setActiveTool('streamReplace');
+                    }
+                    const res = await insertPageImage(file, { pageIndex: activePageIndex });
+                    if (res.success) {
+                      const activePage = pages[activePageIndex];
+                      if (res.placementId && activePage) {
+                        setSelectedStreamBlockId(res.placementId, activePage.id);
+                      }
+                      showEditNotice({ type: 'success', text: t.editPanel.imageInserted, canUndo: true });
+                    } else {
+                      showEditNotice({ type: 'error', text: res.error || t.editPanel.imageInsertFailed });
+                    }
+                  }}
+                />
+              </label>
 
               <div
                 className={`h-5 w-px mx-1 ${

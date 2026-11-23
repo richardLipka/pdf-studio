@@ -196,8 +196,8 @@ function rebuildLineSlice(
       op.operator === "'"
         ? 'T* '
         : op.operator === '"'
-        ? `${op.operands[0]?.raw ?? '0'} Tw ${op.operands[1]?.raw ?? '0'} Tc T* `
-        : '';
+          ? `${op.operands[0]?.raw ?? '0'} Tw ${op.operands[1]?.raw ?? '0'} Tc T* `
+          : '';
     if (replacementOp !== null && op.start === firstShowStart) {
       rebuilt += lineMove + fontPrefix + replacementOp + fontRestore;
     } else {
