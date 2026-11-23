@@ -20,7 +20,7 @@ import {
   getPageTextModel,
   getDocumentOutlines,
 } from '../services/pdfLoader';
-import { replaceTextBlockContent, replaceTextLineContent } from '../services/pdfTextEditor';
+import { replaceTextBlockContent, replaceTextLineContent, removeTextLineContent } from '../services/pdfTextEditor';
 import { logger } from '../services/logger';
 import { repairPdfDefects } from '../services/pdfRepair';
 import { downloadBlob } from '../utils/file';
@@ -216,6 +216,11 @@ interface DocumentContextType {
     newText: string,
     pageIndex?: number
   ) => Promise<{ success: boolean; fontSubstituted?: boolean; error?: string }>;
+  /** Removes a single line from a multi-line text object without moving or altering other lines */
+  removeLineText: (
+    lineId: string,
+    pageIndex?: number
+  ) => Promise<{ success: boolean; error?: string }>;
 
   // Interactive Form Fields (AcroForms)
   formFields: FormFieldModel[];
@@ -1175,6 +1180,24 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return { success: true, fontSubstituted: result.fontSubstituted };
   };
 
+  const removeLineText = async (
+    lineId: string,
+    pageIndex: number = activePageIndexRef.current
+  ): Promise<{ success: boolean; error?: string }> => {
+    const resolved = resolvePageSource(pageIndex);
+    if ('error' in resolved) return { success: false, error: resolved.error };
+    const { targetPage, sourceDoc, sourcePageIndex } = resolved;
+    if (!sourceDoc || !sourceDoc.arrayBuffer) return { success: false, error: 'Zdrojový PDF dokument nenalezen' };
+    const model = await getPageTextModel(sourceDoc, targetPage);
+    if (!model?.aligned) {
+      return { success: false, error: 'Text této stránky nelze spolehlivě namapovat na obsah PDF.' };
+    }
+    const result = await removeTextLineContent(sourceDoc.arrayBuffer, sourcePageIndex, model, lineId);
+    if (result.error) return { success: false, error: result.error };
+    commitSourceBytes(sourceDoc.id, result.updatedPdfBytes);
+    return { success: true };
+  };
+
   const replacePageImage = async (
     imageName: string,
     fileOrBytes: File | Blob | ArrayBuffer | Uint8Array,
@@ -1583,6 +1606,7 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     removeMultiplePageElements,
     applyBlockTextEdit,
     applyLineTextEdit,
+    removeLineText,
     formFields,
     formValues,
     updateFormFieldValue,

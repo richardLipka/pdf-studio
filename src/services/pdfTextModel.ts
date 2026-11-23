@@ -462,7 +462,7 @@ const unionBox = (boxes: Box[]): Box => {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 };
 
-/** Splits the runs of a text object into lines using their baselines */
+/** Splits the runs of a text object into lines (or distant same-row columns) using their baselines */
 function splitLines(runs: TextRun[]): TextRun[][] {
   const lines: TextRun[][] = [];
   runs.forEach((run, idx) => {
@@ -480,15 +480,15 @@ function splitLines(runs: TextRun[]): TextRun[][] {
     const along = dx * ux + dy * uy;
     const across = -dx * uy + dy * ux;
     const em = Math.max(prev.emSize, run.emSize, 1e-6);
-    // A new line: the baseline moves across, or the text jumps back to the left (next column row)
-    if (Math.abs(across) > em * 0.5 || along < -em * 2) lines.push([run]);
+    // A new line/entry: baseline moves vertically, jumps back left, or leaps horizontally into a distant column
+    if (Math.abs(across) > em * 0.5 || along < -em * 2 || along > em * 3.5) lines.push([run]);
     else lines[lines.length - 1].push(run);
   });
   return lines;
 }
 
-/** Joins the runs of a text object into lines using their baselines */
-function blockText(runs: TextRun[]): string {
+/** Joins the runs of one line into readable text using horizontal baseline gaps */
+function joinLineRunsText(runs: TextRun[]): string {
   let text = '';
   runs.forEach((run, idx) => {
     if (idx > 0) {
@@ -500,11 +500,8 @@ function blockText(runs: TextRun[]): string {
       const dx = run.baselineStart[0] - prev.baselineEnd[0];
       const dy = run.baselineStart[1] - prev.baselineEnd[1];
       const along = dx * ux + dy * uy;
-      const across = -dx * uy + dy * ux;
       const em = Math.max(prev.emSize, run.emSize, 1e-6);
-      if (Math.abs(across) > em * 0.5) {
-        text = text.replace(/[ ]+$/, '') + '\n';
-      } else if (along > em * 0.15 && !text.endsWith(' ') && !run.text.startsWith(' ')) {
+      if (along > em * 0.15 && !text.endsWith(' ') && !run.text.startsWith(' ')) {
         text += ' ';
       }
     }
@@ -615,23 +612,24 @@ export function buildPageTextModel(input: PageTextModelInput): PageTextModel {
     if (blockRuns.length === 0) continue;
     // A form painted twice yields the same operators twice; keep the first occurrence
     const uniqueRuns = blockRuns.filter((run, idx) => idx === 0 || run.start !== blockRuns[idx - 1].start);
+    const blockLines: TextLine[] = splitLines(uniqueRuns).map((lineRuns, index) => ({
+      id: `${segment.id}#${index}`,
+      segmentId: segment.id,
+      index,
+      runs: lineRuns,
+      text: joinLineRunsText(lineRuns),
+      bbox: unionBox(lineRuns.map((r) => r.bbox)),
+    }));
     const block: TextBlock = {
       segmentId: segment.id,
       startIndex: segment.startIndex,
       endIndex: segment.endIndex,
       runs: uniqueRuns,
-      text: blockText(uniqueRuns),
+      // Guaranteed 1:1 line alignment with block.lines so multi-line edits map back to exact lines
+      text: blockLines.map((l) => l.text).join('\n'),
       bbox: unionBox(uniqueRuns.map((r) => r.bbox)),
-      lines: [],
+      lines: blockLines,
     };
-    block.lines = splitLines(uniqueRuns).map((lineRuns, index) => ({
-      id: `${segment.id}#${index}`,
-      segmentId: segment.id,
-      index,
-      runs: lineRuns,
-      text: blockText(lineRuns),
-      bbox: unionBox(lineRuns.map((r) => r.bbox)),
-    }));
     block.lines.forEach((line) => linesById.set(line.id, line));
     blocks.push(block);
     blocksById.set(block.segmentId, block);

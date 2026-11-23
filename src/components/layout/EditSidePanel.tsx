@@ -29,6 +29,7 @@ import {
   SlidersHorizontal,
   GripVertical,
   AlertTriangle,
+  Check,
 } from 'lucide-react';
 import {
   parseStreamSegments,
@@ -39,7 +40,7 @@ import {
 } from '../../services/contentStreamEditor';
 import { getPageTextBlocks, getPageTextModel } from '../../services/pdfLoader';
 import { fromReadableBlock, ReadableBlock, toReadableBlock } from '../../services/pdfReadableStream';
-import type { PageTextModel, TextBlock } from '../../services/pdfTextModel';
+import type { PageTextModel, TextBlock, TextLine } from '../../services/pdfTextModel';
 import { VisualTextBlock } from '../../utils/textSnap';
 import {
   EDIT_PANEL_DEFAULT_WIDTH,
@@ -127,6 +128,10 @@ export const EditSidePanel: React.FC = () => {
     selectedStreamBlockId,
     selectedStreamBlockPageId,
     setSelectedStreamBlockId,
+    selectedLineId,
+    setSelectedLineId,
+    hoveredLineId,
+    setHoveredLineId,
     hoveredBlockId,
     hoveredBlockPageId,
     setHoveredBlockId,
@@ -152,6 +157,8 @@ export const EditSidePanel: React.FC = () => {
     applyStreamSegmentEdit,
     applyPageContentStreamEdit,
     applyBlockTextEdit,
+    applyLineTextEdit,
+    removeLineText,
     applyContentStreamReplacement,
     selectedAnnotationId,
   } = useDocument();
@@ -226,8 +233,12 @@ export const EditSidePanel: React.FC = () => {
   const [collapsedSectionIds, setCollapsedSectionIds] = useState<Set<string>>(new Set());
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
-  // Inspector Text & Advanced Stream Code State
+  // Inspector Text, Multi-Line & Advanced Stream Code State
   const [quickReplaceNewText, setQuickReplaceNewText] = useState<string>('');
+  const [selectedModelBlock, setSelectedModelBlock] = useState<TextBlock | null>(null);
+  const [blockInspectorMode, setBlockInspectorMode] = useState<'lines' | 'block'>('lines');
+  const [lineDrafts, setLineDrafts] = useState<Record<string, string>>({});
+  const [savingLineId, setSavingLineId] = useState<string | null>(null);
   const [showAdvancedCode, setShowAdvancedCode] = useState<boolean>(false);
   const [editorContent, setEditorContent] = useState<string>('');
   const [readableMode, setReadableMode] = useState<boolean>(true);
@@ -311,6 +322,7 @@ export const EditSidePanel: React.FC = () => {
                   const block = model.blocksById.get(seg.id);
                   if (block?.text) {
                     seg.previewText = block.text;
+                    seg.lineCount = block.lines.length;
                     modelTextIdsRef.current.add(seg.id);
                   }
                 });
@@ -521,10 +533,11 @@ export const EditSidePanel: React.FC = () => {
     }
   }, [images, pages, activePageIndex]);
 
-  // Readable form of the selected block (for Advanced: PDF Stream Code disclosure)
+  // Selected block's exact TextModel (lines + readable stream code)
   useEffect(() => {
     let cancelled = false;
     setReadableState(null);
+    setSelectedModelBlock(null);
     const activePageModel = pages[activePageIndex];
     const activeSource = activePageModel
       ? sources.find((src) => src.id === activePageModel.sourceDocId) || sources[0]
@@ -537,6 +550,12 @@ export const EditSidePanel: React.FC = () => {
       if (!block || !segment || model.streamText.substring(block.startIndex, block.endIndex) !== segment.rawContent) {
         return;
       }
+      setSelectedModelBlock(block);
+      const drafts: Record<string, string> = {};
+      for (const ln of block.lines) {
+        drafts[ln.id] = ln.text;
+      }
+      setLineDrafts(drafts);
       const readable = toReadableBlock(model, block);
       if (readable.originals.length === 0) return;
       setReadableState({ blockId: selectedStreamBlockId, readable, model, block });
@@ -546,6 +565,18 @@ export const EditSidePanel: React.FC = () => {
       cancelled = true;
     };
   }, [selectedStreamBlockId, selectionIsOnActivePage, segments, activePageIndex, sources, pages]);
+
+  // Auto-scroll to a line selected on the canvas when inspecting a multi-line block
+  useEffect(() => {
+    if (!selectedLineId || !selectedModelBlock || selectedModelBlock.lines.length <= 1) return;
+    setBlockInspectorMode('lines');
+    const timer = setTimeout(() => {
+      document
+        .getElementById(`inspector_line_${selectedLineId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [selectedLineId, selectedModelBlock]);
 
   const showReadable = readableMode && readableState?.blockId === selectedStreamBlockId;
 
@@ -943,6 +974,9 @@ export const EditSidePanel: React.FC = () => {
         e.preventDefault();
         clearBatchSelection();
         setIsBatchMode(false);
+      } else if (selectedLineId) {
+        e.preventDefault();
+        setSelectedLineId(null);
       } else if (selectedStreamBlockId) {
         e.preventDefault();
         setSelectedStreamBlockId(null);
@@ -957,6 +991,15 @@ export const EditSidePanel: React.FC = () => {
         return;
       }
       if (selectedStreamBlockId && selectionIsOnActivePage) {
+        // When a specific line inside a multi-line block is selected, Delete removes ONLY that line
+        if (selectedLineId && selectedModelBlock && selectedModelBlock.lines.length > 1) {
+          const targetLine = selectedModelBlock.lines.find((l) => l.id === selectedLineId);
+          if (targetLine) {
+            e.preventDefault();
+            void handleDeleteSingleLine(targetLine);
+            return;
+          }
+        }
         const img = images.find((im) => im.id === selectedStreamBlockId);
         if (img) {
           e.preventDefault();
@@ -1028,7 +1071,59 @@ export const EditSidePanel: React.FC = () => {
     }
   };
 
-  // Text block plain-text rewrite
+  // Single-line edit & delete inside a multi-line PDF text block
+  const handleSaveSingleLine = async (line: TextLine) => {
+    const draft = lineDrafts[line.id] ?? line.text;
+    if (draft === line.text || isSaving || savingLineId) return;
+    setSavingLineId(line.id);
+    setIsSaving(true);
+    try {
+      const res = await applyLineTextEdit(line.id, draft, activePageIndex);
+      if (res.success) {
+        showEditNotice({
+          type: 'success',
+          text:
+            draft.trim() === ''
+              ? t.editPanel.lineDeleted
+              : res.fontSubstituted
+              ? t.editPanel.lineUpdatedSubFont
+              : t.editPanel.lineUpdatedOriginalFont,
+          canUndo: true,
+        });
+      } else {
+        showEditNotice({ type: 'error', text: res.error || t.editPanel.lineUpdateFailed });
+      }
+    } catch (err: any) {
+      showEditNotice({ type: 'error', text: err?.message || String(err) });
+    } finally {
+      setSavingLineId(null);
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteSingleLine = async (line: TextLine, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (isSaving || savingLineId) return;
+    setSavingLineId(line.id);
+    setIsSaving(true);
+    try {
+      const res = await removeLineText(line.id, activePageIndex);
+      if (res.success) {
+        showEditNotice({ type: 'success', text: t.editPanel.lineDeleted, canUndo: true });
+        if (selectedLineId === line.id) setSelectedLineId(null);
+        if (hoveredLineId === line.id) setHoveredLineId(null);
+      } else {
+        showEditNotice({ type: 'error', text: res.error || t.editPanel.lineDeleteFailed });
+      }
+    } catch (err: any) {
+      showEditNotice({ type: 'error', text: err?.message || String(err) });
+    } finally {
+      setSavingLineId(null);
+      setIsSaving(false);
+    }
+  };
+
+  // Text block plain-text rewrite (line-preserving for multi-line blocks!)
   const handleApplyTextEdit = async () => {
     if (!selectedTextBlock || isSaving) return;
     setIsSaving(true);
@@ -1735,70 +1830,275 @@ export const EditSidePanel: React.FC = () => {
                   </div>
                 )}
 
-                {/* Primary Plain-Text Editor */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label
-                      htmlFor="edit-inspector-plain-text"
-                      className={`text-[11px] font-semibold ${
-                        isMinimal ? 'text-neutral-700' : isLcars ? 'text-[#ffcc00]' : 'text-slate-300'
+                {/* Multi-line Switcher (Lines vs Full Block) when this PDF element has > 1 line */}
+                {selectedModelBlock && selectedModelBlock.lines.length > 1 && isTextModelAligned && (
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      className={`inline-flex items-center p-0.5 border ${
+                        isMinimal
+                          ? 'rounded-md bg-neutral-200/70 border-neutral-300'
+                          : isLcars
+                          ? 'rounded-full bg-black border-[#ff9900]'
+                          : 'rounded-md bg-slate-900 border-slate-800'
                       }`}
                     >
-                      {t.editPanel.plainTextLabel}
-                    </label>
-                    <span
-                      className={`text-[10px] ${
-                        isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#ff9966]/75' : 'text-slate-500'
-                      }`}
-                    >
-                      {t.editPanel.applyTextShortcutHint}
-                    </span>
+                      <button
+                        type="button"
+                        onClick={() => setBlockInspectorMode('lines')}
+                        className={`px-2 py-0.5 text-[10px] font-semibold transition-all ${
+                          blockInspectorMode === 'lines'
+                            ? isMinimal
+                              ? 'rounded bg-white text-black shadow-xs'
+                              : isLcars
+                              ? 'rounded-full bg-[#ff9900] text-black font-bold uppercase'
+                              : 'rounded bg-indigo-600 text-white'
+                            : isMinimal
+                            ? 'text-neutral-600 hover:text-black'
+                            : isLcars
+                            ? 'text-[#ff9966] hover:text-[#ff9900]'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {t.editPanel.linesTabLabel.replace('{count}', String(selectedModelBlock.lines.length))}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBlockInspectorMode('block')}
+                        className={`px-2 py-0.5 text-[10px] font-semibold transition-all ${
+                          blockInspectorMode === 'block'
+                            ? isMinimal
+                              ? 'rounded bg-white text-black shadow-xs'
+                              : isLcars
+                              ? 'rounded-full bg-[#ff9900] text-black font-bold uppercase'
+                              : 'rounded bg-indigo-600 text-white'
+                            : isMinimal
+                            ? 'text-neutral-600 hover:text-black'
+                            : isLcars
+                            ? 'text-[#ff9966] hover:text-[#ff9900]'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {t.editPanel.fullBlockTabLabel}
+                      </button>
+                    </div>
                   </div>
-                  <textarea
-                    id="edit-inspector-plain-text"
-                    rows={3}
-                    value={quickReplaceNewText}
-                    disabled={isSaving || isDocumentEncrypted}
-                    placeholder={t.editPanel.plainTextPlaceholder}
-                    onChange={(e) => setQuickReplaceNewText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                        e.preventDefault();
-                        void handleApplyTextEdit();
-                      }
-                    }}
-                    className={`w-full px-2.5 py-1.5 text-xs rounded-md border outline-none resize-y min-h-[58px] max-h-40 ${inputClass}`}
-                  />
-                </div>
+                )}
 
-                {/* Primary Actions Row (Single unambiguous Save + Delete) */}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={
-                      isSaving ||
-                      isDocumentEncrypted ||
-                      !isTextModelAligned ||
-                      quickReplaceNewText === selectedTextBlock.previewText
-                    }
-                    onClick={handleApplyTextEdit}
-                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-45 disabled:cursor-not-allowed ${primaryBtnClass}`}
-                  >
-                    {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{isSaving ? t.editPanel.saving : t.editPanel.applyTextBtn}</span>
-                  </button>
+                {/* Per-Line Editor View (default for multi-line PDF elements) */}
+                {selectedModelBlock &&
+                selectedModelBlock.lines.length > 1 &&
+                isTextModelAligned &&
+                blockInspectorMode === 'lines' ? (
+                  <div className="space-y-1.5">
+                    <p
+                      className={`text-[10px] ${
+                        isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#ff9966]/80' : 'text-slate-400'
+                      }`}
+                    >
+                      {t.editPanel.clickLineToEditHint}
+                    </p>
+                    <div className="max-h-56 overflow-y-auto space-y-1 pr-0.5">
+                      {selectedModelBlock.lines.map((ln) => {
+                        const draft = lineDrafts[ln.id] ?? ln.text;
+                        const isDirty = draft !== ln.text;
+                        const isLineSelected = selectedLineId === ln.id;
+                        const isLineHovered = hoveredLineId === ln.id;
+                        const isThisLineSaving = savingLineId === ln.id;
 
-                  <button
-                    type="button"
-                    disabled={isSaving || isDocumentEncrypted}
-                    onClick={() => handleDeleteSingleBlock(selectedTextBlock.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-45 ${dangerBtnClass}`}
-                    title={t.editPanel.deleteBlockBtn}
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>{t.editPanel.canvasDelete}</span>
-                  </button>
-                </div>
+                        return (
+                          <div
+                            key={ln.id}
+                            id={`inspector_line_${ln.id}`}
+                            onMouseEnter={() => setHoveredLineId(ln.id)}
+                            onMouseLeave={() => setHoveredLineId(null)}
+                            onClick={() => setSelectedLineId(ln.id)}
+                            className={`flex items-center gap-1 p-1 rounded-md border transition-colors ${
+                              isLineSelected
+                                ? isMinimal
+                                  ? 'bg-sky-50 border-black ring-1 ring-black/30'
+                                  : isLcars
+                                  ? 'bg-[#261a00] border-[#ffcc00]'
+                                  : 'bg-sky-950/50 border-sky-400 ring-1 ring-sky-400/40'
+                                : isLineHovered
+                                ? isMinimal
+                                  ? 'bg-neutral-100 border-neutral-400'
+                                  : isLcars
+                                  ? 'bg-[#1c1c1c] border-[#ff9900]'
+                                  : 'bg-slate-800/80 border-sky-500/50'
+                                : isMinimal
+                                ? 'bg-white border-neutral-200'
+                                : isLcars
+                                ? 'bg-black border-[#333333]'
+                                : 'bg-slate-900/70 border-slate-800'
+                            }`}
+                          >
+                            <span
+                              className={`text-[10px] font-mono w-5 text-center shrink-0 select-none ${
+                                isLineSelected
+                                  ? isMinimal
+                                    ? 'text-black font-bold'
+                                    : isLcars
+                                    ? 'text-[#ffcc00] font-bold'
+                                    : 'text-sky-300 font-bold'
+                                  : 'opacity-50'
+                              }`}
+                            >
+                              {ln.index + 1}
+                            </span>
+
+                            <input
+                              type="text"
+                              value={draft}
+                              disabled={isSaving || isDocumentEncrypted}
+                              onFocus={() => setSelectedLineId(ln.id)}
+                              onChange={(e) =>
+                                setLineDrafts((prev) => ({ ...prev, [ln.id]: e.target.value }))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  void handleSaveSingleLine(ln);
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setLineDrafts((prev) => ({ ...prev, [ln.id]: ln.text }));
+                                  (e.currentTarget as HTMLInputElement).blur();
+                                }
+                              }}
+                              className={`flex-1 min-w-0 px-1.5 py-0.5 text-xs rounded border outline-none ${inputClass}`}
+                            />
+
+                            {isDirty && (
+                              <button
+                                type="button"
+                                disabled={isSaving || isDocumentEncrypted}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleSaveSingleLine(ln);
+                                }}
+                                className={`p-1 shrink-0 transition-colors disabled:opacity-45 ${primaryBtnClass}`}
+                                title={t.editPanel.saveLineBtn}
+                                aria-label={t.editPanel.saveLineBtn}
+                              >
+                                {isThisLineSaving ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Check className="w-3 h-3" />
+                                )}
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              disabled={isSaving || isDocumentEncrypted}
+                              onClick={(e) => void handleDeleteSingleLine(ln, e)}
+                              className={`p-1 rounded shrink-0 transition-colors disabled:opacity-40 ${
+                                isMinimal
+                                  ? 'text-neutral-400 hover:text-rose-600 hover:bg-rose-50'
+                                  : isLcars
+                                  ? 'text-[#ff6666] hover:bg-[#cc3333]/30'
+                                  : 'text-slate-500 hover:text-rose-400 hover:bg-rose-950/60'
+                              }`}
+                              title={t.editPanel.deleteLineBtn}
+                              aria-label={t.editPanel.deleteLineBtn}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Whole-block delete action clearly separated from per-line delete */}
+                    <div className="flex justify-end pt-0.5">
+                      <button
+                        type="button"
+                        disabled={isSaving || isDocumentEncrypted}
+                        onClick={() => handleDeleteSingleBlock(selectedTextBlock.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:opacity-45 ${dangerBtnClass}`}
+                        title={t.editPanel.deleteBlockBtn}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>{t.editPanel.deleteBlockBtn}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Primary Plain-Text Editor (Single-line block OR Full Block multi-line view) */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label
+                          htmlFor="edit-inspector-plain-text"
+                          className={`text-[11px] font-semibold ${
+                            isMinimal ? 'text-neutral-700' : isLcars ? 'text-[#ffcc00]' : 'text-slate-300'
+                          }`}
+                        >
+                          {t.editPanel.plainTextLabel}
+                        </label>
+                        <span
+                          className={`text-[10px] ${
+                            isMinimal ? 'text-neutral-400' : isLcars ? 'text-[#ff9966]/75' : 'text-slate-500'
+                          }`}
+                        >
+                          {t.editPanel.applyTextShortcutHint}
+                        </span>
+                      </div>
+                      <textarea
+                        id="edit-inspector-plain-text"
+                        rows={Math.min(8, Math.max(3, selectedModelBlock?.lines.length ?? 3))}
+                        value={quickReplaceNewText}
+                        disabled={isSaving || isDocumentEncrypted}
+                        placeholder={t.editPanel.plainTextPlaceholder}
+                        onChange={(e) => setQuickReplaceNewText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                            e.preventDefault();
+                            void handleApplyTextEdit();
+                          }
+                        }}
+                        className={`w-full px-2.5 py-1.5 text-xs rounded-md border outline-none resize-y min-h-[58px] max-h-56 ${inputClass}`}
+                      />
+                      {selectedModelBlock && selectedModelBlock.lines.length > 1 && (
+                        <p
+                          className={`text-[10px] mt-1 ${
+                            isMinimal ? 'text-neutral-500' : isLcars ? 'text-[#ff9966]/80' : 'text-slate-400'
+                          }`}
+                        >
+                          {t.editPanel.multiLinePreservedHint}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Primary Actions Row (Single unambiguous Save + Delete) */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          isSaving ||
+                          isDocumentEncrypted ||
+                          !isTextModelAligned ||
+                          quickReplaceNewText === selectedTextBlock.previewText
+                        }
+                        onClick={handleApplyTextEdit}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-45 disabled:cursor-not-allowed ${primaryBtnClass}`}
+                      >
+                        {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        <span>{isSaving ? t.editPanel.saving : t.editPanel.applyTextBtn}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isSaving || isDocumentEncrypted}
+                        onClick={() => handleDeleteSingleBlock(selectedTextBlock.id)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-45 ${dangerBtnClass}`}
+                        title={t.editPanel.deleteBlockBtn}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>{t.editPanel.canvasDelete}</span>
+                      </button>
+                    </div>
+                  </>
+                )}
 
                 {/* Collapsible Advanced: PDF Stream Code Disclosure */}
                 <div className={`pt-1.5 border-t ${isMinimal ? 'border-neutral-200' : isLcars ? 'border-[#333333]' : 'border-slate-800'}`}>

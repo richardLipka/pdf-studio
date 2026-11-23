@@ -803,5 +803,18 @@ export interface TranslationSchema {
     replaceFailed: string;
     findReplaceNote: string;
     streamNoBlocksHint: string;
+    /** {count} */
+    linesTabLabel: string;
+    fullBlockTabLabel: string;
+    /** {current}, {total} */
+    lineProgressBadge: string;
+    prevLine: string;
+    nextLine: string;
+    deleteLineBtn: string;
+    lineDeleted: string;
+    lineDeleteFailed: string;
+    saveLineBtn: string;
+    multiLinePreservedHint: string;
+    clickLineToEditHint: string;
   };
 }
