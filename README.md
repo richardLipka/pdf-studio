@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Privacy: 100% Client-Side](https://img.shields.io/badge/Privacy-100%25%20In--Browser-brightgreen.svg)](#-privacy--security)
 [![Languages: CS & EN](https://img.shields.io/badge/i18n-Čeština%20%7C%20English-purple.svg)](#-bilingual-support-i18n)
-[![Tests: Vitest](https://img.shields.io/badge/Tests-208%20Passed-success.svg)](#-automated-testing)
+[![Tests: Vitest](https://img.shields.io/badge/Tests-342%20Passed-success.svg)](#-automated-testing)
 [![Themes: 3 Switchable](https://img.shields.io/badge/Themes-Studio%20%7C%20Minimal%20%7C%20LCARS-orange.svg)](#-switchable-themes-url-encoded)
 
 A modern, fast, and privacy-first application for editing, annotating, signing, and managing PDF documents on your own machine with **zero server uploads** and **zero database requirements** — as a zero-install **web app** and as a **Windows desktop app** built from the same code.
@@ -50,7 +50,7 @@ Everything else — editing, annotations, forms, signing, search — is identica
 
 ### 2. 🎛️ Triple-Tab Interface & Unified Right Dock
 - **Revize & Anotace (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes suite (Rectangle, Ellipse, Line), Digital signatures & stamps, High-res image cropper, and Eraser.
-- **Editace PDF (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files: Visual Rewrite (Whiteout + Overlay), Content Stream Editor, and Element Removal.
+- **Editace PDF (Edit Tab)**: Unified document modification suite for direct structural and stream alterations in PDF files: **Select & Edit** (interactive canvas selection with floating Edit Line / Inspect / Delete actions, hover outlines toggle, and batch element deletion with undo toast), **Visual Rewrite** (Whiteout + Overlay), **Find & Replace**, and the right-hand **PDF Inspector** (`Elements` / `Replace` / `Stream`).
 - **Podpis & Certifikáty (Sign Tab)**: Dedicated signing & certification workspace: Visual signature pad (Draw/Type/Upload), Reusable stamp library with live counter, and direct Cryptographic PAdES / PKCS#7 digital signing.
 - **Unified Right Dock**: Automatically switches and maintains mutual exclusivity between the `NotesPanel` (Review & Sign tabs) and the `EditSidePanel` (Edit tab), providing a clean, uncluttered workspace.
 
@@ -65,10 +65,10 @@ Everything else — editing, annotations, forms, signing, search — is identica
 - **Exact Page Text Model**: Every text-showing operator (`Tj`, `TJ`, `'`, `"`) of the page and its Form XObjects is tokenized and matched one-to-one with the glyphs decoded by pdf.js, so each `BT ... ET` object knows its real Unicode text, font, character codes and exact box — also for subset / CID (`Identity-H`) fonts whose text is not readable in the stream code.
 - **Interactive Page Click-to-Edit**: In Edit mode, clicking on any text element on the canvas pre-selects the text object drawn under the cursor; the trash badge on a highlighted block deletes it with a single click.
 - **Segment Selector & Live Previews**: Lists all text blocks on the active page with decoded text previews, font specifications (`/F1 12pt`), coordinates, and character counts.
-- **Block Text Rewrite**: Type the new text of the selected block and it is written at the same position, size and colour. It is encoded with the original font's own codes when the font has all needed glyphs, otherwise a substitute font (standard or embedded Liberation) is added for that block only. Multi-line text keeps the line spacing.
+- **Block Text Rewrite & Multi-Line Editing**: Type the new text of the selected block and it is written at the same position, size and colour. It is encoded with the original font's own codes when the font has all needed glyphs, otherwise a substitute font (standard or embedded Liberation) is added for that block only. Multi-line `BT ... ET` blocks preserve per-line coordinates, columns and line spacing, and individual lines can be edited or deleted without disturbing neighboring lines.
 - **Inline Line Editing**: Double-click any text on the page in Edit mode to rewrite just that line in place (Enter saves, Esc cancels). Only the line's text-showing operators change; positioning and state operators stay, so the other lines of the same text object do not move.
 - **Readable Stream Code**: The stream editor shows string operands as `«decoded text»` instead of font codes (hex glyph ids of CID fonts, re-encoded simple fonts). Changed strings are re-encoded with the font selected at that point; untouched strings keep their original bytes.
-- **Wider Character Set**: Rewrites can use every character in the font's full ToUnicode table (composite and non-embedded fonts), not just the characters already on the page.
+- **Wider Character Set (Direct `/ToUnicode` CMap Parsing)**: Rewrites can use every character in the font's full `/ToUnicode` CMap (`beginbfchar`/`beginbfrange` parsed directly from the PDF via `pdf-lib`) as well as non-embedded standard font encodings (`toFontChar` in `pdfjs-dist` 6.5+), not just characters already shown on the page.
 - **Stale-Selection Protection**: Deletions and rewrites verify that the block still has the content that was selected (positional ids shift after every removal), so a click never removes a different element.
 - **Direct Code Editor**: Live monospaced code editor allowing direct byte/operator edits inside the selected block.
 - **Full Page Stream Tab**: Switchable view to inspect or rewrite the entire decompressed page stream at once.
@@ -267,14 +267,13 @@ All shortcuts come from one table ([`src/shared/appCommands.ts`](src/shared/appC
 
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Framework & Build** | [React 18](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite](https://vitejs.dev/) | Fast development and type safety |
-| **Desktop Runtime** | [Electron](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) (`desktop` branch) | Native dialogs, file access, settings and Windows packaging |
-| **PDF Rendering** | [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) | Fast in-browser canvas rendering of PDF pages |
-| **PDF Manipulation & Export** | [`pdf-lib`](https://pdf-lib.js.org/) | Native vector page preservation, PageTree repair, burning annotations, signatures & shapes |
-| **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
-| **Icons** | [`lucide-react`](https://lucide.dev/) | Modern UI icon library |
-| **Styling** | [Tailwind CSS](https://tailwindcss.com/) | Responsive glassmorphic, minimal light, and LCARS themes |
-| **Unit Testing** | [Vitest](https://vitest.dev/) | Automated unit & integration testing (41 test files, 208 tests; the desktop branch adds tests of the Electron shell) |
+| **Framework & Build** | [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) + [Vite 8](https://vite.dev/) | Reactive component architecture, type safety, and production bundling |
+| **Desktop Runtime** | [Electron 45](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) (`desktop` branch) | Native dialogs, file access, settings and Windows packaging |
+| **PDF Rendering** | [`pdfjs-dist` 6.5](https://mozilla.github.io/pdf.js/) | Fast in-browser canvas rendering, text layer extraction, and document outlines |
+| **PDF Manipulation & Fonts** | [`pdf-lib`](https://pdf-lib.js.org/) + [`@pdf-lib/fontkit`](https://github.com/foliojs/fontkit) | Native vector page preservation, PageTree repair, Unicode font subsetting, annotations, forms & shapes |
+| **Digital Signatures** | [`node-forge`](https://github.com/digitalbazaar/forge) + [`signature_pad`](https://github.com/szimek/signature_pad) | Client-side PAdES / PKCS#7 cryptography and smooth vector handwriting capture |
+| **Icons & Styling** | [`lucide-react`](https://lucide.dev/) + [Tailwind CSS](https://tailwindcss.com/) | Vector iconography and responsive Studio, Minimal, and LCARS themes |
+| **Unit Testing** | [Vitest 5](https://vitest.dev/) | Automated unit & integration testing (44 web test files + desktop shell/corpus suites, 342 tests total) |
 
 ---
 

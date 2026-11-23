@@ -18,7 +18,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 
 2. **Triple-Tab Interface & Unified Right Dock**:
    - **Revize (Review Tab)**: Complete annotation toolkit including Object selection, Text selection, Pan hand, Highlighting, Underlines, Strikethroughs, Sticky notes, Text boxes, Vector pen, Geometric shapes suite (Rectangle, Ellipse, Line), High-res image cropper, and Eraser.
-   - **Editace (Edit Tab)**: Dedicated document modification suite designed for direct structural and stream alterations in PDF files: Visual Rewrite (Whiteout + Overlay), Content Stream Editor, and Remove Elements (permanent removal of text blocks & images).
+   - **Editace (Edit Tab)**: Unified document modification suite for direct structural and stream alterations in PDF files: **Select & Edit** (canvas selection, floating Edit Line / Inspect / Delete bar, hover outlines toggle, batch deletion with undo toast), **Visual Rewrite** (Whiteout + Overlay), **Find & Replace**, and the right-hand **PDF Inspector** (`Elements` / `Replace` / `Stream`).
    - **Podpis (Sign Tab)**: Dedicated signing & certification workspace: Visual signature pad (Draw/Type/Upload), Reusable stamp library with live counter, and direct Cryptographic PAdES / PKCS#7 signing conforming to ISO 32000-1.
    - **Unified Right Dock**: Automatically switches and maintains mutual exclusivity between the `NotesPanel` (Review & Sign tabs) and the `EditSidePanel` (Edit tab), providing a clean, uncluttered workspace.
 
@@ -31,7 +31,7 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 4. **Direct Content Stream Segment & Page Editor**:
    - **Segment Isolation & Inspection**: Decodes and isolates specific `BT ... ET` text objects and graphics chunks in `/Contents` streams.
    - **Interactive Click-to-Edit**: In Edit mode, clicking on any text element on the canvas instantly focuses and selects that specific stream segment in the Stream Editor.
-   - **Direct Code Editor & Block Text Rewrite**: Live monospaced code editor for direct byte/operator edits, plus a Full Page Stream tab. The block text rewrite uses the exact page text model (`pdfTextModel.ts`, `pdfTextEditor.ts`): new text is re-encoded with the original font codes or, when glyphs are missing, a substitute font added for that block only.
+   - **Direct Code Editor, Multi-Line Rewrite & Per-Line Deletion**: Live monospaced code editor for direct byte/operator edits, plus a Full Page Stream tab. Block and inline rewrites use the exact page text model (`pdfTextModel.ts`, `pdfTextEditor.ts`), supporting multi-line `BT ... ET` objects, per-line deletion, column preservation, direct PDF `/ToUnicode` CMap parsing (`parseToUnicodeCMap`) for `pdfjs-dist` 6.5+ CID fonts, and automatic substitute-font embedding when required glyphs are missing.
    - **Cascading Double-Replacement Prevention**: Isolates and masks `[...] TJ` kerning arrays first so nested word substitutions (e.g. `test` → `testing`) never produce corrupted duplicates (`testinging`).
    - **Immediate Canvas Re-rendering**: Automatically invalidates `pdfjs-dist` cache and re-renders the modified page canvas in real-time.
    - **Full 100-Step Undo & Redo**: Deep-cloned binary snapshot tracking ensures `Ctrl + Z` seamlessly reverts content stream edits.
@@ -151,14 +151,14 @@ Supported Languages: **Czech (Čeština)** & **English (English)**.
 
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Build & Bundler** | [Vite](https://vitejs.dev/) + React 18 + TypeScript | Fast development, strong type safety, and component ecosystem |
-| **PDF Manipulation** | [`pdf-lib`](https://pdf-lib.js.org/) | Merging, splitting, modifying pages, PageTree repair, drawing annotations & signatures onto PDF |
-| **PDF Rendering** | [`pdfjs-dist`](https://mozilla.github.io/pdf.js/) | Fast canvas rendering of pages, viewport calculation |
-| **Signature Pad** | [`signature_pad`](https://github.com/szimek/signature_pad) | Smooth vector signature capture |
+| **Build & Bundler** | [Vite 8](https://vite.dev/) + React 19 + TypeScript | Fast development, strong type safety, and component ecosystem |
+| **PDF Manipulation** | [`pdf-lib`](https://pdf-lib.js.org/) + [`@pdf-lib/fontkit`](https://github.com/foliojs/fontkit) | Merging, splitting, modifying pages, PageTree repair, Unicode font subsetting, annotations & forms |
+| **PDF Rendering** | [`pdfjs-dist` 6.5](https://mozilla.github.io/pdf.js/) | Fast canvas rendering of pages, text layer extraction, outlines, viewport calculation |
+| **Signatures & Crypto** | [`node-forge`](https://github.com/digitalbazaar/forge) + [`signature_pad`](https://github.com/szimek/signature_pad) | Client-side PAdES / PKCS#7 digital signatures and smooth vector handwriting capture |
 | **Icons** | [`lucide-react`](https://lucide.dev/) | Clean, modern UI icons |
 | **Styling** | Modern Tailwind CSS | Sleek, responsive, dark glassmorphic, light minimal, and LCARS design |
 | **i18n** | Type-safe React Context | Full dictionary translations for CS & EN |
-| **Testing** | [Vitest](https://vitest.dev/) | Comprehensive automated unit & integration testing (41 test files, 208 tests) |
+| **Testing** | [Vitest 5](https://vitest.dev/) | Comprehensive automated unit & integration testing (46 test files, 342 tests across web + desktop) |
 
 ---
 
@@ -201,6 +201,12 @@ pdf-editor/
 │   │   ├── pdfFonts.ts     # Standard vs. embedded Unicode (Liberation Sans) font selection for exported text
 │   │   ├── renderQueue.ts  # Prioritized lazy rendering queue for viewport & large files
 │   │   ├── contentStreamEditor.ts # Direct stream parser, token replacer, and structural segment tree
+│   │   ├── pdfContentTokenizer.ts # Low-level PDF content stream tokenizer
+│   │   ├── pdfTextModel.ts # Exact page text/line model, column layout, and PDF /ToUnicode CMap parser
+│   │   ├── pdfTextEditor.ts # Multi-line block/line rewriter, per-line deletion, and font substitution
+│   │   ├── pdfReadableStream.ts # Decoded readable stream view («text») and round-trip encoder
+│   │   ├── padesSigner.ts  # Client-side PAdES / PKCS#7 detached cryptographic signing via node-forge
+│   │   ├── pdfFlattener.ts # Flatten document pages into image-only PDFs ("as scanned")
 │   │   ├── formService.ts  # AcroForm detection, widget mapping, and value persistence
 │   │   └── pageManager.ts  # Adds, deletes, reorders, and rotates pages
 │   ├── shared/             # Shared with the Electron shell of the desktop edition (no browser / Node APIs)
@@ -219,7 +225,8 @@ pdf-editor/
 │   ├── App.tsx
 │   ├── index.css
 │   └── main.tsx
-├── tests/                  # Automated Vitest test suite (208 tests)
+├── docs/wikipedia/         # Wikipedia article draft (wikitext) and Wikimedia Commons–ready screenshot
+├── tests/                  # Automated Vitest test suite (342 tests across web + desktop)
 ├── scripts/verify-dist.mjs # Checks the build is self-contained (Pages, offline bundle, desktop)
 ├── desktop/                # (desktop branch only) Electron shell, see desktop/README.md
 ├── package.json

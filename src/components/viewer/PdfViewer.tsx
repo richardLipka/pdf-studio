@@ -180,7 +180,9 @@ export const PdfViewer: React.FC = () => {
             <div
               key={page.id}
               data-page-id={page.id}
-              ref={(el) => (pageContainerRefs.current[page.id] = el)}
+              ref={(el) => {
+                pageContainerRefs.current[page.id] = el;
+              }}
               onClick={(e) => {
                 const isMulti = e.ctrlKey || e.metaKey;
                 const isRange = e.shiftKey;

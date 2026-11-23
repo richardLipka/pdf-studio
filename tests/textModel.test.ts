@@ -4,6 +4,7 @@ import * as path from 'path';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, PDFName, StandardFonts } from 'pdf-lib';
 import { getPageTextModel } from '../src/services/pdfLoader';
+import { parseToUnicodeCMap } from '../src/services/pdfTextModel';
 import { parseStreamSegments, getPageContentStream, isLikelyCiphertext } from '../src/services/contentStreamEditor';
 import { tokenizeContentStream, decodeLiteralStringBytes } from '../src/services/pdfContentTokenizer';
 import { replaceTextBlockContent, replaceTextLineContent } from '../src/services/pdfTextEditor';
@@ -225,5 +226,25 @@ describe('Human editing helpers', () => {
     const stream = `q 100 0 0 100 0 0 cm BI /W 20 /H 20 /BPC 8 /CS /G ID ${binary} EI Q BT /F1 12 Tf (Hello) Tj ET`;
     expect(isLikelyCiphertext(stream)).toBe(false);
     expect(isLikelyCiphertext(binary + binary)).toBe(true);
+  });
+
+  it('parses PDF ToUnicode CMaps (beginbfchar and beginbfrange) for CID fonts', () => {
+    const cmap = parseToUnicodeCMap(`
+      2 beginbfchar
+      <0003> <0020>
+      <0041> <0159>
+      endbfchar
+      2 beginbfrange
+      <0010> <0012> <0041>
+      <0020> <0021> [<010D> <0161>]
+      endbfrange
+    `);
+    expect(cmap.get(0x0003)).toBe(' ');
+    expect(cmap.get(0x0041)).toBe('ř');
+    expect(cmap.get(0x0010)).toBe('A');
+    expect(cmap.get(0x0011)).toBe('B');
+    expect(cmap.get(0x0012)).toBe('C');
+    expect(cmap.get(0x0020)).toBe('č');
+    expect(cmap.get(0x0021)).toBe('š');
   });
 });
