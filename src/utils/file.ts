@@ -60,12 +60,17 @@ export const convertImageDataUrlToPng = async (dataUrl: string): Promise<string 
       img.src = dataUrl;
     });
     const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
-    ctx.drawImage(img, 0, 0);
-    return canvas.toDataURL('image/png');
+    try {
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
+      ctx.drawImage(img, 0, 0);
+      return canvas.toDataURL('image/png');
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   } catch {
     return null;
   }
@@ -104,39 +109,44 @@ export const cleanSignatureBackground = (
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(imgDataUrl);
-        return;
-      }
-
-      ctx.drawImage(img, 0, 0);
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imgData.data;
-
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-
-        if (brightness > threshold) {
-          // Fade out background to full transparency
-          const alphaFade = Math.max(0, 255 - (brightness - threshold) * 8);
-          data[i + 3] = Math.min(data[i + 3], alphaFade);
-        } else {
-          // Boost dark ink contrast
-          const contrastFactor = 1.3;
-          data[i] = Math.max(0, Math.min(255, (r - 128) * contrastFactor + 128));
-          data[i + 1] = Math.max(0, Math.min(255, (g - 128) * contrastFactor + 128));
-          data[i + 2] = Math.max(0, Math.min(255, (b - 128) * contrastFactor + 128));
+      try {
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(imgDataUrl);
+          return;
         }
-      }
 
-      ctx.putImageData(imgData, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+
+          if (brightness > threshold) {
+            // Fade out background to full transparency
+            const alphaFade = Math.max(0, 255 - (brightness - threshold) * 8);
+            data[i + 3] = Math.min(data[i + 3], alphaFade);
+          } else {
+            // Boost dark ink contrast
+            const contrastFactor = 1.3;
+            data[i] = Math.max(0, Math.min(255, (r - 128) * contrastFactor + 128));
+            data[i + 1] = Math.max(0, Math.min(255, (g - 128) * contrastFactor + 128));
+            data[i + 2] = Math.max(0, Math.min(255, (b - 128) * contrastFactor + 128));
+          }
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
     };
     img.onerror = () => resolve(imgDataUrl);
     img.src = imgDataUrl;

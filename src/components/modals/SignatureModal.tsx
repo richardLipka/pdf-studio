@@ -83,6 +83,7 @@ export const SignatureModal: React.FC = () => {
   const [loadedCertInfo, setLoadedCertInfo] = useState<ParsedCertificateInfo | null>(null);
   const [loadedPrivateKeyPem, setLoadedPrivateKeyPem] = useState<string | null>(null);
   const [loadedCertPem, setLoadedCertPem] = useState<string | null>(null);
+  const [loadedCertChain, setLoadedCertChain] = useState<string[]>([]);
 
   // Digital Signature Options
   const [sigReason, setSigReason] = useState<string>('Schváleno a odsouhlaseno');
@@ -182,19 +183,24 @@ export const SignatureModal: React.FC = () => {
 
   const generateTypedSignatureImage = (): string => {
     const canvas = document.createElement('canvas');
-    canvas.width = 600;
-    canvas.height = 200;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
+    try {
+      canvas.width = 600;
+      canvas.height = 200;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = `60px "${selectedFont}", cursive`;
-    ctx.fillStyle = '#0f172a';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(typedText || 'Signature', canvas.width / 2, canvas.height / 2);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = `60px "${selectedFont}", cursive`;
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(typedText || 'Signature', canvas.width / 2, canvas.height / 2);
 
-    return canvas.toDataURL('image/png');
+      return canvas.toDataURL('image/png');
+    } finally {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   };
 
   const insertSignatureOntoDocument = (dataUrl: string, shouldSavePreset: boolean, titleText?: string) => {
@@ -294,6 +300,7 @@ export const SignatureModal: React.FC = () => {
       setLoadedCertInfo(res.certInfo);
       setLoadedPrivateKeyPem(res.privateKeyPem);
       setLoadedCertPem(res.certificatePem);
+      setLoadedCertChain(res.certificateChain);
       if (!sigReason) setSigReason('Schváleno a odsouhlaseno');
     } catch (err: any) {
       setCertError(err?.message || 'Chyba při odemykání certifikátu');
@@ -317,6 +324,7 @@ export const SignatureModal: React.FC = () => {
       setLoadedCertInfo(res.certInfo);
       setLoadedPrivateKeyPem(res.privateKeyPem);
       setLoadedCertPem(res.certificatePem);
+      setLoadedCertChain([]);
       setShowGenDrawer(false);
     } catch (err: any) {
       setCertError(err?.message || 'Chyba při generování certifikátu');
@@ -329,6 +337,7 @@ export const SignatureModal: React.FC = () => {
     setLoadedCertInfo(null);
     setLoadedPrivateKeyPem(null);
     setLoadedCertPem(null);
+    setLoadedCertChain([]);
     setCertFile(null);
     setCertPassword('');
     setCertError(null);
@@ -348,6 +357,7 @@ export const SignatureModal: React.FC = () => {
           location: sigLocation,
           visualAppearance: sigVisualBadge,
           signerName: loadedCertInfo?.commonName,
+          certificateChain: loadedCertChain.length > 0 ? loadedCertChain : undefined,
         }
       );
       if (success) {

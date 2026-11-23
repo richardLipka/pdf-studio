@@ -26,6 +26,8 @@ export interface FormFieldModel {
   value: string | boolean | string[]; // Current filled value
   defaultValue?: string | boolean | string[];
   options?: FormFieldOption[]; // For choice / dropdown / radio
+  exportValue?: string; // Widget on-state / export value (e.g. radio button option value)
+  multiSelect?: boolean; // Multi-select option list
   readOnly?: boolean;
   required?: boolean;
   multiline?: boolean;

@@ -75,7 +75,7 @@ export async function assembleImagePdf(images: FlattenedPageImage[], metadata?: 
     const page = doc.addPage([img.widthPt, img.heightPt]);
     page.drawImage(embedded, { x: 0, y: 0, width: img.widthPt, height: img.heightPt });
   }
-  return doc.save({ useObjectStreams: true });
+  return doc.save({ useObjectStreams: true, objectsPerTick: 500 });
 }
 
 /** Small deterministic PRNG, so the same document always gets the same "scan" */

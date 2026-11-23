@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useDocument } from '../../context/DocumentContext';
 import { useEditor } from '../../context/EditorContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -25,14 +25,18 @@ export const PdfViewer: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const pageContainerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  const pageIds = useMemo(() => pages.map((p) => p.id), [pages]);
+  const selectedPageIdSet = useMemo(() => new Set(selectedPageIds), [selectedPageIds]);
+  const sourcesById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   // Only pages around the viewport are rendered and kept in memory
-  const { zoneOf, visibleIds } = usePageZones(containerRef, pages.map((p) => p.id));
+  const { zoneOf, visibleIds } = usePageZones(containerRef, pageIds);
   const pixelRatio = useCanvasPixelRatio();
 
   // Flag to distinguish between user scrolling with mousewheel vs programmatic scroll
   const isUserScrollingRef = useRef<boolean>(false);
   const isProgrammaticScrollRef = useRef<boolean>(false);
   const scrollTimeoutRef = useRef<number | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
 
   // Pan dragging state
   const [isPanning, setIsPanning] = useState<boolean>(false);
@@ -61,6 +65,7 @@ export const PdfViewer: React.FC = () => {
   }, [activePageIndex, pages]);
 
   // Track viewport scroll position and update active page + sidebar thumbnail on mousewheel
+  // Coalesced per animation frame so high-frequency scroll events avoid repeated layout thrashing
   const handleScroll = useCallback(() => {
     if (!containerRef.current || pages.length === 0) return;
     if (isProgrammaticScrollRef.current) return; // Skip programmatic scroll events!
@@ -73,36 +78,50 @@ export const PdfViewer: React.FC = () => {
       isUserScrollingRef.current = false;
     }, 250);
 
-    const containerRect = containerRef.current.getBoundingClientRect();
-    const viewportCenterY = containerRect.top + containerRect.height / 2;
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      if (!containerRef.current || pages.length === 0 || isProgrammaticScrollRef.current) return;
 
-    let closestIndex = activePageIndex;
-    let minDistance = Infinity;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const viewportCenterY = containerRect.top + containerRect.height / 2;
 
-    // Only the pages on screen are measured (all pages when the observer has not reported yet)
-    const onScreen = visibleIds();
-    pages.forEach((page, index) => {
-      if (onScreen.size > 0 && !onScreen.has(page.id)) return;
-      const el = pageContainerRefs.current[page.id];
-      if (el) {
-        const pageRect = el.getBoundingClientRect();
-        const pageCenterY = pageRect.top + pageRect.height / 2;
-        const dist = Math.abs(pageCenterY - viewportCenterY);
-        if (dist < minDistance) {
-          minDistance = dist;
-          closestIndex = index;
+      let closestIndex = activePageIndex;
+      let minDistance = Infinity;
+
+      // Only the pages on screen are measured (all pages when the observer has not reported yet)
+      const onScreen = visibleIds();
+      for (let index = 0; index < pages.length; index++) {
+        const page = pages[index];
+        if (onScreen.size > 0 && !onScreen.has(page.id)) continue;
+        const el = pageContainerRefs.current[page.id];
+        if (el) {
+          const pageRect = el.getBoundingClientRect();
+          const pageCenterY = pageRect.top + pageRect.height / 2;
+          const dist = Math.abs(pageCenterY - viewportCenterY);
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestIndex = index;
+          }
+        }
+      }
+
+      if (closestIndex !== activePageIndex) {
+        setActivePageIndex(closestIndex);
+        // Preserve multi-page selections when scrolling with mousewheel!
+        if (selectedPageIds.length <= 1) {
+          setSelectedPageIds([pages[closestIndex].id]);
         }
       }
     });
-
-    if (closestIndex !== activePageIndex) {
-      setActivePageIndex(closestIndex);
-      // Preserve multi-page selections when scrolling with mousewheel!
-      if (selectedPageIds.length <= 1) {
-        setSelectedPageIds([pages[closestIndex].id]);
-      }
-    }
   }, [pages, activePageIndex, setActivePageIndex, selectedPageIds, setSelectedPageIds, visibleIds]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current !== null) window.cancelAnimationFrame(scrollRafRef.current);
+      if (scrollTimeoutRef.current !== null) window.clearTimeout(scrollTimeoutRef.current);
+    };
+  }, []);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     // Only pan if tool is pan or middle mouse button is pressed
@@ -153,9 +172,9 @@ export const PdfViewer: React.FC = () => {
     >
       <div className="flex flex-col items-center gap-8 pb-20">
         {pages.map((page, index) => {
-          const sourceDoc = sources.find((s) => s.id === page.sourceDocId) || sources[0];
+          const sourceDoc = sourcesById.get(page.sourceDocId) || sources[0];
           const isCurrent = index === activePageIndex;
-          const isSelected = selectedPageIds.includes(page.id);
+          const isSelected = selectedPageIdSet.has(page.id);
 
           return (
             <div

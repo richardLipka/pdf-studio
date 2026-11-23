@@ -4,6 +4,7 @@ import {
   degrees,
   PDFPage,
   PDFName,
+  PDFNull,
   PDFString,
   PDFHexString,
   PDFArray,
@@ -43,7 +44,7 @@ import { parseRichTextToLines, linesToPlainText } from '../utils/richText';
 import { logger } from './logger';
 import { FormExportMode } from '../types/form';
 import { applyFormValuesToPdfDocument } from './formService';
-import { PdfFontProvider, prepareTextForFont, standardFontFor } from './pdfFonts';
+import { PdfFontProvider, prepareTextForFont, standardFontFor, fontSupportsText } from './pdfFonts';
 import { convertImageDataUrlToPng } from '../utils/file';
 import { getMarkupLine, getTextQuad } from '../utils/markupGeometry';
 
@@ -216,7 +217,7 @@ export interface LoadSourceResult {
  */
 export const extractPdfHeader = (buffer: ArrayBuffer): string => {
   try {
-    const bytes = new Uint8Array(buffer.slice(0, Math.min(32, buffer.byteLength)));
+    const bytes = new Uint8Array(buffer, 0, Math.min(32, buffer.byteLength));
     return Array.from(bytes)
       .map((b) => (b >= 32 && b <= 126 ? String.fromCharCode(b) : '.'))
       .join('');
@@ -289,22 +290,19 @@ export const loadSourcePdfDocWithDiagnostics = async (
   const wasSanitized = sanitizedBuffer.byteLength !== arrayBuffer.byteLength;
 
   const rawAttempts: Array<{ name: string; buffer: ArrayBuffer; opt: Record<string, any> }> = [
-    { name: 'Slow + NoThrow + CapNumbers', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true } },
-    { name: 'Fastest + NoThrow + CapNumbers', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true } },
-    { name: 'NoThrow + CapNumbers', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, capNumbers: true } },
-    { name: 'NoThrow + Standard', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false } },
-    { name: 'IgnoreEncryption Only', buffer: arrayBuffer, opt: { ignoreEncryption: true } },
+    { name: 'Fast + NoThrow + CapNumbers', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fast, capNumbers: true } },
+    { name: 'Fastest + NoThrow', buffer: arrayBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest } },
+    { name: 'Fast + IgnoreEncryption', buffer: arrayBuffer, opt: { ignoreEncryption: true, updateMetadata: false, parseSpeed: ParseSpeeds.Fast } },
   ];
 
   if (wasSanitized) {
     rawAttempts.push(
-      { name: 'Sanitized Buffer + Slow + NoThrow + CapNumbers', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Slow, capNumbers: true } },
-      { name: 'Sanitized Buffer + Fastest + NoThrow + CapNumbers', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fastest, capNumbers: true } },
-      { name: 'Sanitized Buffer + Standard', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false } }
+      { name: 'Sanitized Buffer + Fast + NoThrow + CapNumbers', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, throwOnInvalidObject: false, updateMetadata: false, parseSpeed: ParseSpeeds.Fast, capNumbers: true } },
+      { name: 'Sanitized Buffer + Fast + IgnoreEncryption', buffer: sanitizedBuffer, opt: { ignoreEncryption: true, updateMetadata: false, parseSpeed: ParseSpeeds.Fast } }
     );
   }
 
-  rawAttempts.push({ name: 'Standard Default', buffer: arrayBuffer, opt: { parseSpeed: ParseSpeeds.Slow } });
+  rawAttempts.push({ name: 'Standard Default', buffer: arrayBuffer, opt: { parseSpeed: ParseSpeeds.Fast } });
 
   const diagnosticAttempts: LoadAttemptDiagnostic[] = [];
   const repairLog: string[] = [];
@@ -316,8 +314,8 @@ export const loadSourcePdfDocWithDiagnostics = async (
   for (let i = 0; i < rawAttempts.length; i++) {
     const attempt = rawAttempts[i];
     try {
-      const copyBuf = attempt.buffer.slice(0);
-      const doc = await PDFDocument.load(copyBuf, attempt.opt);
+      // pdf-lib reads bytes without mutating or detaching the buffer: pass a zero-copy view
+      const doc = await PDFDocument.load(new Uint8Array(attempt.buffer), attempt.opt);
       repairPdfDocCatalog(doc, repairLog);
       const count = doc.getPageCount();
       if (count > 0) {
@@ -378,15 +376,15 @@ export const hexToPdfRgb = (color: string) => {
 interface NativePdfAnnotOptions {
   id?: string;
   subtype:
-    | 'Text'
-    | 'Highlight'
-    | 'Underline'
-    | 'StrikeOut'
-    | 'FreeText'
-    | 'Ink'
-    | 'Square'
-    | 'Circle'
-    | 'Line';
+  | 'Text'
+  | 'Highlight'
+  | 'Underline'
+  | 'StrikeOut'
+  | 'FreeText'
+  | 'Ink'
+  | 'Square'
+  | 'Circle'
+  | 'Line';
   rect: [number, number, number, number];
   quadPoints?: number[];
   inkList?: number[][];
@@ -406,6 +404,8 @@ interface NativePdfAnnotOptions {
   matrix?: Matrix;
   // Underline / StrikeOut: the line to draw [x1, y1, x2, y2] in display space (y up)
   markupLine?: [number, number, number, number];
+  // Highlight: optional list of sub-rectangles [x1, y1, x2, y2] in display space (y up)
+  highlightRects?: Array<[number, number, number, number]>;
 }
 
 /**
@@ -459,27 +459,52 @@ const addNativePdfAnnotation = (
     }
 
     let streamOperators = '';
+    // ISO 32000-1 §§ 11.3.5, 12.5.5: when /AP /N is present, viewers ignore /CA and render the
+    // appearance stream directly, so transparency & highlight Multiply blending must live in /ExtGState.
+    let apExtGState: Record<string, any> | null = null;
+    const makeGs = (alpha: number, blendMode?: string): string => {
+      const clamped = Math.max(0.01, Math.min(1, alpha));
+      const gsDict: Record<string, any> = { Type: 'ExtGState', ca: clamped, CA: clamped };
+      if (blendMode) gsDict.BM = blendMode;
+      apExtGState = { GS0: gsDict };
+      return '/GS0 gs ';
+    };
 
     if (subtype === 'Highlight') {
-      annotDictProps.CA = opacity || 0.4;
+      const effOpacity = opacity ?? 0.4;
+      annotDictProps.CA = effOpacity;
       annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
-      const w = Math.max(0.1, x2 - x1);
-      const h = Math.max(0.1, y2 - y1);
-      streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg ${x1.toFixed(2)} ${y1.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f Q`;
+      const gsOp = makeGs(effOpacity, 'Multiply');
+      const drawRects =
+        options.highlightRects && options.highlightRects.length > 0 ? options.highlightRects : [rect];
+      const rectOps = drawRects
+        .map(([rx1, ry1, rx2, ry2]) => {
+          const rw = Math.max(0.1, rx2 - rx1);
+          const rh = Math.max(0.1, ry2 - ry1);
+          return `${rx1.toFixed(2)} ${ry1.toFixed(2)} ${rw.toFixed(2)} ${rh.toFixed(2)} re f`;
+        })
+        .join(' ');
+      streamOperators = `q ${gsOp}${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg ${rectOps} Q`;
     } else if (subtype === 'Underline' || subtype === 'StrikeOut') {
-      annotDictProps.CA = opacity || 0.9;
+      const effOpacity = opacity ?? 0.9;
+      annotDictProps.CA = effOpacity;
       annotDictProps.QuadPoints = quadPoints || [x1, y2, x2, y2, x1, y1, x2, y1];
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
       annotDictProps.Border = [0, 0, strokeWidth || 2];
       // markupLine carries the exact (possibly vertical) line; otherwise derive a horizontal one from rect
       const defaultY = subtype === 'Underline' ? y1 + (strokeWidth || 2) / 2 : (y1 + y2) / 2;
       const [lx1, ly1, lx2, ly2] = options.markupLine ?? [x1, defaultY, x2, defaultY];
-      streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${lx1.toFixed(2)} ${ly1.toFixed(2)} m ${lx2.toFixed(2)} ${ly2.toFixed(2)} l S Q`;
+      const gsOp = effOpacity < 0.999 ? makeGs(effOpacity) : '';
+      streamOperators = `q ${gsOp}${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${lx1.toFixed(2)} ${ly1.toFixed(2)} m ${lx2.toFixed(2)} ${ly2.toFixed(2)} l S Q`;
     } else if (subtype === 'Text') {
       annotDictProps.Name = 'Comment';
     } else if (subtype === 'FreeText') {
       const fs = options.fontSize || 14;
       annotDictProps.DA = PDFString.of(`/Helv ${fs} Tf ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg`);
+      // ISO 32000-1 Table 164 / 174: /C on FreeText is the background color ([] = transparent); text color is in /DA
+      annotDictProps.C = interiorColorRgb
+        ? [interiorColorRgb.red, interiorColorRgb.green, interiorColorRgb.blue]
+        : [];
       if (options.richTextXml) {
         annotDictProps.RC = PDFHexString.fromText(options.richTextXml);
       }
@@ -489,16 +514,25 @@ const addNativePdfAnnotation = (
       if (options.borderWidth && options.borderWidth > 0) {
         annotDictProps.BS = context.obj({ Type: 'Border', W: options.borderWidth });
         annotDictProps.Border = [0, 0, options.borderWidth];
+      } else {
+        // Explicit zero-width border prevents readers from applying ISO default [0 0 1]
+        annotDictProps.BS = context.obj({ Type: 'Border', W: 0 });
+        annotDictProps.Border = [0, 0, 0];
       }
       if (options.customStreamOperators) {
         streamOperators = options.customStreamOperators;
       }
     } else if (subtype === 'Ink' && inkList) {
+      const effOpacity = opacity ?? 1.0;
+      if (effOpacity < 0.999) {
+        annotDictProps.CA = effOpacity;
+      }
       annotDictProps.InkList = inkList;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
       annotDictProps.Border = [0, 0, strokeWidth || 2];
 
-      let inkOps = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j `;
+      const gsOp = effOpacity < 0.999 ? makeGs(effOpacity) : '';
+      let inkOps = `q ${gsOp}${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j `;
       for (const path of inkList) {
         if (path.length >= 2) {
           inkOps += `${path[0].toFixed(2)} ${path[1].toFixed(2)} m `;
@@ -511,7 +545,8 @@ const addNativePdfAnnotation = (
       inkOps += 'Q';
       streamOperators = inkOps;
     } else if (subtype === 'Square' || subtype === 'Circle') {
-      annotDictProps.CA = opacity || 1.0;
+      const effOpacity = opacity ?? 1.0;
+      annotDictProps.CA = effOpacity;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
       annotDictProps.Border = [0, 0, strokeWidth || 2];
       if (interiorColorRgb) {
@@ -525,15 +560,16 @@ const addNativePdfAnnotation = (
       const rw = Math.max(0.1, w - strokeWidth).toFixed(2);
       const rh = Math.max(0.1, h - strokeWidth).toFixed(2);
 
-      let shapeOps = `q ${strokeWidth} w 1 J 1 j ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG `;
+      const gsOp = effOpacity < 0.999 ? makeGs(effOpacity) : '';
+      let shapeOps = `q ${gsOp}${strokeWidth} w 1 J 1 j ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG `;
       if (interiorColorRgb) {
         shapeOps += `${interiorColorRgb.red.toFixed(3)} ${interiorColorRgb.green.toFixed(3)} ${interiorColorRgb.blue.toFixed(3)} rg `;
       }
       if (subtype === 'Square') {
         shapeOps += `${rx} ${ry} ${rw} ${rh} re ${interiorColorRgb ? 'B' : 'S'} Q`;
       } else {
-        const radX = (w / 2 - halfW);
-        const radY = (h / 2 - halfW);
+        const radX = Math.max(0.1, w / 2 - halfW);
+        const radY = Math.max(0.1, h / 2 - halfW);
         const k = 0.5522847498;
         const ox = radX * k;
         const oy = radY * k;
@@ -544,16 +580,18 @@ const addNativePdfAnnotation = (
         shapeOps += `${(cxN + ox).toFixed(2)} ${(cyN + radY).toFixed(2)} ${(cxN + radX).toFixed(2)} ${(cyN + oy).toFixed(2)} ${(cxN + radX).toFixed(2)} ${cyN.toFixed(2)} c `;
         shapeOps += `${(cxN + radX).toFixed(2)} ${(cyN - oy).toFixed(2)} ${(cxN + ox).toFixed(2)} ${(cyN - radY).toFixed(2)} ${cxN.toFixed(2)} ${(cyN - radY).toFixed(2)} c `;
         shapeOps += `${(cxN - ox).toFixed(2)} ${(cyN - radY).toFixed(2)} ${(cxN - radX).toFixed(2)} ${(cyN - oy).toFixed(2)} ${(cxN - radX).toFixed(2)} ${cyN.toFixed(2)} c `;
-        shapeOps += `${interiorColorRgb ? 'B' : 'S'} Q`;
+        shapeOps += `h ${interiorColorRgb ? 'B' : 'S'} Q`;
       }
       streamOperators = shapeOps;
     } else if (subtype === 'Line' && lineCoordinates) {
-      annotDictProps.CA = opacity || 1.0;
+      const effOpacity = opacity ?? 1.0;
+      annotDictProps.CA = effOpacity;
       annotDictProps.L = lineCoordinates;
       annotDictProps.BS = context.obj({ Type: 'Border', W: strokeWidth || 2 });
       annotDictProps.Border = [0, 0, strokeWidth || 2];
       const [lx1, ly1, lx2, ly2] = lineCoordinates;
-      streamOperators = `q ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${lx1.toFixed(2)} ${ly1.toFixed(2)} m ${lx2.toFixed(2)} ${ly2.toFixed(2)} l S Q`;
+      const gsOp = effOpacity < 0.999 ? makeGs(effOpacity) : '';
+      streamOperators = `q ${gsOp}${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${strokeWidth} w 1 J 1 j ${lx1.toFixed(2)} ${ly1.toFixed(2)} m ${lx2.toFixed(2)} ${ly2.toFixed(2)} l S Q`;
     }
 
     // Geometry above is in display space; map it into user space for rotated / offset pages.
@@ -575,14 +613,18 @@ const addNativePdfAnnotation = (
 
     // Attach Appearance Stream (/AP << /N streamRef >>) for universal ISO 32000-1 viewer rendering
     if (streamOperators) {
+      const resources: Record<string, any> = options.customResources
+        ? { ...options.customResources }
+        : { ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'] };
+      if (apExtGState) {
+        resources.ExtGState = apExtGState;
+      }
       const apFormDict: Record<string, any> = {
         Type: 'XObject',
         Subtype: 'Form',
         FormType: 1,
         BBox: rect,
-        Resources: options.customResources || {
-          ProcSet: ['PDF', 'Text', 'ImageB', 'ImageC', 'ImageI'],
-        },
+        Resources: resources,
       };
       if (matrix) {
         apFormDict.Matrix = matrix;
@@ -597,14 +639,15 @@ const addNativePdfAnnotation = (
     const annotDict = context.obj(annotDictProps);
     const annotRef = context.register(annotDict);
 
-    // Get or create Annots array on page node
+    // Get or create Annots array on page node (resolve indirect /Annots per ISO 32000-1 Table 30)
     const annotsName = PDFName.of('Annots');
-    let annots = targetPage.node.get(annotsName);
-    if (!annots) {
+    const existingAnnotsRaw = targetPage.node.get(annotsName);
+    const existingAnnots = existingAnnotsRaw ? context.lookup(existingAnnotsRaw) : undefined;
+    if (existingAnnots instanceof PDFArray) {
+      existingAnnots.push(annotRef);
+    } else {
       const newAnnots = context.obj([annotRef]);
       targetPage.node.set(annotsName, newAnnots);
-    } else if (annots instanceof PDFArray) {
-      annots.push(annotRef);
     }
   } catch (err) {
     console.warn('Failed to embed native PDF annotation:', err);
@@ -637,6 +680,9 @@ const removeEditorManagedAnnotations = (page: PDFPage) => {
       removedRefs.add(ref.toString());
     }
   }
+
+  // Leave untouched pages' /Annots array intact when nothing needs filtering
+  if (removedRefs.size === 0) return;
 
   const preservedAnnots = context.obj([]);
   for (const { ref, dict } of entries) {
@@ -835,7 +881,11 @@ export const applyDocumentMetadata = (doc: PDFDocument, metadata: DocumentMetada
     setText(cleanKey, value);
   }
 
-  if (metadata.language && metadata.language.trim()) doc.setLanguage(metadata.language.trim());
+  if (metadata.language && metadata.language.trim()) {
+    doc.setLanguage(metadata.language.trim());
+  } else {
+    doc.catalog.delete(PDFName.of('Lang'));
+  }
 
   const xmp = buildXmpPacket(metadata, created || doc.getCreationDate() || null, modified);
   const xmpStream = doc.context.stream(new TextEncoder().encode(xmp), {
@@ -878,10 +928,29 @@ export const exportEditedPdf = async (
     applyDocumentMetadata(outputDoc, metadata);
   }
 
-  // Pre-load source PDF documents into memory map with automatic catalog repair
+  // Only load source PDF documents that are actually referenced by at least one kept page
+  const usedSourceIds = new Set<string>();
+  for (const p of pages) {
+    if (p.sourceType === 'pdf' && p.sourceDocId) usedSourceIds.add(p.sourceDocId);
+  }
+  const sourcesById = new Map<string, SourceDocument>();
+  for (const src of sources) {
+    sourcesById.set(src.id, src);
+  }
+  const annotationsByPageId = new Map<string, Annotation[]>();
+  for (const ann of annotations) {
+    let bucket = annotationsByPageId.get(ann.pageId);
+    if (!bucket) {
+      bucket = [];
+      annotationsByPageId.set(ann.pageId, bucket);
+    }
+    bucket.push(ann);
+  }
+
+  // Pre-load referenced source PDF documents into memory map with automatic catalog repair
   const sourceDocsMap = new Map<string, PDFDocument>();
   for (const src of sources) {
-    if (src.arrayBuffer) {
+    if (src.arrayBuffer && usedSourceIds.has(src.id)) {
       const loadResult = await loadSourcePdfDocWithDiagnostics(src.arrayBuffer);
       if (loadResult.doc) {
         sourceDocsMap.set(src.id, loadResult.doc);
@@ -955,39 +1024,50 @@ export const exportEditedPdf = async (
 
         await srcDoc.flush();
         const copier = PDFObjectCopier.for(srcDoc.context, outputDoc.context);
-
-        // Preserve interactive AcroForm fields and widgets using the shared copier
-        try {
-          const srcAcroObj = srcDoc.catalog.get(PDFName.of('AcroForm'));
-          if (srcAcroObj && !outputDoc.catalog.has(PDFName.of('AcroForm'))) {
-            const copied = copier.copy(srcAcroObj);
-            const acroRef = copied instanceof PDFRef ? copied : outputDoc.context.register(copied);
-            outputDoc.catalog.set(PDFName.of('AcroForm'), acroRef);
-          }
-        } catch (acroErr) {
-          logger.warn('save', `Nelze zkopírovat AcroForm ze zdroje ${src.id}: ${acroErr}`);
-        }
-
-        // Preserve Document Outlines (bookmarks / TOC tree) if present in primary source document (ISO 32000-1 Section 12.3.3)
-        try {
-          const srcOutlines = srcDoc.catalog.get(PDFName.of('Outlines'));
-          if (srcOutlines && !outputDoc.catalog.has(PDFName.of('Outlines'))) {
-            const copied = copier.copy(srcOutlines);
-            const outlinesRef = copied instanceof PDFRef ? copied : outputDoc.context.register(copied);
-            outputDoc.catalog.set(PDFName.of('Outlines'), outlinesRef);
-          }
-        } catch (outlinesErr) {
-          // ignore outlines copy error
-        }
-
-        // Copy pages with the same copier so all widget and page references map 1-to-1 identically
         const rawSrcPages = srcDoc.getPages();
+        const keptIndexSet = new Set(indicesToCopy);
+        const allPagesKept = keptIndexSet.size === rawSrcPages.length;
+
+        // ISO 32000-1 §§ 12.3.2, 12.3.3, 12.5.6.5, 12.7.2:
+        // Pre-map every kept source page ref to its pre-allocated output page ref, and map deleted
+        // source page refs to PDFNull. This guarantees that:
+        //  1) /Outlines, internal /Link destinations, /Dests, and /AcroForm /P point to the ACTUAL
+        //     copied pages in outputDoc (never orphan duplicate pages).
+        //  2) Deleted pages (and their fonts/images/content) are NEVER dragged into outputDoc.
+        //  3) Pages are copied once instead of twice, halving memory and output size.
+        const traversed = (copier as unknown as { traversedObjects: Map<any, any> }).traversedObjects;
+        const firstOutRefBySrcRef = new Map<PDFRef, PDFRef>();
+        const keptSrcAnnotRefs = new Set<PDFRef>();
+        for (let i = 0; i < rawSrcPages.length; i++) {
+          const pRef = rawSrcPages[i].ref;
+          if (keptIndexSet.has(i)) {
+            if (!firstOutRefBySrcRef.has(pRef)) {
+              const outRef = outputDoc.context.nextRef();
+              firstOutRefBySrcRef.set(pRef, outRef);
+              traversed.set(pRef, outRef);
+            }
+            if (!allPagesKept) {
+              const annotsArr = srcDoc.context.lookup(rawSrcPages[i].node.get(PDFName.of('Annots')));
+              if (annotsArr instanceof PDFArray) {
+                for (let ai = 0; ai < annotsArr.size(); ai++) {
+                  const aRef = annotsArr.get(ai);
+                  if (aRef instanceof PDFRef) keptSrcAnnotRefs.add(aRef);
+                }
+              }
+            }
+          } else {
+            traversed.set(pRef, PDFNull);
+          }
+        }
+
+        // Copy pages first into their pre-allocated refs
+        const assignedSrcRefs = new Set<PDFRef>();
         const copiedList: PDFPage[] = new Array(indicesToCopy.length);
         for (let idx = 0, len = indicesToCopy.length; idx < len; idx++) {
           const rawSrcPage = rawSrcPages[indicesToCopy[idx]];
 
           // ISO 32000-1 Section 7.7.3.4: Resolve inherited attributes before copying
-          // (Resources, MediaBox, CropBox may reside in parent /Pages nodes)
+          // (Resources, MediaBox, CropBox, Rotate may reside in parent /Pages nodes)
           try {
             if (!rawSrcPage.node.has(PDFName.of('Resources'))) {
               const inheritedRes = safeGetPageResources(rawSrcPage.node);
@@ -1001,15 +1081,133 @@ export const exportEditedPdf = async (
               const inheritedCrop = rawSrcPage.node.CropBox();
               if (inheritedCrop) rawSrcPage.node.set(PDFName.of('CropBox'), inheritedCrop);
             }
+            if (!rawSrcPage.node.has(PDFName.of('Rotate'))) {
+              const inheritedRotate = rawSrcPage.node.Rotate();
+              if (inheritedRotate) rawSrcPage.node.set(PDFName.of('Rotate'), inheritedRotate);
+            }
           } catch {
             // ignore attribute resolution errors
           }
 
           const copiedPageLeaf = copier.copy(rawSrcPage.node);
-          const ref = outputDoc.context.register(copiedPageLeaf);
+          const preallocated = firstOutRefBySrcRef.get(rawSrcPage.ref);
+          let ref: PDFRef;
+          if (preallocated && !assignedSrcRefs.has(rawSrcPage.ref)) {
+            outputDoc.context.assign(preallocated, copiedPageLeaf);
+            assignedSrcRefs.add(rawSrcPage.ref);
+            ref = preallocated;
+          } else {
+            // Duplicated page gets its own leaf ref while still sharing copied resources
+            ref = outputDoc.context.register(copiedPageLeaf);
+          }
           copiedList[idx] = PDFPage.of(copiedPageLeaf, ref, outputDoc);
         }
         copiedPagesMap.set(src.id, copiedList);
+
+        // Preserve interactive AcroForm fields and widgets using the shared copier
+        try {
+          const srcAcroObj = srcDoc.catalog.get(PDFName.of('AcroForm'));
+          if (srcAcroObj && !outputDoc.catalog.has(PDFName.of('AcroForm'))) {
+            if (allPagesKept) {
+              const copied = copier.copy(srcAcroObj);
+              const acroRef = copied instanceof PDFRef ? copied : outputDoc.context.register(copied);
+              outputDoc.catalog.set(PDFName.of('AcroForm'), acroRef);
+            } else {
+              const srcAcroDict = srcDoc.context.lookup(srcAcroObj);
+              if (srcAcroDict instanceof PDFDict) {
+                const fieldReferencesKeptWidget = (obj: unknown, seen = new Set<unknown>()): boolean => {
+                  if (!obj || seen.has(obj)) return false;
+                  seen.add(obj);
+                  if (obj instanceof PDFRef && keptSrcAnnotRefs.has(obj)) return true;
+                  const dict = obj instanceof PDFRef ? srcDoc.context.lookup(obj) : obj;
+                  if (!(dict instanceof PDFDict)) return false;
+                  const kids = dict.lookup(PDFName.of('Kids'));
+                  if (kids instanceof PDFArray) {
+                    for (let ki = 0; ki < kids.size(); ki++) {
+                      if (fieldReferencesKeptWidget(kids.get(ki), seen)) return true;
+                    }
+                    return false;
+                  }
+                  // Leaf field without /Rect or /Subtype /Widget (non-visual field) is kept; widget-only field must be on a kept page
+                  const hasRect = dict.has(PDFName.of('Rect'));
+                  const isWidget = nameOf(dict.lookup(PDFName.of('Subtype'))) === 'Widget';
+                  return !hasRect && !isWidget;
+                };
+                const srcFields = srcAcroDict.lookup(PDFName.of('Fields'));
+                const copiedFields = outputDoc.context.obj([]) as PDFArray;
+                if (srcFields instanceof PDFArray) {
+                  for (let fi = 0; fi < srcFields.size(); fi++) {
+                    const fRef = srcFields.get(fi);
+                    if (fieldReferencesKeptWidget(fRef)) {
+                      copiedFields.push(copier.copy(fRef));
+                    }
+                  }
+                }
+                if (copiedFields.size() > 0) {
+                  const newAcroDict = outputDoc.context.obj({}) as PDFDict;
+                  for (const [k, v] of srcAcroDict.entries()) {
+                    if (k === PDFName.of('Fields')) {
+                      newAcroDict.set(k, copiedFields);
+                    } else {
+                      newAcroDict.set(k, copier.copy(v));
+                    }
+                  }
+                  newAcroDict.set(PDFName.of('Fields'), copiedFields);
+                  outputDoc.catalog.set(PDFName.of('AcroForm'), outputDoc.context.register(newAcroDict));
+                }
+              }
+            }
+          }
+        } catch (acroErr) {
+          logger.warn('save', `Nelze zkopírovat AcroForm ze zdroje ${src.id}: ${acroErr}`);
+        }
+
+        // Preserve Document Outlines (bookmarks / TOC tree) pointing to the actual copied pages (ISO 32000-1 §12.3.3)
+        try {
+          const srcOutlines = srcDoc.catalog.get(PDFName.of('Outlines'));
+          if (srcOutlines && !outputDoc.catalog.has(PDFName.of('Outlines'))) {
+            const copied = copier.copy(srcOutlines);
+            const outlinesRef = copied instanceof PDFRef ? copied : outputDoc.context.register(copied);
+            outputDoc.catalog.set(PDFName.of('Outlines'), outlinesRef);
+          }
+        } catch {
+          // ignore outlines copy error
+        }
+
+        // Preserve Named Destinations (ISO 32000-1 §12.3.2.3: Catalog /Dests and /Names /Dests)
+        try {
+          const srcDests = srcDoc.catalog.get(PDFName.of('Dests'));
+          if (srcDests && !outputDoc.catalog.has(PDFName.of('Dests'))) {
+            const copiedDests = copier.copy(srcDests);
+            outputDoc.catalog.set(
+              PDFName.of('Dests'),
+              copiedDests instanceof PDFRef ? copiedDests : outputDoc.context.register(copiedDests)
+            );
+          }
+          const srcNames = srcDoc.catalog.lookup(PDFName.of('Names'));
+          if (srcNames instanceof PDFDict) {
+            const srcNamesDests = srcNames.get(PDFName.of('Dests'));
+            if (srcNamesDests) {
+              const existingOutNames = outputDoc.catalog.lookup(PDFName.of('Names'));
+              const outNames =
+                existingOutNames instanceof PDFDict ? existingOutNames : (outputDoc.context.obj({}) as PDFDict);
+              if (!outNames.has(PDFName.of('Dests'))) {
+                const copiedNamesDests = copier.copy(srcNamesDests);
+                outNames.set(
+                  PDFName.of('Dests'),
+                  copiedNamesDests instanceof PDFRef
+                    ? copiedNamesDests
+                    : outputDoc.context.register(copiedNamesDests)
+                );
+                if (!(existingOutNames instanceof PDFDict)) {
+                  outputDoc.catalog.set(PDFName.of('Names'), outputDoc.context.register(outNames));
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore named destinations copy error
+        }
 
         logger.info('save', `Zkopírováno ${copiedList.length} originálních vektorových stran ze zdroje "${src.name || src.id}"`, {
           sourceId: src.id,
@@ -1123,7 +1321,15 @@ export const exportEditedPdf = async (
                 const inheritedMedia = rawSrcPage.node.MediaBox();
                 if (inheritedMedia) rawSrcPage.node.set(PDFName.of('MediaBox'), inheritedMedia);
               }
-            } catch {}
+              if (!rawSrcPage.node.has(PDFName.of('CropBox'))) {
+                const inheritedCrop = rawSrcPage.node.CropBox();
+                if (inheritedCrop) rawSrcPage.node.set(PDFName.of('CropBox'), inheritedCrop);
+              }
+              if (!rawSrcPage.node.has(PDFName.of('Rotate'))) {
+                const inheritedRotate = rawSrcPage.node.Rotate();
+                if (inheritedRotate) rawSrcPage.node.set(PDFName.of('Rotate'), inheritedRotate);
+              }
+            } catch { }
             const [copiedPage] = await outputDoc.copyPages(srcDoc, [pageIdx]);
             targetPage = outputDoc.addPage(copiedPage);
           } catch (copyErr: any) {
@@ -1142,7 +1348,7 @@ export const exportEditedPdf = async (
       // If pdf-lib direct copy was unavailable or failed for this page, use high-res rendering fallback
       if (!targetPage) {
         try {
-          const sourceDoc = sources.find((s) => s.id === pageModel.sourceDocId) || sources[0];
+          const sourceDoc = sourcesById.get(pageModel.sourceDocId) || sources[0];
           if (sourceDoc && sourceDoc.arrayBuffer) {
             const scale = rasterSettings.scale || 2.0;
             const format = rasterSettings.format || 'image/jpeg';
@@ -1219,15 +1425,21 @@ export const exportEditedPdf = async (
       // Ignore if no Annots node
     }
 
-    targetPage.setRotation(degrees(appliedRotation));
+    // Only set /Rotate when the effective angle actually changed (keep untouched pages unmodified)
+    const currentRotation = ((targetPage.getRotation().angle % 360) + 360) % 360;
+    const desiredRotation = ((appliedRotation % 360) + 360) % 360;
+    if (currentRotation !== desiredRotation) {
+      targetPage.setRotation(degrees(desiredRotation));
+    }
+
+    // Get annotations for this page (skip display-space calculation if none)
+    const pageAnnotations = annotationsByPageId.get(pageModel.id) || [];
+    if (pageAnnotations.length === 0) continue;
 
     // Annotation geometry is computed in display space (y up) and mapped through space.matrix
     const space = getPageDisplaySpace(targetPage);
     const pageHeight = space.displayHeight;
     const matrix = space.matrix;
-
-    // Get annotations for this page
-    const pageAnnotations = annotations.filter((a) => a.pageId === pageModel.id);
 
     for (const ann of pageAnnotations) {
       try {
@@ -1235,18 +1447,35 @@ export const exportEditedPdf = async (
           case 'highlight': {
             const h = ann as HighlightAnnotation;
             const pdfColor = hexToPdfRgb(h.color || '#fef08a');
-            const pdfY = pageHeight - h.y - h.height;
-            const x1 = h.x;
-            const y1 = pdfY;
-            const x2 = h.x + h.width;
-            const y2 = pdfY + h.height;
+            const subRects: Array<[number, number, number, number]> =
+              h.rects && h.rects.length > 0
+                ? h.rects.map((r) => {
+                  const ry1 = pageHeight - r.y - r.height;
+                  return [r.x, ry1, r.x + r.width, ry1 + r.height];
+                })
+                : [
+                  [
+                    h.x,
+                    pageHeight - h.y - h.height,
+                    h.x + h.width,
+                    pageHeight - h.y,
+                  ],
+                ];
+            const x1 = Math.min(...subRects.map((r) => r[0]));
+            const y1 = Math.min(...subRects.map((r) => r[1]));
+            const x2 = Math.max(...subRects.map((r) => r[2]));
+            const y2 = Math.max(...subRects.map((r) => r[3]));
+            const quadPoints = subRects.flatMap(([rx1, ry1, rx2, ry2]) => [
+              rx1, ry2, rx2, ry2, rx1, ry1, rx2, ry1,
+            ]);
 
             addNativePdfAnnotation(outputDoc, targetPage, {
               matrix,
               id: h.id,
               subtype: 'Highlight',
               rect: [x1, y1, x2, y2],
-              quadPoints: [x1, y2, x2, y2, x1, y1, x2, y1],
+              quadPoints,
+              highlightRects: subRects,
               contents: h.comment,
               author: h.author,
               colorRgb: pdfColor,
@@ -1610,7 +1839,8 @@ export const exportEditedPdf = async (
     }
   }
 
-  // Ensure all copied form widgets have their /P page reference pointing to targetPage.ref
+  // Ensure copied form widgets (and annotations that already carry /P) point to targetPage.ref
+  // without mutating untouched structural annotations (e.g. /Link) that have no stale /P entry
   try {
     for (const targetPage of outputDoc.getPages()) {
       const annotsObj = targetPage.node.get(PDFName.of('Annots'));
@@ -1620,7 +1850,11 @@ export const exportEditedPdf = async (
           const annotRef = annots.get(i);
           const annotDict = outputDoc.context.lookup(annotRef);
           if (annotDict instanceof PDFDict) {
-            annotDict.set(PDFName.of('P'), targetPage.ref);
+            const isWidget = nameOf(annotDict.lookup(PDFName.of('Subtype'))) === 'Widget';
+            const currentP = annotDict.get(PDFName.of('P'));
+            if ((isWidget || currentP !== undefined) && currentP !== targetPage.ref) {
+              annotDict.set(PDFName.of('P'), targetPage.ref);
+            }
           }
         }
       }
@@ -1630,16 +1864,51 @@ export const exportEditedPdf = async (
   }
 
   // Apply interactive form field values and optional flattening
-  if (formValues && Object.keys(formValues).length > 0) {
-    applyFormValuesToPdfDocument(outputDoc, formValues, formExportMode === 'flatten');
+  const hasFormValues = Boolean(formValues && Object.keys(formValues).length > 0);
+  const shouldProcessForm =
+    hasFormValues || (formExportMode === 'flatten' && outputDoc.catalog.has(PDFName.of('AcroForm')));
+  if (shouldProcessForm) {
+    let appearanceFont: PDFFont | undefined;
+    if (formExportMode === 'flatten') {
+      // Check if any form value (new or existing) needs Unicode glyphs beyond WinAnsi
+      const stdHelv = await fonts.getStandardFont(standardFontFor('Helvetica', false, false));
+      let needsUnicode = false;
+      for (const val of Object.values(formValues || {})) {
+        const texts = Array.isArray(val) ? val : typeof val === 'string' ? [val] : [];
+        if (texts.some((s) => !fontSupportsText(stdHelv, s.replace(/[\r\n\t]/g, '')))) {
+          needsUnicode = true;
+          break;
+        }
+      }
+      if (!needsUnicode) {
+        try {
+          for (const f of outputDoc.getForm().getFields()) {
+            const existingText = typeof (f as any).getText === 'function' ? (f as any).getText() : '';
+            if (existingText && !fontSupportsText(stdHelv, existingText.replace(/[\r\n\t]/g, ''))) {
+              needsUnicode = true;
+              break;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (needsUnicode) {
+        appearanceFont = (await fonts.getUnicodeFont('regular')) ?? undefined;
+      }
+    }
+    applyFormValuesToPdfDocument(outputDoc, formValues || {}, formExportMode === 'flatten', appearanceFont);
   }
 
   try {
-    // Save document as bytes with PDF 1.5 Object Stream compression
+    // Save document as bytes with PDF 1.5 Object Stream compression.
+    // Skip pdf-lib's WinAnsi updateFieldAppearances when we already handled forms above
+    // (otherwise pdf-lib crashes on Czech UTF-16BE interactive fields whose stale /AP was cleared).
     const pdfBytes = await outputDoc.save({
       useObjectStreams: true,
-      updateInfoDict: false,
-    } as any);
+      objectsPerTick: 500,
+      updateFieldAppearances: !shouldProcessForm,
+    });
     const elapsed = Date.now() - startTime;
     logger.success('save', `PDF export úspěšně dokončen: ${(pdfBytes.length / 1024).toFixed(1)} KB za ${elapsed} ms`, {
       outputFileName,
@@ -1663,7 +1932,7 @@ export const exportEditedPdf = async (
       link.click();
 
       setTimeout(() => {
-        if (document.body.contains(link)) {
+        if (typeof document !== 'undefined' && document.body?.contains(link)) {
           document.body.removeChild(link);
         }
         URL.revokeObjectURL(downloadUrl);

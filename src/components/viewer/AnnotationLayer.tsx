@@ -705,7 +705,9 @@ export const AnnotationLayer: React.FC<AnnotationLayerProps> = ({ page, scale })
             activeTool === 'highlight' ||
             activeTool === 'underline' ||
             activeTool === 'strikethrough' ||
-            activeTool === 'crop'
+            activeTool === 'crop' ||
+            activeTool === 'whiteout' ||
+            activeTool === 'shape'
           ? 'cursor-crosshair'
           : activeTool === 'note' || activeTool === 'text'
           ? 'cursor-text'

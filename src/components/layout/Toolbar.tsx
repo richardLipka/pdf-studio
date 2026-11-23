@@ -31,6 +31,8 @@ import {
   Italic,
   List,
   ListOrdered,
+  Replace,
+  Scan,
 } from 'lucide-react';
 
 const HIGHLIGHT_COLORS = ['#fde047', '#86efac', '#93c5fd', '#f472b6', '#fdba74'];
@@ -76,10 +78,13 @@ export const Toolbar: React.FC = () => {
     selectedShape,
     setSelectedShape,
     setIsNotesPanelOpen,
-    setIsStreamReplaceModalOpen,
-    setIsRemoveElementsModalOpen,
     isEditSidePanelOpen,
+    editSidePanelTab,
+    setEditSidePanelTab,
+    setIsEditSidePanelOpen,
     toggleEditSidePanel,
+    showAllEditOutlines,
+    toggleShowAllEditOutlines,
   } = useEditor();
 
   const {
@@ -419,9 +424,6 @@ export const Toolbar: React.FC = () => {
             type="button"
             onClick={() => {
               setActiveTab('edit');
-              if (activeTool !== 'whiteout' && activeTool !== 'streamReplace' && activeTool !== 'removeElements') {
-                setActiveTool('removeElements');
-              }
             }}
             className={`flex items-center gap-2 px-3.5 py-1 text-xs font-semibold transition-all ${
               activeTab === 'edit'
@@ -517,10 +519,39 @@ export const Toolbar: React.FC = () => {
             </div>
           )}
 
-          {/* Tab 2: Document Editing Suite - 1. Visual Rewrite (Whiteout), 2. Stream Editor */}
+          {/* Tab 2: Unified Document Editing Suite */}
           {activeTab === 'edit' && (
             <div className="flex items-center gap-1.5">
-              {/* Button 1: Visual Rewrite (Whiteout + Overlay) */}
+              {/* Primary Tool 1: Select & Edit PDF Elements (non-destructive default) */}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool('streamReplace');
+                  if (!isEditSidePanelOpen || editSidePanelTab !== 'remove') {
+                    setEditSidePanelTab('remove');
+                    setIsEditSidePanelOpen(true);
+                  }
+                }}
+                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
+                  isMinimal
+                    ? activeTool !== 'whiteout' && (!isEditSidePanelOpen || editSidePanelTab !== 'replace')
+                      ? 'rounded-md bg-black text-white border border-black shadow-xs'
+                      : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
+                    : isLcars
+                    ? activeTool !== 'whiteout' && (!isEditSidePanelOpen || editSidePanelTab !== 'replace')
+                      ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
+                      : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
+                    : activeTool !== 'whiteout' && (!isEditSidePanelOpen || editSidePanelTab !== 'replace')
+                    ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
+                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
+                }`}
+                title={t.editPanel.selectAndEditDesc}
+              >
+                <MousePointer className="w-4 h-4" />
+                <span>{t.editPanel.selectAndEdit}</span>
+              </button>
+
+              {/* Primary Tool 2: Visual Rewrite (Whiteout + Overlay) */}
               <button
                 type="button"
                 onClick={() => setActiveTool('whiteout')}
@@ -543,56 +574,32 @@ export const Toolbar: React.FC = () => {
                 <span>{t.tools.whiteout}</span>
               </button>
 
-              {/* Button 2: Content Stream Editor */}
+              {/* Action 3: Find & Replace in Content Streams */}
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTool('streamReplace');
-                  setIsStreamReplaceModalOpen(true);
+                  if (activeTool === 'whiteout') {
+                    setActiveTool('streamReplace');
+                  }
+                  toggleEditSidePanel('replace');
                 }}
                 className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
                   isMinimal
-                    ? activeTool === 'streamReplace'
+                    ? isEditSidePanelOpen && editSidePanelTab === 'replace'
                       ? 'rounded-md bg-black text-white border border-black shadow-xs'
                       : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
                     : isLcars
-                    ? activeTool === 'streamReplace'
+                    ? isEditSidePanelOpen && editSidePanelTab === 'replace'
                       ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
                       : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                    : activeTool === 'streamReplace'
+                    : isEditSidePanelOpen && editSidePanelTab === 'replace'
                     ? 'rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-500/50'
                     : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
                 }`}
-                title={t.tools.streamReplaceDesc}
+                title={t.editPanel.findAndReplaceDesc}
               >
-                <FileCode2 className="w-4 h-4" />
-                <span>{t.tools.streamReplace}</span>
-              </button>
-
-              {/* Button 3: Remove Elements (Blocks & Images) */}
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTool('removeElements');
-                  setIsRemoveElementsModalOpen(true);
-                }}
-                className={`flex items-center gap-2 px-3 py-1.5 text-xs font-semibold transition-all ${
-                  isMinimal
-                    ? activeTool === 'removeElements'
-                      ? 'rounded-md bg-rose-600 text-white border border-rose-600 shadow-xs'
-                      : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-800 border border-neutral-200 hover:border-neutral-300'
-                    : isLcars
-                    ? activeTool === 'removeElements'
-                      ? 'rounded-full bg-[#ff9900] text-black font-bold border-2 border-[#ff9900] shadow-sm uppercase'
-                      : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#ff9966] border border-[#ff9966]'
-                    : activeTool === 'removeElements'
-                    ? 'rounded-lg bg-rose-600 text-white shadow-md shadow-rose-600/30 border border-rose-500/50'
-                    : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
-                }`}
-                title={t.tools.removeElementsDesc}
-              >
-                <Trash2 className="w-4 h-4 text-rose-400" />
-                <span>{t.tools.removeElements}</span>
+                <Replace className="w-4 h-4" />
+                <span>{t.editPanel.findAndReplace}</span>
               </button>
 
               <div
@@ -601,10 +608,37 @@ export const Toolbar: React.FC = () => {
                 }`}
               />
 
-              {/* Button 4: Toggle Edit Side Panel */}
+              {/* Toggle: Show all bounding outlines vs clean hover-first canvas */}
+              {activeTool !== 'whiteout' && (
+                <button
+                  type="button"
+                  onClick={toggleShowAllEditOutlines}
+                  aria-pressed={showAllEditOutlines}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                    isMinimal
+                      ? showAllEditOutlines
+                        ? 'rounded-md bg-neutral-900 text-white border border-neutral-900'
+                        : 'rounded-md bg-white hover:bg-neutral-100 text-neutral-700 border border-neutral-200'
+                      : isLcars
+                      ? showAllEditOutlines
+                        ? 'rounded-full bg-[#ffcc00] text-black font-bold border border-[#ffcc00]'
+                        : 'rounded-full bg-[#111111] hover:bg-[#222222] text-[#99ccff] border border-[#99ccff]/60'
+                      : showAllEditOutlines
+                      ? 'rounded-lg bg-sky-600/25 text-sky-200 border border-sky-500/50'
+                      : 'rounded-lg bg-slate-800/70 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700/60'
+                  }`}
+                  title={t.editPanel.showAllOutlinesDesc}
+                >
+                  <Scan className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">{t.editPanel.showAllOutlines}</span>
+                </button>
+              )}
+
+              {/* Toggle Edit Side Panel */}
               <button
                 type="button"
                 onClick={() => toggleEditSidePanel()}
+                aria-pressed={isEditSidePanelOpen}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-all ${
                   isMinimal
                     ? isEditSidePanelOpen
@@ -618,10 +652,10 @@ export const Toolbar: React.FC = () => {
                     ? 'rounded-lg bg-indigo-600/30 text-indigo-200 border border-indigo-500/50 shadow-sm'
                     : 'rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60'
                 }`}
-                title={isEditSidePanelOpen ? 'Skrýt boční panel úprav' : 'Zobrazit boční panel úprav'}
+                title={t.editPanel.togglePanelDesc}
               >
-                <PanelRight className="w-4 h-4 text-indigo-400" />
-                <span>{isEditSidePanelOpen ? 'Skrýt panel' : 'Boční panel'}</span>
+                <PanelRight className={`w-4 h-4 ${isMinimal ? '' : isLcars ? '' : 'text-indigo-400'}`} />
+                <span>{isEditSidePanelOpen ? t.editPanel.hidePanel : t.editPanel.showPanel}</span>
               </button>
             </div>
           )}
@@ -688,31 +722,22 @@ export const Toolbar: React.FC = () => {
 
       {/* Contextual Style Controls (or Edit / Sign hint) */}
       <div className="flex items-center gap-3">
-        {activeTab === 'edit' && (
+        {activeTab === 'edit' && activeTool !== 'whiteout' && !selectedAnn && (
           <div className="flex items-center gap-2">
             <span
               className={`hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border ${
-                activeTool === 'removeElements'
-                  ? isMinimal
-                    ? 'bg-rose-50 border-rose-200 text-rose-700'
-                    : isLcars
-                    ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
-                    : 'bg-rose-950/40 border-rose-700/50 text-rose-300'
-                  : isMinimal
+                isMinimal
                   ? 'bg-neutral-100 border-neutral-300 text-neutral-700'
                   : isLcars
                   ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
                   : 'bg-slate-800/80 border-slate-700/80 text-slate-300'
               }`}
             >
-              {activeTool === 'removeElements' ? (
-                <>
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                  <span>{t.removeElementsModal.markingHint}</span>
-                </>
-              ) : (
-                <span>{t.streamReplaceModal.hintInfo}</span>
-              )}
+              <span>
+                {isEditSidePanelOpen && editSidePanelTab === 'replace'
+                  ? t.editPanel.editHintReplace
+                  : t.editPanel.editHintSelect}
+              </span>
             </span>
           </div>
         )}

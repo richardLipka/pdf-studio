@@ -57,11 +57,21 @@ const skipHexString = (text: string, start: number, end: number): number => {
   return close === -1 || close >= end ? end : close + 1;
 };
 
+const skipComment = (text: string, start: number, end: number): number => {
+  let i = start;
+  while (i < end && text[i] !== '\n' && text[i] !== '\r') i++;
+  return i;
+};
+
 const skipDict = (text: string, start: number, end: number): number => {
   let depth = 0;
   let i = start;
   while (i < end) {
     const ch = text[i];
+    if (ch === '%') {
+      i = skipComment(text, i, end);
+      continue;
+    }
     if (ch === '(') {
       i = skipLiteralString(text, i, end);
       continue;
@@ -91,6 +101,10 @@ const skipArray = (text: string, start: number, end: number): number => {
   let i = start;
   while (i < end) {
     const ch = text[i];
+    if (ch === '%') {
+      i = skipComment(text, i, end);
+      continue;
+    }
     if (ch === '(') {
       i = skipLiteralString(text, i, end);
       continue;
@@ -216,7 +230,13 @@ export function decodeLiteralStringBytes(raw: string): number[] {
   for (let i = 0; i < inner.length; i++) {
     const ch = inner[i];
     if (ch !== '\\') {
-      bytes.push(ch.charCodeAt(0) & 0xff);
+      // ISO 32000-1 §7.3.4.2: unescaped CR or CRLF inside a literal string normalizes to LF (0x0A)
+      if (ch === '\r') {
+        if (inner[i + 1] === '\n') i++;
+        bytes.push(0x0a);
+      } else {
+        bytes.push(ch.charCodeAt(0) & 0xff);
+      }
       continue;
     }
     const next = inner[i + 1];

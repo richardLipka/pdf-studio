@@ -23,16 +23,17 @@ import {
   FileCode2,
   SquarePen,
   Trash2,
-  Code,
   Image as ImageIcon,
   Download,
   RefreshCw,
+  Pencil,
+  SlidersHorizontal,
 } from 'lucide-react';
-import {
-  parseStreamSegments,
-  findBestMatchingBlock,
-} from '../../services/contentStreamEditor';
 import { VisualTextBlock } from '../../utils/textSnap';
+import {
+  isEditCanvasOverlayActive,
+  clampInlineEditorPosition,
+} from '../../utils/editModeState';
 
 interface TextLayerProps {
   page: PdfPageModel;
@@ -53,11 +54,12 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     strokeWidth,
     setStreamReplaceTargetText,
     setStreamReplaceTargetPosition,
-    isRemoveElementsModalOpen,
     isEditSidePanelOpen,
     setIsEditSidePanelOpen,
     editSidePanelTab,
     setEditSidePanelTab,
+    showAllEditOutlines,
+    showEditNotice,
     selectedStreamBlockId,
     selectedStreamBlockPageId,
     setSelectedStreamBlockId,
@@ -66,6 +68,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     setHoveredBlockId,
     setHoveredBlockText,
     activeTab,
+    setActiveTab,
     isSearchOpen,
     searchResults,
     activeSearchMatchIndex,
@@ -74,8 +77,6 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     addAnnotation,
     setSelectedAnnotationId,
     pages,
-    getPageStream,
-    removePageBlock,
     removeMultiplePageElements,
     applyLineTextEdit,
     removePageImage,
@@ -87,6 +88,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   } = useDocument();
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const inlineEditorRef = useRef<HTMLDivElement>(null);
   const [selectedText, setSelectedText] = useState<string>('');
   const [floatingMenuPos, setFloatingMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [selectedRects, setSelectedRects] = useState<DOMRect[]>([]);
@@ -95,13 +97,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   const isMinimal = theme === 'minimal';
   const isLcars = theme === 'lcars';
 
-  // Page element overlays belong to the edit tab only; the review and signature tabs never show them
-  const isRemoveActive =
-    activeTab === 'edit' &&
-    (activeTool === 'removeElements' ||
-      activeTool === 'streamReplace' ||
-      isRemoveElementsModalOpen ||
-      isEditSidePanelOpen);
+  // Page element overlays belong to the edit tab only and MUST yield to Whiteout drawing
+  const isEditOverlayActive = isEditCanvasOverlayActive(activeTab, activeTool);
   const pageIndex = pages.findIndex((p) => p.id === page.id);
   const isActivePage = pageIndex === activePageIndex;
   // Element ids (block_3, img:Im1:0) repeat on every page: a selection or hover applies to its own
@@ -125,36 +122,53 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   const [visualBlocks, setVisualBlocks] = useState<VisualTextBlock[]>([]);
   const visualLoadRef = useRef(0);
   const [deletingBlockId, setDeletingBlockId] = useState<string | null>(null);
-  // Inline editor for one line of text, opened by double-clicking a text block
+  // Inline editor for one line of text, opened by double-clicking a text block or via floating pill
   const [lineEditor, setLineEditor] = useState<{
     lineId: string;
     text: string;
     original: string;
     box: { x: number; y: number; width: number; height: number };
   } | null>(null);
-  const [lineEditStatus, setLineEditStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [isSavingLine, setIsSavingLine] = useState(false);
 
-  const openLineEditor = async (clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    if (!container || page.sourceType !== 'pdf') return;
-    const rect = container.getBoundingClientRect();
-    const x = (clientX - rect.left) / scale;
-    const y = (clientY - rect.top) / scale;
+  const openLineEditorAtPdfPoint = async (x: number, y: number, fallbackBlockId?: string) => {
+    if (page.sourceType !== 'pdf') return;
     const model = await getPageTextModel(sourceDoc, page);
     if (!model?.aligned) {
-      setLineEditStatus({ ok: false, text: 'Text této stránky nelze spolehlivě namapovat — použijte panel Editace.' });
+      showEditNotice({ type: 'error', text: t.editPanel.lineNotMapped });
       return;
     }
-    const line = model.blocks
+    let line: (typeof model.blocks)[number]['lines'][number] | undefined = model.blocks
       .flatMap((b) => b.lines)
       .filter(
         (l) => x >= l.bbox.x - 2 && x <= l.bbox.x + l.bbox.width + 2 && y >= l.bbox.y - 2 && y <= l.bbox.y + l.bbox.height + 2
       )
       .sort((a, b) => a.bbox.width * a.bbox.height - b.bbox.width * b.bbox.height)[0];
+    if (!line && fallbackBlockId) {
+      const matchedBlock = model.blocks.find((b) => b.segmentId === fallbackBlockId);
+      line = matchedBlock?.lines[0];
+    }
+    if (!line) {
+      // Nearest line vertically within the same region
+      line = model.blocks
+        .flatMap((b) => b.lines)
+        .sort(
+          (a, b) =>
+            Math.hypot(a.bbox.x + a.bbox.width / 2 - x, a.bbox.y + a.bbox.height / 2 - y) -
+            Math.hypot(b.bbox.x + b.bbox.width / 2 - x, b.bbox.y + b.bbox.height / 2 - y)
+        )[0];
+    }
     if (!line) return;
-    setLineEditStatus(null);
     setLineEditor({ lineId: line.id, text: line.text, original: line.text, box: line.bbox });
+  };
+
+  const openLineEditor = async (clientX: number, clientY: number, fallbackBlockId?: string) => {
+    const container = containerRef.current;
+    if (!container || page.sourceType !== 'pdf') return;
+    const rect = container.getBoundingClientRect();
+    const x = (clientX - rect.left) / scale;
+    const y = (clientY - rect.top) / scale;
+    await openLineEditorAtPdfPoint(x, y, fallbackBlockId);
   };
 
   const saveLineEditor = async () => {
@@ -163,36 +177,41 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
       setLineEditor(null);
       return;
     }
-    const pageIndex = pages.findIndex((p) => p.id === page.id);
-    if (pageIndex < 0) return;
+    const targetPageIndex = pages.findIndex((p) => p.id === page.id);
+    if (targetPageIndex < 0) return;
     setIsSavingLine(true);
     try {
-      const res = await applyLineTextEdit(lineEditor.lineId, lineEditor.text, pageIndex);
+      const res = await applyLineTextEdit(lineEditor.lineId, lineEditor.text, targetPageIndex);
       if (res.success) {
         setLineEditor(null);
-        setLineEditStatus({
-          ok: true,
-          text: res.fontSubstituted
-            ? 'Řádek přepsán; chybějící znaky doplněny náhradním písmem.'
-            : 'Řádek přepsán původním písmem.',
+        showEditNotice({
+          type: 'success',
+          text: res.fontSubstituted ? t.editPanel.lineUpdatedSubFont : t.editPanel.lineUpdatedOriginalFont,
+          canUndo: true,
         });
       } else {
-        setLineEditStatus({ ok: false, text: res.error || 'Přepis řádku selhal.' });
+        showEditNotice({ type: 'error', text: res.error || t.editPanel.lineUpdateFailed });
       }
     } finally {
       setIsSavingLine(false);
     }
   };
 
+  // Click outside closes the inline line editor cleanly
   useEffect(() => {
-    if (!lineEditStatus) return;
-    const timer = setTimeout(() => setLineEditStatus(null), 4000);
-    return () => clearTimeout(timer);
-  }, [lineEditStatus]);
+    if (!lineEditor) return;
+    const handleOutsideMouseDown = (e: MouseEvent) => {
+      if (inlineEditorRef.current && !inlineEditorRef.current.contains(e.target as Node)) {
+        setLineEditor(null);
+      }
+    };
+    window.addEventListener('mousedown', handleOutsideMouseDown, true);
+    return () => window.removeEventListener('mousedown', handleOutsideMouseDown, true);
+  }, [lineEditor]);
 
   // An element selected in the edit panel is scrolled into view on its page
   useEffect(() => {
-    if (!isRemoveActive || !selectedStreamBlockId || !selectionOnThisPage || selectedStreamBlockPageId) return;
+    if (!isEditOverlayActive || !selectedStreamBlockId || !selectionOnThisPage || selectedStreamBlockPageId) return;
     const timer = setTimeout(() => {
       const overlay = containerRef.current?.parentElement?.querySelector<HTMLElement>(
         `[data-block-id="${CSS.escape(selectedStreamBlockId)}"]`
@@ -200,7 +219,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
       overlay?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
     }, 60);
     return () => clearTimeout(timer);
-  }, [selectedStreamBlockId, selectedStreamBlockPageId, selectionOnThisPage, isRemoveActive]);
+  }, [selectedStreamBlockId, selectedStreamBlockPageId, selectionOnThisPage, isEditOverlayActive]);
 
   // A different document version or page invalidates an open editor
   useEffect(() => {
@@ -211,7 +230,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     // Newest load wins: a slower load started for an older version of the document must not
     // bring back blocks (and segment ids) that no longer exist
     const token = ++visualLoadRef.current;
-    if (!isRemoveActive || !isNear || page.sourceType !== 'pdf') {
+    if (!isEditOverlayActive || !isNear || page.sourceType !== 'pdf') {
       setVisualBlocks([]);
       return;
     }
@@ -221,16 +240,16 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     } catch {
       if (token === visualLoadRef.current) setVisualBlocks([]);
     }
-  }, [isRemoveActive, isNear, sourceDoc, page]);
+  }, [isEditOverlayActive, isNear, sourceDoc, page]);
   // Async callbacks (text layer render) must use the current mode and document, not the ones
   // captured when they were started
   const refreshVisualBlocksRef = useRef(refreshVisualBlocks);
   refreshVisualBlocksRef.current = refreshVisualBlocks;
 
   /** Deletes a text block straight from the canvas, guarded against stale segment ids */
-  const deleteVisualTextBlock = async (block: VisualTextBlock) => {
-    const pageIndex = pages.findIndex((p) => p.id === page.id);
-    if (pageIndex < 0 || deletingBlockId) return;
+  const deleteVisualTextBlock = useCallback(async (block: VisualTextBlock) => {
+    const targetPageIndex = pages.findIndex((p) => p.id === page.id);
+    if (targetPageIndex < 0 || deletingBlockId) return;
     const ids = block.segmentIds && block.segmentIds.length > 0 ? block.segmentIds : [block.id];
     const expected: Record<string, string> = {};
     ids.forEach((id, idx) => {
@@ -241,9 +260,11 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     // Hide the box at once; the page re-renders when the edited document is committed
     setVisualBlocks((prev) => prev.filter((b) => b.id !== block.id));
     try {
-      const res = await removeMultiplePageElements(ids, [], pageIndex, expected);
-      if (!res.success) {
-        console.warn('Failed to delete block:', res.error);
+      const res = await removeMultiplePageElements(ids, [], targetPageIndex, expected);
+      if (res.success) {
+        showEditNotice({ type: 'success', text: t.editPanel.blockDeleted, canUndo: true });
+      } else {
+        showEditNotice({ type: 'error', text: res.error || t.editPanel.blockDeleteFailed });
         refreshVisualBlocksRef.current();
       }
       setSelectedStreamBlockId(null);
@@ -252,39 +273,108 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
     } finally {
       setDeletingBlockId(null);
     }
-  };
+  }, [
+    pages,
+    page.id,
+    deletingBlockId,
+    removeMultiplePageElements,
+    showEditNotice,
+    t.editPanel.blockDeleted,
+    t.editPanel.blockDeleteFailed,
+    setSelectedStreamBlockId,
+    setHoveredBlockId,
+    setHoveredBlockText,
+  ]);
 
-  /** Model-based text block under the centre of the current selection */
-  const findTextBlockAtSelection = async (): Promise<VisualTextBlock | null> => {
-    const container = containerRef.current;
-    if (!container || selectedRects.length === 0 || page.sourceType !== 'pdf') return null;
-    const containerRect = container.getBoundingClientRect();
-    const rect = selectedRects[0];
-    const x = (rect.left + rect.width / 2 - containerRect.left) / scale;
-    const y = (rect.top + rect.height / 2 - containerRect.top) / scale;
-    const blocks = await getPageTextBlocks(sourceDoc, page);
-    return (
-      blocks
-        .filter(
+  const deleteVisualImageBlock = useCallback(async (block: VisualTextBlock) => {
+    const targetPageIndex = pages.findIndex((p) => p.id === page.id);
+    if (targetPageIndex < 0 || deletingBlockId) return;
+    setDeletingBlockId(block.id);
+    setVisualBlocks((prev) => prev.filter((b) => b.id !== block.id));
+    try {
+      const res = await removePageImage(block.id, targetPageIndex);
+      if (res.success) {
+        showEditNotice({ type: 'success', text: t.editPanel.imageDeleted, canUndo: true });
+        setSelectedStreamBlockId(null);
+        setHoveredBlockId(null);
+        setHoveredBlockText(null);
+      } else {
+        showEditNotice({ type: 'error', text: res.error || t.editPanel.imageDeleteFailed });
+        refreshVisualBlocksRef.current();
+      }
+    } finally {
+      setDeletingBlockId(null);
+    }
+  }, [
+    pages,
+    page.id,
+    deletingBlockId,
+    removePageImage,
+    showEditNotice,
+    t.editPanel.imageDeleted,
+    t.editPanel.imageDeleteFailed,
+    setSelectedStreamBlockId,
+    setHoveredBlockId,
+    setHoveredBlockText,
+  ]);
+
+  // Canvas-level Escape (deselect) and Delete/Backspace (delete selected element even when side panel is closed)
+  useEffect(() => {
+    if (!isEditOverlayActive || !selectionOnThisPage || !selectedStreamBlockId || lineEditor) return;
+    const handleCanvasEditKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT' ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelectedStreamBlockId(null);
+        return;
+      }
+      // When EditSidePanel is open, it owns Delete/Backspace (handling both batch & single selection).
+      // When EditSidePanel is closed, the canvas handles deleting the selected element directly.
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !isEditSidePanelOpen) {
+        const block = visualBlocks.find(
           (b) =>
-            b.type !== 'image' &&
-            b.segmentContents &&
-            x >= b.x - 1 &&
-            x <= b.x + b.width + 1 &&
-            y >= b.y - 1 &&
-            y <= b.y + b.height + 1
-        )
-        .sort((a, b) => a.width * a.height - b.width * b.height)[0] || null
-    );
-  };
+            b.id === selectedStreamBlockId ||
+            Boolean(b.segmentIds && b.segmentIds.includes(selectedStreamBlockId))
+        );
+        if (!block) return;
+        e.preventDefault();
+        if (block.type === 'image') {
+          void deleteVisualImageBlock(block);
+        } else {
+          void deleteVisualTextBlock(block);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleCanvasEditKey);
+    return () => window.removeEventListener('keydown', handleCanvasEditKey);
+  }, [
+    isEditOverlayActive,
+    selectionOnThisPage,
+    selectedStreamBlockId,
+    lineEditor,
+    isEditSidePanelOpen,
+    visualBlocks,
+    setSelectedStreamBlockId,
+    deleteVisualImageBlock,
+    deleteVisualTextBlock,
+  ]);
 
   useEffect(() => {
-    if (isRemoveActive && isNear) {
+    if (isEditOverlayActive && isNear) {
       refreshVisualBlocksRef.current();
     } else {
       setVisualBlocks([]);
     }
-  }, [isRemoveActive, isNear, refreshVisualBlocks, page.id, page.rotation, sourceDoc.updatedAt]);
+  }, [isEditOverlayActive, isNear, refreshVisualBlocks, page.id, page.rotation, sourceDoc.updatedAt]);
 
   // Render text layer from PDF.js (only near the viewport; far pages drop their spans)
   const renderedTextKeyRef = useRef<string | null>(null);
@@ -563,6 +653,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
   const handleStreamReplace = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!selectedText) return;
+    activateThisPage();
     const container = containerRef.current;
     if (container && selectedRects.length > 0) {
       const containerRect = container.getBoundingClientRect();
@@ -572,52 +663,15 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
       setStreamReplaceTargetPosition({ x: pdfX, y: pdfY });
     }
     setStreamReplaceTargetText(selectedText);
-    setEditSidePanelTab('stream');
+    setActiveTab('edit');
+    setEditSidePanelTab('remove');
     setIsEditSidePanelOpen(true);
     setFloatingMenuPos(null);
     window.getSelection()?.removeAllRanges();
   };
 
-  const handleDeleteBlockDirectly = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!selectedText) return;
-    try {
-      const pageIndex = pages.findIndex((p) => p.id === page.id);
-      if (pageIndex < 0) return;
-      // Exact text model: delete the text object(s) drawn under the selection
-      const hit = await findTextBlockAtSelection();
-      if (hit) {
-        await deleteVisualTextBlock(hit);
-        return;
-      }
-      const container = containerRef.current;
-      const containerRect = container?.getBoundingClientRect();
-      const selectionPos =
-        containerRect && selectedRects.length > 0
-          ? {
-              x: (selectedRects[0].left - containerRect.left) / scale,
-              y: (selectedRects[0].top - containerRect.top) / scale,
-            }
-          : null;
-      const { streamText } = await getPageStream(pageIndex);
-      if (streamText) {
-        // Only text blocks are candidates, and nothing is deleted without a real match
-        const textSegments = parseStreamSegments(streamText).filter((s) => s.type === 'text');
-        const best = findBestMatchingBlock(textSegments, selectedText, selectionPos, page.height, true);
-        if (best) {
-          await removePageBlock(best, pageIndex);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to delete block:', err);
-    } finally {
-      setFloatingMenuPos(null);
-      window.getSelection()?.removeAllRanges();
-    }
-  };
-
   const handleLayerClick = (e: React.MouseEvent) => {
-    if (activeTab === 'edit' && (activeTool === 'streamReplace' || activeTool === 'removeElements')) {
+    if (isEditOverlayActive) {
       activateThisPage();
       const container = containerRef.current;
       if (!container) return;
@@ -633,25 +687,22 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
         text = target.closest('span')?.textContent?.trim() || '';
       }
 
+      if (!text) {
+        // Clicking empty whitespace deselects current element cleanly
+        setSelectedStreamBlockId(null);
+        return;
+      }
+
       e.stopPropagation();
       setStreamReplaceTargetPosition({ x: clickPdfX, y: clickPdfY });
       setStreamReplaceTargetText(text);
-
-      if (activeTool === 'streamReplace') {
-        setEditSidePanelTab('stream');
-        setIsEditSidePanelOpen(true);
-      } else if (activeTool === 'removeElements') {
-        setEditSidePanelTab('remove');
-        setIsEditSidePanelOpen(true);
-      }
     }
   };
 
   const isTextSelectActive =
     activeTool === 'textSelect' ||
     activeTool === 'select' ||
-    activeTool === 'streamReplace' ||
-    isRemoveActive;
+    isEditOverlayActive;
 
   return (
     <div
@@ -675,9 +726,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
           isTextSelectActive
             ? 'pointer-events-auto cursor-text z-20'
             : 'pointer-events-none z-0'
-        } ${activeTool === 'streamReplace' ? 'cursor-pointer hover:bg-sky-500/5' : ''} ${
-          activeTool === 'removeElements' ? 'cursor-pointer' : ''
-        }`}
+        } ${isEditOverlayActive ? 'cursor-default' : ''}`}
       />
 
       {/* 2. React Overlay Container (Blocks, Search Highlights & Floating Toolbar) */}
@@ -714,8 +763,8 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
             ));
           })}
 
-        {/* Visual Block Highlight Overlay for Remove Elements & Stream Mode */}
-        {isRemoveActive &&
+        {/* Hover-First Interactive PDF Element Overlays (Edit Tab, Non-Whiteout) */}
+        {isEditOverlayActive &&
           [...visualBlocks]
             .sort((a, b) => {
               // 1. Images behind text
@@ -728,10 +777,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
             })
             .map((block) => {
               const isImage = block.type === 'image';
-              const isStreamMode =
-                !isImage &&
-                (activeTool === 'streamReplace' ||
-                  (isEditSidePanelOpen && editSidePanelTab === 'stream'));
+              const isInlineImage = isImage && !block.imageName;
 
               const isSelected =
                 selectionOnThisPage &&
@@ -756,6 +802,60 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
               const baseZ = isImage ? 10 : Math.max(12, Math.min(28, 28 - Math.round(area / 12000)));
               const zIndex = isSelected ? 40 : isHovered ? 35 : baseZ;
 
+              const restingOutlineClass = showAllEditOutlines
+                ? isImage
+                  ? isMinimal
+                    ? 'border border-dashed border-amber-600/60 bg-amber-500/5 hover:bg-amber-500/20 hover:border-amber-700'
+                    : isLcars
+                    ? 'border border-dashed border-[#ffcc00]/60 bg-[#ffcc00]/10 hover:bg-[#ffcc00]/25'
+                    : 'border border-dashed border-amber-500/50 bg-amber-500/5 hover:border-amber-400 hover:bg-amber-500/20'
+                  : isMinimal
+                  ? 'border border-indigo-600/50 bg-indigo-500/5 hover:bg-indigo-500/15 hover:border-indigo-700'
+                  : isLcars
+                  ? 'border border-[#99ccff]/55 bg-[#99ccff]/5 hover:bg-[#99ccff]/20'
+                  : 'border border-indigo-500/45 bg-indigo-500/5 hover:border-indigo-400 hover:bg-indigo-500/15'
+                : isImage
+                ? isMinimal
+                  ? 'border border-transparent bg-transparent hover:border-dashed hover:border-amber-600/80 hover:bg-amber-500/10'
+                  : isLcars
+                  ? 'border border-transparent bg-transparent hover:border-dashed hover:border-[#ffcc00] hover:bg-[#ffcc00]/15'
+                  : 'border border-transparent bg-transparent hover:border-dashed hover:border-amber-400/80 hover:bg-amber-500/10'
+                : isMinimal
+                ? 'border border-transparent bg-transparent hover:border-indigo-600/80 hover:bg-indigo-500/10'
+                : isLcars
+                ? 'border border-transparent bg-transparent hover:border-[#99ccff] hover:bg-[#99ccff]/15'
+                : 'border border-transparent bg-transparent hover:border-indigo-400/80 hover:bg-indigo-500/10';
+
+              const activeOutlineClass = isImage
+                ? isSelected
+                  ? isMinimal
+                    ? 'border-2 border-dashed border-amber-600 bg-amber-600/20 ring-2 ring-amber-500 shadow-md'
+                    : isLcars
+                    ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/30 ring-2 ring-[#ffcc00]'
+                    : 'border-2 border-dashed border-amber-400 bg-amber-500/25 ring-2 ring-amber-400/80 shadow-[0_0_14px_rgba(251,191,36,0.55)]'
+                  : isHovered
+                  ? isMinimal
+                    ? 'border-2 border-dashed border-amber-600/90 bg-amber-600/15 ring-1 ring-amber-400'
+                    : isLcars
+                    ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/20'
+                    : 'border-2 border-dashed border-amber-400 bg-amber-500/15 ring-1 ring-amber-400/50'
+                  : restingOutlineClass
+                : isSelected
+                ? isMinimal
+                  ? 'border-2 border-indigo-600 bg-indigo-600/15 ring-2 ring-indigo-500 shadow-md'
+                  : isLcars
+                  ? 'border-2 border-[#99ccff] bg-[#99ccff]/25 ring-2 ring-[#99ccff]'
+                  : 'border-2 border-indigo-400 bg-indigo-500/20 ring-2 ring-indigo-400/80 shadow-[0_0_12px_rgba(99,102,241,0.55)]'
+                : isHovered
+                ? isMinimal
+                  ? 'border border-indigo-600/90 bg-indigo-600/10 ring-1 ring-indigo-400'
+                  : isLcars
+                  ? 'border border-[#99ccff] bg-[#99ccff]/15'
+                  : 'border border-indigo-400 bg-indigo-500/15 ring-1 ring-indigo-400/50'
+                : restingOutlineClass;
+
+              const placeBarBelow = block.y * scale < 42;
+
               return (
                 <div
                   key={block.id}
@@ -771,14 +871,14 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                   onDoubleClick={(e) => {
                     if (isImage) return;
                     e.stopPropagation();
-                    openLineEditor(e.clientX, e.clientY);
+                    activateThisPage();
+                    setSelectedStreamBlockId(block.id, page.id);
+                    openLineEditor(e.clientX, e.clientY, block.id);
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
                     activateThisPage();
                     setSelectedStreamBlockId(block.id, page.id);
-                    // The text target makes the panel pick the text block under it; an image is
-                    // selected by its id alone
                     if (!isImage) {
                       setStreamReplaceTargetPosition({
                         x: block.x + block.width / 2,
@@ -787,23 +887,21 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                       setStreamReplaceTargetText(block.text);
                     }
 
-                    setTimeout(() => {
-                      const el = document.getElementById(
-                        isImage ? `panel_item_img_${block.id}` : `panel_item_${block.id}`
-                      );
-                      if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      }
-                    }, 80);
-
-                    if (isImage) {
-                      setEditSidePanelTab('remove');
-                    } else if (activeTool === 'streamReplace') {
-                      setEditSidePanelTab('stream');
-                    } else {
+                    // If the inspector panel is open on Find & Replace, switch cleanly to Elements Inspector
+                    if (isEditSidePanelOpen && editSidePanelTab === 'replace') {
                       setEditSidePanelTab('remove');
                     }
-                    setIsEditSidePanelOpen(true);
+
+                    if (isEditSidePanelOpen) {
+                      setTimeout(() => {
+                        const el = document.getElementById(
+                          isImage ? `panel_item_img_${block.id}` : `panel_item_${block.id}`
+                        );
+                        if (el) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                      }, 80);
+                    }
                   }}
                   style={{
                     position: 'absolute',
@@ -813,94 +911,101 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                     height: `${block.height * scale}px`,
                     zIndex,
                   }}
-                  className={`group pointer-events-auto absolute rounded-[2px] transition-all cursor-pointer flex items-start justify-end ${
-                    isImage
-                      ? isSelected
-                        ? isMinimal
-                          ? 'border-2 border-dashed border-amber-600 bg-amber-600/25 ring-2 ring-amber-500 shadow-md'
-                          : isLcars
-                          ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/35 ring-2 ring-[#ffcc00]'
-                          : 'border-2 border-dashed border-amber-400 bg-amber-500/30 ring-2 ring-amber-400/80 shadow-[0_0_14px_rgba(251,191,36,0.7)]'
-                        : isHovered
-                        ? isMinimal
-                          ? 'border-2 border-dashed border-amber-600/90 bg-amber-600/20 ring-1 ring-amber-400'
-                          : isLcars
-                          ? 'border-2 border-dashed border-[#ffcc00] bg-[#ffcc00]/25'
-                          : 'border-2 border-dashed border-amber-400 bg-amber-500/20 ring-1 ring-amber-400/50 shadow-[0_0_10px_rgba(251,191,36,0.5)]'
-                        : isMinimal
-                        ? 'border border-dashed border-amber-600/70 bg-amber-600/10 hover:bg-amber-600/25 hover:border-amber-700'
-                        : isLcars
-                        ? 'border border-dashed border-[#ffcc00]/70 bg-[#ffcc00]/15 hover:bg-[#ffcc00]/30'
-                        : 'border border-dashed border-amber-500/60 bg-amber-500/10 hover:border-amber-400 hover:bg-amber-500/25 hover:shadow-[0_0_10px_rgba(251,191,36,0.4)]'
-                      : isStreamMode
-                      ? isSelected
-                        ? isMinimal
-                          ? 'border-2 border-indigo-600 bg-indigo-600/20 ring-2 ring-indigo-500 shadow-md'
-                          : isLcars
-                          ? 'border-2 border-[#99ccff] bg-[#99ccff]/30 ring-2 ring-[#99ccff]'
-                          : 'border-2 border-indigo-400 bg-indigo-500/25 ring-2 ring-indigo-400/80 shadow-[0_0_12px_rgba(99,102,241,0.65)]'
-                        : isHovered
-                        ? isMinimal
-                          ? 'border border-indigo-600/90 bg-indigo-600/15 ring-1 ring-indigo-400'
-                          : isLcars
-                          ? 'border border-[#99ccff] bg-[#99ccff]/20'
-                          : 'border border-indigo-400 bg-indigo-500/20 ring-1 ring-indigo-400/50 shadow-[0_0_8px_rgba(99,102,241,0.4)]'
-                        : isMinimal
-                        ? 'border border-indigo-600/70 bg-indigo-600/5 hover:bg-indigo-600/20 hover:border-indigo-700'
-                        : isLcars
-                        ? 'border border-[#99ccff]/70 bg-[#99ccff]/10 hover:bg-[#99ccff]/25'
-                        : 'border border-indigo-500/60 bg-indigo-500/5 hover:border-indigo-400 hover:bg-indigo-500/20 hover:shadow-[0_0_8px_rgba(99,102,241,0.35)]'
-                      : isSelected
-                      ? isMinimal
-                        ? 'border-2 border-rose-600 bg-rose-600/20 ring-2 ring-rose-500 shadow-md'
-                        : isLcars
-                        ? 'border-2 border-[#ff9900] bg-[#ff9900]/30 ring-2 ring-[#ff9900]'
-                        : 'border-2 border-rose-400 bg-rose-500/25 ring-2 ring-rose-400/80 shadow-[0_0_12px_rgba(244,63,94,0.65)]'
-                      : isHovered
-                      ? isMinimal
-                        ? 'border border-rose-600/90 bg-rose-600/15 ring-1 ring-rose-400'
-                        : isLcars
-                        ? 'border border-[#ff9900] bg-[#ff9900]/20'
-                        : 'border border-rose-400 bg-rose-500/20 ring-1 ring-rose-400/50 shadow-[0_0_8px_rgba(244,63,94,0.4)]'
-                      : isMinimal
-                      ? 'border border-rose-600/70 bg-rose-600/5 hover:bg-rose-600/20 hover:border-rose-700'
-                      : isLcars
-                      ? 'border border-[#ff3333] bg-[#ff3333]/15 hover:bg-[#ff3333]/30 hover:border-[#ff6666]'
-                      : 'border border-rose-500/60 bg-rose-500/5 hover:border-rose-400 hover:bg-rose-500/20 hover:shadow-[0_0_8px_rgba(244,63,94,0.35)]'
-                  }`}
+                  className={`group pointer-events-auto absolute rounded-[2px] transition-colors cursor-pointer flex items-start justify-end ${activeOutlineClass}`}
                   title={
                     isImage
-                      ? `Obrázek: ${block.imageName || block.text}${
+                      ? `${t.editPanel.selectedImage}: ${block.imageName || block.text}${
                           block.pixelWidth && block.pixelHeight ? ` (${block.pixelWidth}×${block.pixelHeight} px)` : ''
                         }`
-                      : `${block.text}
-(dvojklikem upravíte řádek)`
+                      : `${block.text}\n(${t.editPanel.canvasDoubleClickHint})`
                   }
                 >
-                  {/* Small Icon Badge on Hover or Active; in remove mode it deletes the text block */}
-                  {!isImage && !isStreamMode ? (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteVisualTextBlock(block);
-                      }}
-                      disabled={Boolean(deletingBlockId)}
-                      className={`${
-                        isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                      } transition-opacity text-white rounded-xs p-1 shadow-sm -mt-3 -mr-2 pointer-events-auto bg-rose-600 hover:bg-rose-500 hover:scale-110 disabled:opacity-50`}
-                      title={`Smazat blok: ${block.text}`}
-                      aria-label="Smazat blok"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  ) : (
+                  {/* Text Block Contextual Floating Action Pill on Selection */}
+                  {!isImage && isSelected && !lineEditor && (
                     <div
-                      className={`opacity-0 group-hover:opacity-100 transition-opacity text-white rounded-xs p-0.5 shadow-sm -mt-2.5 -mr-1.5 pointer-events-none ${
-                        isImage ? 'bg-amber-600' : 'bg-indigo-600'
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      className={`absolute z-50 flex items-center gap-1 px-2 py-1 shadow-2xl rounded-xl border text-xs whitespace-nowrap backdrop-blur-xl pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150 ${
+                        placeBarBelow ? 'top-full mt-1.5 left-0' : '-top-10 left-0'
+                      } ${
+                        isMinimal
+                          ? 'bg-white/95 border-neutral-300 text-neutral-800 shadow-lg'
+                          : isLcars
+                          ? 'bg-black border-2 border-[#99ccff] text-[#99ccff] shadow-[0_0_15px_rgba(153,204,255,0.35)]'
+                          : 'bg-slate-900/95 border-indigo-500/70 text-slate-100 shadow-slate-950/80 ring-1 ring-indigo-500/30'
                       }`}
                     >
-                      {isImage ? <ImageIcon className="w-2.5 h-2.5" /> : <Code className="w-2.5 h-2.5" />}
+                      {/* Inline Edit Line */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void openLineEditorAtPdfPoint(
+                            block.x + Math.min(block.width / 2, 24),
+                            block.y + Math.min(block.height / 2, 8),
+                            block.id
+                          );
+                        }}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                          isMinimal
+                            ? 'hover:bg-indigo-50 text-indigo-700'
+                            : isLcars
+                            ? 'hover:bg-[#99ccff]/20 text-[#ffff66]'
+                            : 'hover:bg-indigo-950/70 text-indigo-300 hover:text-indigo-200'
+                        }`}
+                        title={t.editPanel.canvasEditLine}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{t.editPanel.canvasEditLine}</span>
+                      </button>
+
+                      {/* Open / Focus Inspector */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditSidePanelTab('remove');
+                          setIsEditSidePanelOpen(true);
+                        }}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                          isMinimal
+                            ? 'hover:bg-neutral-100 text-neutral-700'
+                            : isLcars
+                            ? 'hover:bg-[#ff9900]/20 text-[#ff9900]'
+                            : 'hover:bg-slate-800 text-slate-300 hover:text-white'
+                        }`}
+                        title={t.editPanel.canvasInspect}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{t.editPanel.canvasInspect}</span>
+                      </button>
+
+                      <div
+                        className={`h-4 w-px mx-0.5 ${
+                          isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#99ccff]/30' : 'bg-slate-700'
+                        }`}
+                      />
+
+                      {/* Delete Block (immediate + Undo toast) */}
+                      <button
+                        type="button"
+                        disabled={Boolean(deletingBlockId)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteVisualTextBlock(block);
+                        }}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                          isMinimal
+                            ? 'hover:bg-rose-50 text-rose-700'
+                            : isLcars
+                            ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
+                            : 'hover:bg-rose-950/60 text-rose-300 hover:text-rose-200'
+                        }`}
+                        title={t.editPanel.deleteBlockBtn}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{t.editPanel.canvasDelete}</span>
+                      </button>
                     </div>
                   )}
 
@@ -909,7 +1014,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                     <div
                       onClick={(e) => e.stopPropagation()}
                       className={`absolute z-50 flex items-center gap-1.5 px-2.5 py-1 shadow-2xl rounded-xl border text-xs whitespace-nowrap backdrop-blur-xl pointer-events-auto select-none animate-in fade-in zoom-in-95 duration-150 ${
-                        block.y * scale < 45 ? 'top-2 left-2' : '-top-10 left-0'
+                        placeBarBelow ? 'top-2 left-2' : '-top-10 left-0'
                       } ${
                         isMinimal
                           ? 'bg-white/95 border-neutral-300 text-neutral-800 shadow-lg'
@@ -918,9 +1023,13 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                           : 'bg-slate-900/95 border-amber-500/70 text-amber-100 shadow-slate-950/80 ring-1 ring-amber-500/30'
                       }`}
                     >
-                      <div className="flex items-center gap-1 font-mono text-[11px] font-semibold text-amber-400 mr-1">
+                      <div
+                        className={`flex items-center gap-1 font-mono text-[11px] font-semibold mr-1 ${
+                          isMinimal ? 'text-amber-700' : isLcars ? 'text-[#ffcc00]' : 'text-amber-400'
+                        }`}
+                      >
                         <ImageIcon className="w-3.5 h-3.5" />
-                        <span>{block.imageName || 'Obrázek'}</span>
+                        <span>{block.imageName || t.editPanel.inlineImageBadge}</span>
                         {block.pixelWidth && block.pixelHeight && (
                           <span className="opacity-75 font-normal">({block.pixelWidth}×{block.pixelHeight})</span>
                         )}
@@ -931,18 +1040,20 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
 
                       <div className={`h-4 w-px mx-0.5 ${isMinimal ? 'bg-neutral-200' : isLcars ? 'bg-[#ff9900]/40' : 'bg-slate-700'}`} />
 
-                      {/* Download Button */}
+                      {/* Download Button (works for both XObject and inline images via canvas crop) */}
                       <button
+                        type="button"
                         onClick={async (e) => {
                           e.stopPropagation();
-                          if (block.imageName) {
-                            const canvasEl = document.getElementById(`page_canvas_${page.id}`) as HTMLCanvasElement | null;
-                            await exportPageImage(
-                              block.imageName,
-                              pages.findIndex((p) => p.id === page.id),
-                              canvasEl,
-                              { x: block.x, y: block.y, width: block.width, height: block.height }
-                            );
+                          const canvasEl = document.getElementById(`page_canvas_${page.id}`) as HTMLCanvasElement | null;
+                          const res = await exportPageImage(
+                            block.imageName || block.text || 'inline-image',
+                            pages.findIndex((p) => p.id === page.id),
+                            canvasEl,
+                            { x: block.x, y: block.y, width: block.width, height: block.height }
+                          );
+                          if (!res.success) {
+                            showEditNotice({ type: 'error', text: res.error || t.editPanel.imageExportFailed });
                           }
                         }}
                         className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
@@ -952,72 +1063,87 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                             ? 'hover:bg-[#ff9900]/20 text-[#ffff66]'
                             : 'hover:bg-slate-800 text-sky-300 hover:text-sky-200'
                         }`}
-                        title="Stáhnout obrázek"
+                        title={t.editPanel.downloadImage}
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Stáhnout</span>
+                        <span className="hidden sm:inline">{t.editPanel.downloadImage}</span>
                       </button>
 
-                      {/* Replace Button with File Input */}
-                      <label
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                          isMinimal
-                            ? 'hover:bg-emerald-50 text-emerald-700'
-                            : isLcars
-                            ? 'hover:bg-[#ff9900]/20 text-[#ffcc00]'
-                            : 'hover:bg-emerald-950/60 text-emerald-300 hover:text-emerald-200'
-                        }`}
-                        title="Nahradit obrázek"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Nahradit</span>
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file && block.imageName) {
-                              await replacePageImage(
-                                block.imageName,
-                                file,
-                                undefined,
-                                pages.findIndex((p) => p.id === page.id)
-                              );
-                              refreshVisualBlocksRef.current();
-                            }
-                          }}
-                        />
-                      </label>
+                      {/* Replace Button (disabled with clear tooltip for inline stream images) */}
+                      {isInlineImage ? (
+                        <button
+                          type="button"
+                          disabled
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium opacity-45 cursor-not-allowed ${
+                            isMinimal
+                              ? 'text-neutral-500'
+                              : isLcars
+                              ? 'text-[#ff9966]'
+                              : 'text-slate-400'
+                          }`}
+                          title={t.editPanel.replaceInlineDisabled}
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">{t.editPanel.replaceImage}</span>
+                        </button>
+                      ) : (
+                        <label
+                          className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                            isMinimal
+                              ? 'hover:bg-emerald-50 text-emerald-700'
+                              : isLcars
+                              ? 'hover:bg-[#ff9900]/20 text-[#ffcc00]'
+                              : 'hover:bg-emerald-950/60 text-emerald-300 hover:text-emerald-200'
+                          }`}
+                          title={t.editPanel.replaceImage}
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">{t.editPanel.replaceImage}</span>
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              if (file && block.imageName) {
+                                const res = await replacePageImage(
+                                  block.imageName,
+                                  file,
+                                  undefined,
+                                  pages.findIndex((p) => p.id === page.id)
+                                );
+                                if (res.success) {
+                                  showEditNotice({ type: 'success', text: t.editPanel.imageReplaced, canUndo: true });
+                                  refreshVisualBlocksRef.current();
+                                } else {
+                                  showEditNotice({ type: 'error', text: res.error || t.editPanel.imageReplaceFailed });
+                                }
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
 
-                      {/* Delete Button */}
+                      {/* Delete Button (immediate + Undo toast, no native window.confirm) */}
                       <button
-                        onClick={async (e) => {
+                        type="button"
+                        disabled={Boolean(deletingBlockId)}
+                        onClick={(e) => {
                           e.stopPropagation();
-                          if (
-                            window.confirm(`Opravdu chcete z dokumentu odstranit obrázek ${block.imageName || block.text}?`)
-                          ) {
-                            if (pageIndex < 0) return;
-                            // Removes exactly this placement (its q ... Do ... Q or inline image), not a
-                            // whole stream segment; the XObject entry goes once it is painted nowhere else
-                            const res = await removePageImage(block.id, pageIndex);
-                            if (res.success) {
-                              refreshVisualBlocksRef.current();
-                              setSelectedStreamBlockId(null);
-                            }
-                          }
+                          void deleteVisualImageBlock(block);
                         }}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
                           isMinimal
                             ? 'hover:bg-rose-50 text-rose-700'
                             : isLcars
                             ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
                             : 'hover:bg-rose-950/60 text-rose-300 hover:text-rose-200'
                         }`}
-                        title="Smazat obrázek"
+                        title={t.editPanel.deleteImageBtn}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Smazat</span>
+                        <span className="hidden sm:inline">{t.editPanel.canvasDelete}</span>
                       </button>
                     </div>
                   )}
@@ -1025,66 +1151,84 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
               );
             })}
 
-        {/* Inline line editor */}
-        {lineEditor && (
-          <div
-            className="absolute z-50 pointer-events-auto"
-            style={{
-              left: `${lineEditor.box.x * scale - 4}px`,
-              top: `${lineEditor.box.y * scale - 4}px`,
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <input
-              autoFocus
-              value={lineEditor.text}
-              disabled={isSavingLine}
-              aria-label="Upravit řádek textu"
-              onChange={(e) => setLineEditor({ ...lineEditor, text: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  saveLineEditor();
-                } else if (e.key === 'Escape') {
-                  e.preventDefault();
-                  setLineEditor(null);
-                }
-              }}
-              style={{
-                width: `${Math.max(lineEditor.box.width * scale + 60, 160)}px`,
-                height: `${Math.max(lineEditor.box.height * scale + 8, 22)}px`,
-                fontSize: `${Math.max(lineEditor.box.height * scale * 0.72, 11)}px`,
-              }}
-              className="px-1 rounded border-2 border-indigo-500 bg-white text-slate-900 shadow-xl outline-none font-sans"
-            />
-            <div className="mt-1 flex gap-1 text-[10px]">
+        {/* Inline line editor (boundary-clamped, theme-aware, click-outside dismiss) */}
+        {lineEditor && (() => {
+          const layout = clampInlineEditorPosition(lineEditor.box, page.width, page.height, scale);
+          const controlsBar = (
+            <div className={`${layout.placeControlsAbove ? 'mb-1' : 'mt-1'} flex items-center gap-1 text-[10px]`}>
               <button
+                type="button"
                 onClick={saveLineEditor}
                 disabled={isSavingLine}
-                className="px-2 py-0.5 rounded bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50"
+                className={`px-2 py-0.5 font-semibold transition-colors disabled:opacity-50 ${
+                  isMinimal
+                    ? 'rounded bg-black text-white hover:bg-neutral-800'
+                    : isLcars
+                    ? 'rounded-full bg-[#ff9900] text-black hover:bg-[#ffcc00] font-bold uppercase'
+                    : 'rounded bg-indigo-600 text-white hover:bg-indigo-500'
+                }`}
               >
-                {isSavingLine ? 'Ukládám…' : 'Uložit (Enter)'}
+                {isSavingLine ? t.editPanel.saving : t.editPanel.inlineSave}
               </button>
               <button
+                type="button"
                 onClick={() => setLineEditor(null)}
-                className="px-2 py-0.5 rounded bg-slate-700 text-white hover:bg-slate-600"
+                className={`px-2 py-0.5 font-medium transition-colors ${
+                  isMinimal
+                    ? 'rounded bg-neutral-200 text-neutral-800 hover:bg-neutral-300'
+                    : isLcars
+                    ? 'rounded-full bg-[#222222] text-[#ff9966] border border-[#ff9966] hover:bg-[#333333]'
+                    : 'rounded bg-slate-700 text-white hover:bg-slate-600'
+                }`}
               >
-                Zrušit (Esc)
+                {t.editPanel.inlineCancel}
               </button>
             </div>
-          </div>
-        )}
-        {lineEditStatus && (
-          <div
-            role="status"
-            className={`absolute left-1/2 -translate-x-1/2 top-2 z-50 px-3 py-1.5 rounded-lg text-xs shadow-lg pointer-events-none ${
-              lineEditStatus.ok ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-            }`}
-          >
-            {lineEditStatus.text}
-          </div>
-        )}
+          );
+          return (
+            <div
+              ref={inlineEditorRef}
+              className="absolute z-50 pointer-events-auto"
+              style={{
+                left: `${layout.left}px`,
+                top: `${layout.top}px`,
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {layout.placeControlsAbove && controlsBar}
+              <input
+                autoFocus
+                value={lineEditor.text}
+                disabled={isSavingLine}
+                aria-label={t.editPanel.inlineEditorAria}
+                onChange={(e) => setLineEditor({ ...lineEditor, text: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void saveLineEditor();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setLineEditor(null);
+                  }
+                }}
+                style={{
+                  width: `${layout.width}px`,
+                  height: `${layout.height}px`,
+                  fontSize: `${Math.max(lineEditor.box.height * scale * 0.72, 11)}px`,
+                }}
+                className={`px-1.5 shadow-xl outline-none font-sans border-2 ${
+                  isMinimal
+                    ? 'rounded border-black bg-white text-black'
+                    : isLcars
+                    ? 'rounded-md border-[#ff9900] bg-white text-black'
+                    : 'rounded border-indigo-500 bg-white text-slate-900'
+                }`}
+              />
+              {!layout.placeControlsAbove && controlsBar}
+            </div>
+          );
+        })()}
 
         {/* Floating Quick Action Selection Toolbar */}
         {floatingMenuPos && (
@@ -1133,7 +1277,7 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                   }`}
                 />
 
-                {/* Stream Replace Button (Quick Action) */}
+                {/* Open in Edit Inspector Button (Quick Action) */}
                 <button
                   onClick={handleStreamReplace}
                   className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
@@ -1143,10 +1287,10 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                       ? 'hover:bg-[#ff9900]/20 text-[#ffff66]'
                       : 'hover:bg-indigo-950/60 text-indigo-300'
                   }`}
-                  title={t.tools.streamReplace}
+                  title={t.editPanel.canvasInspect}
                 >
                   <FileCode2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{t.tools.streamReplace}</span>
+                  <span className="hidden sm:inline">{t.editPanel.canvasInspect}</span>
                 </button>
 
                 <div
@@ -1223,22 +1367,6 @@ export const TextLayer: React.FC<TextLayerProps> = ({ page, sourceDoc, scale, zo
                 >
                   <StrikeIcon className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">{t.textSelection.strikethrough}</span>
-                </button>
-
-                {/* Delete Block (Direct Stream Removal) Button */}
-                <button
-                  onClick={handleDeleteBlockDirectly}
-                  className={`flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                    isMinimal
-                      ? 'hover:bg-rose-100 text-rose-700'
-                      : isLcars
-                      ? 'hover:bg-[#cc3333]/30 text-[#ff6666]'
-                      : 'hover:bg-rose-950/80 text-rose-400'
-                  }`}
-                  title={t.textSelection.deleteBlock}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{t.textSelection.deleteBlock}</span>
                 </button>
 
                 {/* Dismiss Button */}

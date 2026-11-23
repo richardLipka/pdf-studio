@@ -1,4 +1,4 @@
-import { PDFDict, PDFDocument, PDFFont, PDFName, PDFRawStream, PDFRef } from 'pdf-lib';
+import { ParseSpeeds, PDFDict, PDFDocument, PDFFont, PDFName, PDFRawStream, PDFRef } from 'pdf-lib';
 import { ContentOperation, TEXT_SHOW_OPERATORS, tokenizeContentStream } from './pdfContentTokenizer';
 import { FontCodeMap, PageTextModel, TextBlock, TextRun, measureLineLeading } from './pdfTextModel';
 import {
@@ -82,26 +82,34 @@ const uniqueResourceName = (fontDict: PDFDict, prefix: string): string => {
   return `${prefix}${n}`;
 };
 
-/** Font dictionary of the resources used by the stream part (page or one of its Form XObjects) */
+/**
+ * Font dictionary of the resources used by the stream part (page or one of its Form XObjects).
+ * Always creates page-local shallow copies of shared Form XObjects and their /Resources / /Font
+ * dictionaries so adding a substitute font never mutates unedited pages sharing the same XObject.
+ */
 function fontDictForPart(pdfDoc: PDFDocument, pageIndex: number, formName: string | undefined): PDFDict | null {
   const page = pdfDoc.getPage(pageIndex);
   if (!formName) return getPageLocalResourceDict(pdfDoc, page, 'Font');
-  const xObjects = safeGetPageResources(page.node)?.lookup(PDFName.of('XObject'));
-  if (!(xObjects instanceof PDFDict)) return null;
-  const form = pdfDoc.context.lookup(xObjects.get(PDFName.of(formName)));
-  if (!(form instanceof PDFRawStream)) return null;
-  let resources = form.dict.lookup(PDFName.of('Resources'));
-  if (!(resources instanceof PDFDict)) {
-    resources = pdfDoc.context.obj({});
-    form.dict.set(PDFName.of('Resources'), resources);
-  }
-  const resourceDict = resources as PDFDict;
-  let fonts = resourceDict.lookup(PDFName.of('Font'));
-  if (!(fonts instanceof PDFDict)) {
-    fonts = pdfDoc.context.obj({});
-    resourceDict.set(PDFName.of('Font'), fonts);
-  }
-  return fonts as PDFDict;
+  const context = pdfDoc.context;
+  const pageXObjects = safeGetPageResources(page.node)?.lookup(PDFName.of('XObject'));
+  if (!(pageXObjects instanceof PDFDict)) return null;
+  const formObj = context.lookup(pageXObjects.get(PDFName.of(formName)));
+  if (!(formObj instanceof PDFRawStream)) return null;
+
+  // Clone the Form XObject and its /Resources & /Font dicts onto a page-local /XObject map
+  const localXObjects = getPageLocalResourceDict(pdfDoc, page, 'XObject');
+  const clonedForm = formObj.clone(context);
+  const existingResources = clonedForm.dict.lookup(PDFName.of('Resources'));
+  const localResources =
+    existingResources instanceof PDFDict ? existingResources.clone(context) : context.obj({});
+  clonedForm.dict.set(PDFName.of('Resources'), localResources);
+
+  const existingFonts = localResources.lookup(PDFName.of('Font'));
+  const localFonts = existingFonts instanceof PDFDict ? existingFonts.clone(context) : context.obj({});
+  localResources.set(PDFName.of('Font'), localFonts);
+
+  localXObjects.set(PDFName.of(formName), context.register(clonedForm));
+  return localFonts;
 }
 
 const rawOf = (streamText: string, op: ContentOperation) => streamText.substring(op.start, op.end);
@@ -219,7 +227,11 @@ export async function replaceTextLineContent(
   if (text === line.text) return fail('Text řádku se nezměnil.');
 
   try {
-    const pdfDoc = await PDFDocument.load(pdfDocBytes, { ignoreEncryption: true, updateMetadata: false });
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
+    });
     const first = line.runs[0];
     const encoded = await encodeForRun(pdfDoc, pageIndex, model, current.layout, first, first.partIndex, [text]);
     if ('error' in encoded) return fail(encoded.error);
@@ -257,7 +269,7 @@ export async function replaceTextLineContent(
 
     const page = pdfDoc.getPage(pageIndex);
     const updatedStream = writePageStreamText(pdfDoc, page, newStreamText);
-    const saved = await pdfDoc.save();
+    const saved = await pdfDoc.save({ objectsPerTick: 500 });
     logger.success('edit', `Řádek ${lineId} na straně ${pageIndex + 1} byl přepsán`, {
       lineId,
       fontSubstituted: Boolean(encoded.substituteFont),
@@ -306,7 +318,11 @@ export async function replaceTextBlockContent(
       ? `/${first.fontResource} ${formatNumber(first.fontSize)} Tf`
       : null;
 
-    const pdfDoc = await PDFDocument.load(pdfDocBytes, { ignoreEncryption: true, updateMetadata: false });
+    const pdfDoc = await PDFDocument.load(pdfDocBytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
+    });
 
     // 1. Original font, when every character of the new text has a code in it
     const codeMap = model.fontCodeMaps.get(first.fontKey);
@@ -345,7 +361,7 @@ export async function replaceTextBlockContent(
 
     const page = pdfDoc.getPage(pageIndex);
     const updatedStream = writePageStreamText(pdfDoc, page, newStreamText);
-    const saved = await pdfDoc.save();
+    const saved = await pdfDoc.save({ objectsPerTick: 500 });
 
     logger.success('edit', `Text bloku ${segmentId} na straně ${pageIndex + 1} byl přepsán`, {
       segmentId,
