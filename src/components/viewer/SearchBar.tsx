@@ -42,8 +42,9 @@ export const SearchBar: React.FC = () => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | null>(null);
-  // Only the latest search may publish its results (an older, slower one finishing later must not)
+  // Only the latest search may publish its results (an older, slower one is aborted immediately)
   const searchRunRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // The bar can be dragged aside by its handle so it does not cover the matches
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -75,6 +76,10 @@ export const SearchBar: React.FC = () => {
   // Execute search when query or options change
   const executeSearch = useCallback(
     async (queryText: string, caseSens: boolean, wholeW: boolean) => {
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       const run = ++searchRunRef.current;
       const trimmed = queryText.trim();
       if (!trimmed || pages.length === 0) {
@@ -89,13 +94,14 @@ export const SearchBar: React.FC = () => {
         const matches = await searchPdfDocument(pages, sources, trimmed, {
           caseSensitive: caseSens,
           wholeWord: wholeW,
+          signal: controller.signal,
         });
-        if (run !== searchRunRef.current) return;
+        if (run !== searchRunRef.current || controller.signal.aborted) return;
         // The effect below navigates to the first match
         setSearchResults(matches);
         setActiveSearchMatchIndex(0);
       } catch (err) {
-        if (run !== searchRunRef.current) return;
+        if (run !== searchRunRef.current || controller.signal.aborted) return;
         console.warn('Search execution failed:', err);
         setSearchResults([]);
       } finally {
@@ -107,7 +113,11 @@ export const SearchBar: React.FC = () => {
 
   // Debounced search trigger on typing
   useEffect(() => {
-    if (!isSearchOpen) return;
+    if (!isSearchOpen) {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      return;
+    }
 
     if (debounceTimerRef.current) {
       window.clearTimeout(debounceTimerRef.current);
@@ -121,6 +131,7 @@ export const SearchBar: React.FC = () => {
       if (debounceTimerRef.current) {
         window.clearTimeout(debounceTimerRef.current);
       }
+      abortControllerRef.current?.abort();
     };
   }, [searchQuery, searchCaseSensitive, searchWholeWord, isSearchOpen, executeSearch]);
 

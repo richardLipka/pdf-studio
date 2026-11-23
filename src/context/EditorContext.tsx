@@ -3,7 +3,13 @@ import { ToolType, ShapeType, EditorTab } from '../types/annotations';
 import { SignatureStamp, StampExportPackage } from '../types/stamp';
 import { RasterizationSettings, DEFAULT_RASTERIZATION_SETTINGS } from '../types/document';
 import { SearchMatch } from '../services/pdfSearchService';
+import {
+  EditSidePanelTab,
+  EditNotice,
+  getDefaultToolForTab,
+} from '../utils/editModeState';
 
+export type { EditSidePanelTab, EditNotice };
 export type SignatureModalTab = 'draw' | 'type' | 'upload' | 'saved' | 'certificate';
 
 interface EditorContextType {
@@ -86,9 +92,17 @@ interface EditorContextType {
   // Edit & Stream Right-Side Panel
   isEditSidePanelOpen: boolean;
   setIsEditSidePanelOpen: (open: boolean) => void;
-  editSidePanelTab: 'remove' | 'stream';
-  setEditSidePanelTab: (tab: 'remove' | 'stream') => void;
-  toggleEditSidePanel: (tab?: 'remove' | 'stream') => void;
+  editSidePanelTab: EditSidePanelTab;
+  setEditSidePanelTab: (tab: EditSidePanelTab) => void;
+  toggleEditSidePanel: (tab?: EditSidePanelTab) => void;
+  /** Whether all PDF text/image outlines stay visible on canvas (false = clean hover-only mode) */
+  showAllEditOutlines: boolean;
+  setShowAllEditOutlines: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleShowAllEditOutlines: () => void;
+  /** Unified non-blocking status toast for Edit mode actions (supports one-click Undo) */
+  editNotice: EditNotice | null;
+  showEditNotice: (notice: Omit<EditNotice, 'id'>) => void;
+  clearEditNotice: () => void;
   /**
    * Selected page element in edit mode (text segment id or image placement id). Ids are only
    * unique within a page: selectedStreamBlockPageId says which page (null = the active page).
@@ -140,6 +154,7 @@ const EditorContext = createContext<EditorContextType | null>(null);
 const STAMPS_STORAGE_KEY = 'pdf_studio_stamps_library_v2';
 const LEGACY_SIGS_KEY = 'pdf_studio_saved_sigs_v1';
 const RASTER_SETTINGS_STORAGE_KEY = 'pdf_studio_raster_settings_v1';
+const SHOW_ALL_OUTLINES_STORAGE_KEY = 'pdf_studio_show_all_edit_outlines_v1';
 
 export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeTab, setActiveTabState] = useState<EditorTab>('review');
@@ -159,7 +174,41 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Edit & Stream Right-Side Panel state
   const [isEditSidePanelOpen, setIsEditSidePanelOpenState] = useState<boolean>(false);
-  const [editSidePanelTab, setEditSidePanelTab] = useState<'remove' | 'stream'>('remove');
+  const [editSidePanelTab, setEditSidePanelTab] = useState<EditSidePanelTab>('remove');
+  const [showAllEditOutlines, setShowAllEditOutlines] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SHOW_ALL_OUTLINES_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(SHOW_ALL_OUTLINES_STORAGE_KEY, String(showAllEditOutlines));
+    } catch {
+      // ignore storage errors
+    }
+  }, [showAllEditOutlines]);
+  const toggleShowAllEditOutlines = useCallback(() => {
+    setShowAllEditOutlines((prev) => !prev);
+  }, []);
+
+  const [editNotice, setEditNotice] = useState<EditNotice | null>(null);
+  const editNoticeSeqRef = React.useRef(0);
+  const showEditNotice = useCallback((notice: Omit<EditNotice, 'id'>) => {
+    editNoticeSeqRef.current += 1;
+    setEditNotice({ ...notice, id: editNoticeSeqRef.current });
+  }, []);
+  const clearEditNotice = useCallback(() => {
+    setEditNotice(null);
+  }, []);
+
+  useEffect(() => {
+    if (!editNotice) return;
+    const timer = setTimeout(() => setEditNotice(null), 5500);
+    return () => clearTimeout(timer);
+  }, [editNotice]);
+
   const [selection, setSelection] = useState<{ id: string | null; pageId: string | null }>({ id: null, pageId: null });
   const [hover, setHover] = useState<{ id: string | null; pageId: string | null }>({ id: null, pageId: null });
   const selectedStreamBlockId = selection.id;
@@ -180,14 +229,18 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Leaving the edit tab: its tools and page-element selection must not stay active in the
   // review and signature tabs (their overlays are shown only while editing)
   const leaveEditMode = () => {
-    setActiveTool((tool) => (tool === 'removeElements' || tool === 'streamReplace' || tool === 'whiteout' ? 'select' : tool));
+    setActiveTool((tool) => getDefaultToolForTab('review', tool));
     setSelection({ id: null, pageId: null });
     setHover({ id: null, pageId: null });
   };
 
   const setActiveTab = (tab: EditorTab) => {
     setActiveTabState(tab);
-    if (tab !== 'edit') leaveEditMode();
+    setActiveTool((tool) => getDefaultToolForTab(tab, tool));
+    if (tab !== 'edit') {
+      setSelection({ id: null, pageId: null });
+      setHover({ id: null, pageId: null });
+    }
     if (tab === 'edit') {
       setIsNotesPanelOpenState(false);
       setIsEditSidePanelOpenState(true);
@@ -295,18 +348,20 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   };
 
-  const toggleEditSidePanel = (tab?: 'remove' | 'stream') => {
+  const toggleEditSidePanel = (tab?: EditSidePanelTab) => {
     if (tab) {
       setEditSidePanelTab(tab);
       setIsEditSidePanelOpenState(true);
       setIsNotesPanelOpenState(false);
       setActiveTabState('edit');
+      setActiveTool((tool) => (tool === 'whiteout' ? 'streamReplace' : getDefaultToolForTab('edit', tool)));
     } else {
       setIsEditSidePanelOpenState((prev) => {
         const next = !prev;
         if (next) {
           setIsNotesPanelOpenState(false);
           setActiveTabState('edit');
+          setActiveTool((tool) => getDefaultToolForTab('edit', tool));
         }
         return next;
       });
@@ -320,6 +375,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsEditSidePanelOpenState(true);
       setIsNotesPanelOpenState(false);
       setActiveTabState('edit');
+      setActiveTool((tool) => (tool === 'whiteout' ? 'streamReplace' : getDefaultToolForTab('edit', tool)));
     } else if (!isRemoveElementsModalOpen) {
       setIsEditSidePanelOpenState(false);
     }
@@ -332,6 +388,7 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsEditSidePanelOpenState(true);
       setIsNotesPanelOpenState(false);
       setActiveTabState('edit');
+      setActiveTool((tool) => (tool === 'whiteout' ? 'streamReplace' : getDefaultToolForTab('edit', tool)));
     } else if (!isStreamReplaceModalOpen) {
       setIsEditSidePanelOpenState(false);
     }
@@ -603,6 +660,12 @@ export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     editSidePanelTab,
     setEditSidePanelTab,
     toggleEditSidePanel,
+    showAllEditOutlines,
+    setShowAllEditOutlines,
+    toggleShowAllEditOutlines,
+    editNotice,
+    showEditNotice,
+    clearEditNotice,
     selectedStreamBlockId,
     selectedStreamBlockPageId,
     setSelectedStreamBlockId,

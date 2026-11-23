@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../../i18n/context';
 import { useTheme } from '../../context/ThemeContext';
 import { useDocument } from '../../context/DocumentContext';
@@ -177,7 +177,10 @@ export const Sidebar: React.FC = () => {
   // Thumbnails are rendered when they scroll into (or near) the visible part of the list
   const thumbListRef = useRef<HTMLDivElement>(null);
   const showsThumbnails = isSidebarOpen && sidebarTab === 'thumbnails';
-  const { zoneOf: thumbZoneOf } = usePageZones(thumbListRef, showsThumbnails ? pages.map((p) => p.id) : []);
+  const thumbPageIds = useMemo(() => (showsThumbnails ? pages.map((p) => p.id) : []), [showsThumbnails, pages]);
+  const selectedPageIdSet = useMemo(() => new Set(selectedPageIds), [selectedPageIds]);
+  const sourcesById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
+  const { zoneOf: thumbZoneOf } = usePageZones(thumbListRef, thumbPageIds);
   const thumbPixelRatio = useCanvasPixelRatio();
   // Height of a page card, measured from rendered cards; cards far from the visible part of the
   // list are empty boxes of this height (a full card per page made long documents slow)
@@ -199,7 +202,7 @@ export const Sidebar: React.FC = () => {
     if (!showsThumbnails) return;
     pages.forEach((page, index) => {
       if (thumbZoneOf(page.id) === 'far') return;
-      const sourceDoc = sources.find((s) => s.id === page.sourceDocId) || sources[0];
+      const sourceDoc = sourcesById.get(page.sourceDocId) || sources[0];
       if (!sourceDoc && page.sourceType === 'pdf') return;
 
       const key = `${page.id}_${page.rotation}_${page.sourceType}_${sourceDoc?.updatedAt || 0}_${page.imageDataUrl ? page.imageDataUrl.length : ''}_${thumbPixelRatio}`;
@@ -646,7 +649,7 @@ export const Sidebar: React.FC = () => {
       >
         {pages.map((page, index) => {
           const isActive = index === activePageIndex;
-          const isSelected = selectedPageIds.includes(page.id);
+          const isSelected = selectedPageIdSet.has(page.id);
           const isDragging = draggedIndex === index;
           const isOver = dragOverIndex === index;
 

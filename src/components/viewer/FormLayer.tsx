@@ -11,7 +11,7 @@ interface FormLayerProps {
 
 export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
   const { theme } = useTheme();
-  const { formFields, formValues, updateFormFieldValue } = useDocument();
+  const { formFields, formValues, updateFormFieldValue, commitHistorySnapshot } = useDocument();
 
   const pageFields = formFields.filter((f) => f.pageId === page.id);
   if (pageFields.length === 0) return null;
@@ -71,6 +71,7 @@ export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
                 maxLength={field.maxLen}
                 value={String(value ?? '')}
                 onChange={(e) => updateFormFieldValue(field.name, e.target.value)}
+                onBlur={() => commitHistorySnapshot()}
                 className={`${commonClass} p-1 leading-tight`}
                 title={field.name}
               />
@@ -94,6 +95,7 @@ export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
               maxLength={field.maxLen}
               value={String(value ?? '')}
               onChange={(e) => updateFormFieldValue(field.name, e.target.value)}
+              onBlur={() => commitHistorySnapshot()}
               className={`${commonClass} px-1.5 flex items-center`}
               title={field.name}
             />
@@ -120,7 +122,7 @@ export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
                 disabled={field.readOnly}
                 required={field.required}
                 checked={isChecked}
-                onChange={(e) => updateFormFieldValue(field.name, e.target.checked)}
+                onChange={(e) => updateFormFieldValue(field.name, e.target.checked, true)}
                 className="sr-only"
               />
               <div
@@ -159,6 +161,63 @@ export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
           );
         }
 
+        if (field.type === 'radio') {
+          const optionVal = field.exportValue || field.id;
+          const isSelected = String(value ?? '') === optionVal;
+          const sizePx = Math.min(width, height);
+          return (
+            <label
+              key={field.id}
+              style={{
+                position: 'absolute',
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${width}px`,
+                height: `${height}px`,
+              }}
+              className="pointer-events-auto flex items-center justify-center cursor-pointer select-none"
+              title={`${field.name}${field.exportValue ? `: ${field.exportValue}` : ''}`}
+            >
+              <input
+                type="radio"
+                name={`pdf_radio_${field.name}`}
+                disabled={field.readOnly}
+                required={field.required}
+                checked={isSelected}
+                onChange={() => updateFormFieldValue(field.name, optionVal, true)}
+                className="sr-only"
+              />
+              <div
+                style={{
+                  width: `${sizePx}px`,
+                  height: `${sizePx}px`,
+                }}
+                className={`flex items-center justify-center rounded-full transition-colors ${
+                  isSelected
+                    ? isMinimal
+                      ? 'bg-blue-600 border border-blue-700'
+                      : isLcars
+                      ? 'bg-[#ff9900] border border-[#ffcc00]'
+                      : 'bg-sky-500 border border-sky-400'
+                    : isMinimal
+                    ? 'bg-blue-50/40 border border-blue-400/80 hover:bg-blue-100/60'
+                    : isLcars
+                    ? 'bg-[#ff9900]/15 border border-[#ff9900] hover:bg-[#ff9900]/30'
+                    : 'bg-sky-500/10 border border-sky-400/60 hover:bg-sky-500/25'
+                }`}
+              >
+                {isSelected && (
+                  <div
+                    className={`w-1/2 h-1/2 rounded-full ${
+                      isMinimal ? 'bg-white' : isLcars ? 'bg-black' : 'bg-slate-950'
+                    }`}
+                  />
+                )}
+              </div>
+            </label>
+          );
+        }
+
         if (field.type === 'dropdown') {
           return (
             <select
@@ -174,7 +233,58 @@ export const FormLayer: React.FC<FormLayerProps> = ({ page, scale }) => {
               disabled={field.readOnly}
               required={field.required}
               value={String(value ?? '')}
-              onChange={(e) => updateFormFieldValue(field.name, e.target.value)}
+              onChange={(e) => updateFormFieldValue(field.name, e.target.value, true)}
+              className={`${commonClass} px-1 cursor-pointer`}
+              title={field.name}
+            >
+              {field.options && field.options.length > 0 ? (
+                field.options.map((opt, optIdx) => (
+                  <option key={optIdx} value={opt.value} className="bg-slate-900 text-slate-100">
+                    {opt.label}
+                  </option>
+                ))
+              ) : (
+                <option value={String(value ?? '')}>{String(value ?? '')}</option>
+              )}
+            </select>
+          );
+        }
+
+        if (field.type === 'optionList') {
+          const isMulti = Boolean(field.multiSelect);
+          const selectValue = isMulti
+            ? Array.isArray(value)
+              ? value.map(String)
+              : value
+              ? [String(value)]
+              : []
+            : Array.isArray(value)
+            ? String(value[0] ?? '')
+            : String(value ?? '');
+          return (
+            <select
+              key={field.id}
+              multiple={isMulti}
+              size={Math.max(2, Math.min(6, field.options?.length || 3))}
+              style={{
+                position: 'absolute',
+                left: `${left}px`,
+                top: `${top}px`,
+                width: `${width}px`,
+                height: `${height}px`,
+                fontSize: `${fontSize}px`,
+              }}
+              disabled={field.readOnly}
+              required={field.required}
+              value={selectValue}
+              onChange={(e) => {
+                if (isMulti) {
+                  const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+                  updateFormFieldValue(field.name, selected, true);
+                } else {
+                  updateFormFieldValue(field.name, e.target.value, true);
+                }
+              }}
               className={`${commonClass} px-1 cursor-pointer`}
               title={field.name}
             >

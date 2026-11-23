@@ -274,8 +274,46 @@ export const cloneSources = (sourcesList: SourceDocument[], timestamp?: number):
 const sameSourceBuffers = (a: SourceDocument[], b: SourceDocument[]): boolean =>
   a === b || (a.length === b.length && a.every((s, i) => s.id === b[i].id && s.arrayBuffer === b[i].arrayBuffer));
 
-const sameAnnotationContent = (a: Annotation, b: Annotation): boolean =>
-  a === b || JSON.stringify({ ...a, updatedAt: 0 }) === JSON.stringify({ ...b, updatedAt: 0 });
+const shallowEqualValue = (va: unknown, vb: unknown): boolean => {
+  if (va === vb) return true;
+  if (va == null || vb == null || typeof va !== 'object' || typeof vb !== 'object') return false;
+  if (Array.isArray(va) && Array.isArray(vb)) {
+    if (va.length !== vb.length) return false;
+    for (let i = 0; i < va.length; i++) {
+      if (!shallowEqualValue(va[i], vb[i])) return false;
+    }
+    return true;
+  }
+  if (Array.isArray(va) !== Array.isArray(vb)) return false;
+  const oa = va as Record<string, unknown>;
+  const ob = vb as Record<string, unknown>;
+  const keysA = Object.keys(oa);
+  const keysB = Object.keys(ob);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (oa[k] !== ob[k]) return false;
+  }
+  return true;
+};
+
+// Fast structural comparison ignoring updatedAt; avoids JSON.stringify on large base64 signatures
+const sameAnnotationContent = (a: Annotation, b: Annotation): boolean => {
+  if (a === b) return true;
+  if (a.id !== b.id || a.type !== b.type || a.pageId !== b.pageId) return false;
+  const recA = a as unknown as Record<string, unknown>;
+  const recB = b as unknown as Record<string, unknown>;
+  const keysA = Object.keys(recA);
+  const keysB = Object.keys(recB);
+  for (const k of keysA) {
+    if (k === 'updatedAt') continue;
+    if (!shallowEqualValue(recA[k], recB[k])) return false;
+  }
+  for (const k of keysB) {
+    if (k === 'updatedAt' || k in recA) continue;
+    if (recB[k] !== undefined) return false;
+  }
+  return true;
+};
 
 // Skips history entries that would not change anything (e.g. an editor committing on blur and again on "Done")
 const isSameSnapshot = (a: HistorySnapshot, b: HistorySnapshot): boolean =>
@@ -1229,16 +1267,21 @@ export const DocumentProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         if (sw > 0 && sh > 0) {
           const offscreen = document.createElement('canvas');
-          offscreen.width = sw;
-          offscreen.height = sh;
-          const ctx = offscreen.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(canvasEl, sx, sy, sw, sh, 0, 0, sw, sh);
-            const blob = await new Promise<Blob | null>((resolve) => offscreen.toBlob(resolve, 'image/png'));
-            if (blob) {
-              downloadBlob(blob, `${cleanName || 'image'}.png`);
-              return { success: true };
+          try {
+            offscreen.width = sw;
+            offscreen.height = sh;
+            const ctx = offscreen.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(canvasEl, sx, sy, sw, sh, 0, 0, sw, sh);
+              const blob = await new Promise<Blob | null>((resolve) => offscreen.toBlob(resolve, 'image/png'));
+              if (blob) {
+                downloadBlob(blob, `${cleanName || 'image'}.png`);
+                return { success: true };
+              }
             }
+          } finally {
+            offscreen.width = 0;
+            offscreen.height = 0;
           }
         }
       }

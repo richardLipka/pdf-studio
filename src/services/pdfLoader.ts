@@ -93,19 +93,27 @@ const destroyDocument = (entry: DocCacheEntry) => {
 // long documents), so after a few seconds without rendering the caches of all open documents are
 // dropped. Loaded fonts stay, so revisited pages do not flash.
 const IDLE_CLEANUP_MS = 8000;
+const SCROLL_CLEANUP_PAGE_INTERVAL = 24;
 let idleCleanupTimer: ReturnType<typeof setTimeout> | null = null;
+let renderedPagesSinceCleanup = 0;
+let activeRenderCount = 0;
+
+const cleanupAllOpenDocuments = () => {
+  renderedPagesSinceCleanup = 0;
+  for (const entry of docCache.values()) {
+    entry.promise
+      .then((doc) => doc.cleanup(true))
+      // A page is still rendering: try again after the next quiet period
+      .catch(() => scheduleIdleDocumentCleanup());
+  }
+};
 
 export const scheduleIdleDocumentCleanup = () => {
   if (typeof window === 'undefined') return;
   if (idleCleanupTimer) clearTimeout(idleCleanupTimer);
   idleCleanupTimer = setTimeout(() => {
     idleCleanupTimer = null;
-    for (const entry of docCache.values()) {
-      entry.promise
-        .then((doc) => doc.cleanup(true))
-        // A page is still rendering: try again after the next quiet period
-        .catch(() => scheduleIdleDocumentCleanup());
-    }
+    cleanupAllOpenDocuments();
   }, IDLE_CLEANUP_MS);
 };
 
@@ -313,6 +321,45 @@ export const parsePdfPages = async (
 };
 
 /**
+ * Parses an ISO 32000-1 §7.9.4 PDF date string (D:YYYYMMDDHHmmSSOHH'mm') into an ISO 8601 UTC string,
+ * honouring timezone offsets (+HH'mm', -HH'mm', Z) and partial dates.
+ */
+export const parsePdfDate = (dateStr: unknown): string | undefined => {
+  if (!dateStr || typeof dateStr !== 'string') return undefined;
+  const trimmed = dateStr.trim();
+  if (!trimmed) return undefined;
+  try {
+    const match =
+      /^(?:D:)?(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?(?:([Zz])|([+-])(\d{2})(?:'?:?(\d{2})'?)?)?$/.exec(
+        trimmed
+      );
+    if (match) {
+      const year = Number(match[1]);
+      const month = match[2] ? Number(match[2]) : 1;
+      const day = match[3] ? Number(match[3]) : 1;
+      const hour = match[4] ? Number(match[4]) : 0;
+      const minute = match[5] ? Number(match[5]) : 0;
+      const second = match[6] ? Number(match[6]) : 0;
+      let offsetMinutes = 0;
+      if (match[8]) {
+        const sign = match[8] === '-' ? -1 : 1;
+        const tzHours = Number(match[9] || 0);
+        const tzMins = Number(match[10] || 0);
+        offsetMinutes = sign * (tzHours * 60 + tzMins);
+      }
+      const utcMs = Date.UTC(year, month - 1, day, hour, minute, second) - offsetMinutes * 60_000;
+      const parsed = new Date(utcMs);
+      if (!isNaN(parsed.getTime())) return parsed.toISOString();
+    }
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  } catch {
+    // ignore
+  }
+  return undefined;
+};
+
+/**
  * Extracts document metadata (Title, Author, Subject, Keywords, Creator, Producer, Dates, Version)
  */
 export const extractPdfMetadata = async (
@@ -323,27 +370,6 @@ export const extractPdfMetadata = async (
     const pdfDoc = await getCachedPdfDocument(sourceDocId, arrayBuffer);
     const metaDataObj = await pdfDoc.getMetadata().catch(() => null);
     const info = (metaDataObj?.info as any) || {};
-
-    const parsePdfDate = (dateStr: any): string | undefined => {
-      if (!dateStr || typeof dateStr !== 'string') return undefined;
-      try {
-        if (dateStr.startsWith('D:')) {
-          const clean = dateStr.substring(2);
-          const y = clean.substring(0, 4);
-          const m = clean.substring(4, 6) || '01';
-          const d = clean.substring(6, 8) || '01';
-          const hh = clean.substring(8, 10) || '00';
-          const mm = clean.substring(10, 12) || '00';
-          const ss = clean.substring(12, 14) || '00';
-          return new Date(`${y}-${m}-${d}T${hh}:${mm}:${ss}Z`).toISOString();
-        }
-        const d = new Date(dateStr);
-        if (!isNaN(d.getTime())) return d.toISOString();
-      } catch {
-        // ignore
-      }
-      return undefined;
-    };
 
     // Non-standard Info entries (pdf.js groups them under Custom: a Map in pdf.js 6, an object
     // before) and the XMP packet
@@ -674,6 +700,14 @@ export const extractPdfAnnotations = async (
           });
         } else if (ann.subtype === 'FreeText') {
           const textVal = textContent || ann.defaultAppearanceData?.text || '';
+          const daFontColor = ann.defaultAppearanceData?.fontColor;
+          const textColor = daFontColor
+            ? extractColor(daFontColor, '#0f172a')
+            : extractColor(ann.color, '#0f172a');
+          const bgRaw =
+            ann.interiorColor ||
+            (daFontColor && ann.color && ann.color.length >= 3 ? ann.color : null);
+          const backgroundColor = bgRaw ? extractColor(bgRaw, 'transparent') : 'transparent';
           loadedAnnotations.push({
             id,
             pageId: pageModel.id,
@@ -682,7 +716,8 @@ export const extractPdfAnnotations = async (
             y,
             width: Math.max(80, width),
             height: Math.max(20, height),
-            color: extractColor(ann.color, '#0f172a'),
+            color: textColor,
+            backgroundColor,
             opacity: 1.0,
             text: textVal,
             fontSize: ann.defaultAppearanceData?.fontSize || 14,
@@ -890,6 +925,7 @@ export const renderPdfPageToCanvas = async (
 
   const renderTask = pdfPage.render(renderContext);
   activeRenderTasks.set(canvas, renderTask);
+  activeRenderCount++;
 
   try {
     await renderTask.promise;
@@ -900,6 +936,7 @@ export const renderPdfPageToCanvas = async (
     logger.error('render', `Chyba při vykreslování strany ${pageModel.id} na plátno: ${err?.message || err}`, err);
     throw err;
   } finally {
+    activeRenderCount = Math.max(0, activeRenderCount - 1);
     if (activeRenderTasks.get(canvas) === renderTask) {
       activeRenderTasks.delete(canvas);
     }
@@ -907,6 +944,11 @@ export const renderPdfPageToCanvas = async (
       pdfPage.cleanup();
     } catch {
       // ignore
+    }
+    renderedPagesSinceCleanup++;
+    if (typeof window !== 'undefined' && activeRenderCount === 0 && renderedPagesSinceCleanup >= SCROLL_CLEANUP_PAGE_INTERVAL) {
+      // Bound pdf.js decoded image/page cache during continuous scrolling through large documents
+      cleanupAllOpenDocuments();
     }
     scheduleIdleDocumentCleanup();
   }
@@ -926,11 +968,16 @@ export const renderPdfPageToDataUrl = async (
     return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   }
   const canvas = document.createElement('canvas');
-  await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
-  if (format === 'image/jpeg') {
-    return canvas.toDataURL('image/jpeg', quality);
+  try {
+    await renderPdfPageToCanvas(sourceDoc, pageModel, canvas, scale);
+    if (format === 'image/jpeg') {
+      return canvas.toDataURL('image/jpeg', quality);
+    }
+    return canvas.toDataURL('image/png');
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
   }
-  return canvas.toDataURL('image/png');
 };
 
 /**

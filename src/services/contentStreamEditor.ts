@@ -1,4 +1,5 @@
 import {
+  ParseSpeeds,
   PDFDocument,
   PDFPage,
   PDFName,
@@ -13,6 +14,11 @@ import {
 import { logger } from './logger';
 import { tokenizeContentStream } from './pdfContentTokenizer';
 
+const toExactArrayBuffer = (bytes: Uint8Array): ArrayBuffer =>
+  bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? (bytes.buffer as ArrayBuffer)
+    : (bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+
 /**
  * WeakMap cache for parsed PDFDocument instances to avoid redundant multi-second parsing
  * of large files (e.g. 756-page documents like spec.pdf) across page switches.
@@ -24,14 +30,21 @@ const pdfDocCache = new WeakMap<ArrayBuffer, Promise<PDFDocument>>();
  */
 export async function getCachedPdfLibDocument(
   pdfDocBytes: ArrayBuffer,
-  options: { ignoreEncryption?: boolean; updateMetadata?: boolean } = {
+  options: { ignoreEncryption?: boolean; updateMetadata?: boolean; parseSpeed?: number } = {
     ignoreEncryption: true,
     updateMetadata: false,
+    parseSpeed: ParseSpeeds.Fast,
   }
 ): Promise<PDFDocument> {
   let existing = pdfDocCache.get(pdfDocBytes);
   if (!existing) {
-    existing = PDFDocument.load(pdfDocBytes, options);
+    const loadOpts = { parseSpeed: ParseSpeeds.Fast, ...options };
+    existing = PDFDocument.load(pdfDocBytes, loadOpts);
+    existing.catch(() => {
+      if (pdfDocCache.get(pdfDocBytes) === existing) {
+        pdfDocCache.delete(pdfDocBytes);
+      }
+    });
     pdfDocCache.set(pdfDocBytes, existing);
   }
   return existing;
@@ -243,25 +256,37 @@ for (const [codeStr, char] of Object.entries(WIN1250_OCTAL_MAP)) {
 }
 
 /**
- * Unescape a PDF literal string (e.g. \( -> (, \\ -> \), handling Win-1250/Latin-2 octal characters
+ * Unescape a PDF literal string (ISO 32000-1 §7.3.4.2) in a single pass so escaped backslashes
+ * like `\\n`, `\\101`, `\\(` are never double-unescaped, handling line continuations and
+ * Win-1250/Latin-2 octal characters.
  */
 export function unescapePdfLiteralString(str: string): string {
   return str
-    .replace(/\\([0-7]{1,3})/g, (_, oct) => {
-      const code = parseInt(oct, 8);
-      if (WIN1250_OCTAL_MAP[code]) {
-        return WIN1250_OCTAL_MAP[code];
+    .replace(/\r\n?/g, '\n')
+    .replace(/\\(?:\n|([0-7]{1,3})|([nrtbf()\\])|(.))/g, (_, oct, esc, other) => {
+      if (oct !== undefined) {
+        const code = parseInt(oct, 8) & 0xff;
+        return WIN1250_OCTAL_MAP[code] ?? String.fromCharCode(code);
       }
-      return String.fromCharCode(code);
-    })
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\t/g, '\t')
-    .replace(/\\b/g, '\b')
-    .replace(/\\f/g, '\f')
-    .replace(/\\\(/g, '(')
-    .replace(/\\\)/g, ')')
-    .replace(/\\\\/g, '\\');
+      if (esc !== undefined) {
+        switch (esc) {
+          case 'n':
+            return '\n';
+          case 'r':
+            return '\r';
+          case 't':
+            return '\t';
+          case 'b':
+            return '\b';
+          case 'f':
+            return '\f';
+          default:
+            return esc;
+        }
+      }
+      // Backslash followed by newline = line continuation (removed); any other escaped char = literal
+      return other ?? '';
+    });
 }
 
 /**
@@ -271,7 +296,9 @@ export function escapePdfLiteralString(str: string, encodeCzech: boolean = false
   let escaped = str
     .replace(/\\/g, '\\\\')
     .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)');
+    .replace(/\)/g, '\\)')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
 
   if (encodeCzech) {
     for (const [char, octal] of Object.entries(REVERSE_WIN1250_MAP)) {
@@ -432,7 +459,7 @@ export function replaceTextInStreamString(
   replaceText: string,
   options: StreamReplaceOptions = {}
 ): { modifiedContent: string; count: number } {
-  if (!searchText) {
+  if (!searchText || !streamContent) {
     return { modifiedContent: streamContent, count: 0 };
   }
 
@@ -442,34 +469,35 @@ export function replaceTextInStreamString(
     ? new RegExp(escapeRegex(searchText), 'g')
     : new RegExp(escapeRegex(searchText), 'gi');
 
-  // Step 1: Process TJ arrays with kerning: [ (...) 20 (...) ] TJ
-  // We mask replaced TJ arrays with a unique placeholder so Strategy 2 (literal strings) won't re-process them.
-  const tjReplacements: Map<string, string> = new Map();
-  let tjPlaceholderIndex = 0;
+  // Use the real PDF content stream tokenizer so balanced parentheses, `]` inside strings,
+  // `<hex>` inside literal strings, comments, and `$`-patterns in replaceText never corrupt output,
+  // and text outside text-showing operators (operators, resource names, coordinates) is never touched.
+  const ops = tokenizeContentStream(streamContent);
+  const splices: Array<{ start: number; end: number; text: string }> = [];
 
-  const tjRegex = /\[([\s\S]*?)\]\s*TJ/g;
-  const intermediate = streamContent.replace(tjRegex, (match, arrayBody) => {
-    const tokenRegex = /\((?:[^\\()]+|\\.)*\)|<[0-9a-fA-F\s]+>|[-+]?\d+(?:\.\d+)?/g;
-    let tok: RegExpExecArray | null;
-    let fullText = '';
+  for (const op of ops) {
+    if (op.operator === 'TJ') {
+      const arrayOp = op.operands.find((o) => o.type === 'array');
+      if (!arrayOp) continue;
+      const inner = arrayOp.raw.slice(1, arrayOp.raw.endsWith(']') ? -1 : undefined);
+      const innerOps = tokenizeContentStream(`${inner} TJ`);
+      const items = innerOps.length > 0 ? innerOps[innerOps.length - 1].operands : [];
 
-    while ((tok = tokenRegex.exec(arrayBody)) !== null) {
-      const item = tok[0];
-      if (item.startsWith('(') && item.endsWith(')')) {
-        const text = unescapePdfLiteralString(item.substring(1, item.length - 1));
-        fullText += text;
-      } else if (item.startsWith('<') && item.endsWith('>')) {
-        const text = hexToString(item.substring(1, item.length - 1));
-        fullText += text;
-      } else {
-        const num = parseFloat(item);
-        if (!isNaN(num) && num < -120 && fullText.length > 0 && !fullText.endsWith(' ')) {
-          fullText += ' ';
+      let fullText = '';
+      for (const item of items) {
+        if (item.type === 'string') {
+          fullText += unescapePdfLiteralString(item.raw.slice(1, item.raw.endsWith(')') ? -1 : undefined));
+        } else if (item.type === 'hexstring') {
+          fullText += hexToString(item.raw.slice(1, item.raw.endsWith('>') ? -1 : undefined));
+        } else if (item.type === 'number') {
+          const num = parseFloat(item.raw);
+          if (!isNaN(num) && num < -120 && fullText.length > 0 && !fullText.endsWith(' ')) {
+            fullText += ' ';
+          }
         }
       }
-    }
 
-    if (regex.test(fullText)) {
+      regex.lastIndex = 0;
       let localCount = 0;
       const replacedFull = fullText.replace(regex, () => {
         localCount++;
@@ -478,71 +506,68 @@ export function replaceTextInStreamString(
 
       if (localCount > 0) {
         count += localCount;
-        const placeholder = `__PDF_STUDIO_TJ_MASK_${tjPlaceholderIndex++}__`;
-        const newTj = `[ (${escapePdfLiteralString(replacedFull, true)}) ] TJ`;
-        tjReplacements.set(placeholder, newTj);
-        return placeholder;
+        splices.push({
+          start: arrayOp.start,
+          end: op.end,
+          text: `[ (${escapePdfLiteralString(replacedFull, true)}) ] TJ`,
+        });
+      }
+    } else if (op.operator === 'Tj' || op.operator === "'" || op.operator === '"') {
+      const strOp = [...op.operands].reverse().find((o) => o.type === 'string' || o.type === 'hexstring');
+      if (!strOp) continue;
+
+      if (strOp.type === 'string') {
+        const unescaped = unescapePdfLiteralString(strOp.raw.slice(1, strOp.raw.endsWith(')') ? -1 : undefined));
+        regex.lastIndex = 0;
+        let matchCount = 0;
+        const replaced = unescaped.replace(regex, () => {
+          matchCount++;
+          return replaceText;
+        });
+        if (matchCount > 0) {
+          count += matchCount;
+          splices.push({
+            start: strOp.start,
+            end: strOp.end,
+            text: `(${escapePdfLiteralString(replaced, true)})`,
+          });
+        }
+      } else {
+        const hexBody = strOp.raw.slice(1, strOp.raw.endsWith('>') ? -1 : undefined);
+        const isTwoByte = isTwoByteHexString(hexBody);
+        const text = hexToString(hexBody);
+        regex.lastIndex = 0;
+        let matchCount = 0;
+        const replaced = text.replace(regex, () => {
+          matchCount++;
+          return replaceText;
+        });
+        if (matchCount > 0) {
+          count += matchCount;
+          splices.push({
+            start: strOp.start,
+            end: strOp.end,
+            text: `<${stringToHex(replaced, isTwoByte)}>`,
+          });
+        }
       }
     }
-
-    return match;
-  });
-
-  // Step 2: Replace inside remaining literal PDF strings: ( ... ) using linear scanner
-  const literalMatches = extractLiteralStrings(intermediate);
-  let literalPassContent = '';
-  let lastPos = 0;
-
-  for (const item of literalMatches) {
-    literalPassContent += intermediate.substring(lastPos, item.start);
-    const unescaped = unescapePdfLiteralString(item.inner);
-
-    let matchCount = 0;
-    const replaced = unescaped.replace(regex, () => {
-      matchCount++;
-      return replaceText;
-    });
-
-    if (matchCount > 0) {
-      count += matchCount;
-      // Re-encode Czech characters that unescapePdfLiteralString decoded from octal escapes;
-      // writing them raw would truncate them to their low byte (e.g. "ř" -> "Y")
-      literalPassContent += `(${escapePdfLiteralString(replaced, true)})`;
-    } else {
-      literalPassContent += item.raw;
-    }
-    lastPos = item.end;
-  }
-  literalPassContent += intermediate.substring(lastPos);
-
-  // Step 3: Replace inside remaining hex PDF strings: < ... >
-  const hexRegex = /<([0-9a-fA-F\s]+)>/g;
-  let hexPassContent = literalPassContent.replace(hexRegex, (match, hexBody) => {
-    const isTwoByte = isTwoByteHexString(hexBody);
-    const text = hexToString(hexBody);
-
-    let matchCount = 0;
-    const replaced = text.replace(regex, () => {
-      matchCount++;
-      return replaceText;
-    });
-
-    if (matchCount > 0) {
-      count += matchCount;
-      return `<${stringToHex(replaced, isTwoByte)}>`;
-    }
-
-    return match;
-  });
-
-  // Step 4: Restore masked TJ arrays
-  for (const [placeholder, replacedTj] of tjReplacements.entries()) {
-    hexPassContent = hexPassContent.replace(placeholder, replacedTj);
   }
 
-  // Text outside PDF strings is never touched: a raw search over the whole stream would rewrite
-  // operators, resource names and coordinates (e.g. replacing "1" or "re") and corrupt the page.
-  return { modifiedContent: hexPassContent, count };
+  if (splices.length === 0) {
+    return { modifiedContent: streamContent, count: 0 };
+  }
+
+  const out: string[] = [];
+  let cursor = 0;
+  for (const s of splices) {
+    if (s.start < cursor) continue;
+    out.push(streamContent.substring(cursor, s.start), s.text);
+    cursor = s.end;
+  }
+  out.push(streamContent.substring(cursor));
+
+  return { modifiedContent: out.join(''), count };
 }
 
 /**
@@ -624,6 +649,69 @@ function escapeRegex(string: string): string {
 }
 
 /**
+ * Replaces matching text in a single page's /Contents (handling single stream, direct PDFArray,
+ * and indirect PDFRef -> PDFArray per ISO 32000-1 Table 30 without mutating shared arrays).
+ */
+function replaceInPageContents(
+  pdfDoc: PDFDocument,
+  page: PDFPage,
+  searchText: string,
+  replaceText: string,
+  options: StreamReplaceOptions
+): number {
+  const contentsRaw = safeGetPageContents(page.node);
+  if (!contentsRaw) return 0;
+
+  const context = page.node.context;
+  const resolved = context.lookup(contentsRaw);
+  let occurrences = 0;
+
+  if (resolved instanceof PDFArray) {
+    let clonedArray: PDFArray | null = null;
+    for (let i = 0; i < resolved.size(); i++) {
+      const itemObj = context.lookup(resolved.get(i));
+      if (itemObj && typeof (itemObj as any).getContents === 'function') {
+        const decoded = decodePDFRawStream(itemObj as PDFRawStream).decode();
+        const streamStr = arrayAsString(decoded);
+        const { modifiedContent, count } = replaceTextInStreamString(
+          streamStr,
+          searchText,
+          replaceText,
+          options
+        );
+        if (count > 0) {
+          occurrences += count;
+          if (!clonedArray) {
+            clonedArray = resolved.clone(context);
+          }
+          const newRef = pdfDoc.context.register(pdfDoc.context.flateStream(modifiedContent));
+          clonedArray.set(i, newRef);
+        }
+      }
+    }
+    if (clonedArray) {
+      page.node.set(PDFName.of('Contents'), clonedArray);
+    }
+  } else if (resolved && typeof (resolved as any).getContents === 'function') {
+    const decoded = decodePDFRawStream(resolved as PDFRawStream).decode();
+    const streamStr = arrayAsString(decoded);
+    const { modifiedContent, count } = replaceTextInStreamString(
+      streamStr,
+      searchText,
+      replaceText,
+      options
+    );
+    if (count > 0) {
+      occurrences += count;
+      const newRef = pdfDoc.context.register(pdfDoc.context.flateStream(modifiedContent));
+      page.node.set(PDFName.of('Contents'), newRef);
+    }
+  }
+
+  return occurrences;
+}
+
+/**
  * Replace text in the content stream of a specific page in a PDF ArrayBuffer.
  */
 export async function replaceTextInPageContentStream(
@@ -645,6 +733,7 @@ export async function replaceTextInPageContentStream(
     const pdfDoc = await PDFDocument.load(pdfDocBytes, {
       ignoreEncryption: true,
       updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
     });
 
     const pageCount = pdfDoc.getPageCount();
@@ -660,53 +749,7 @@ export async function replaceTextInPageContentStream(
     }
 
     const page = pdfDoc.getPage(pageIndex);
-    const contentsRef = safeGetPageContents(page.node);
-    let occurrencesReplaced = 0;
-
-    if (contentsRef instanceof PDFRef) {
-      const stream = page.node.context.lookup(contentsRef) as PDFRawStream;
-      if (stream && typeof (stream as any).getContents === 'function') {
-        const decoded = decodePDFRawStream(stream).decode();
-        const streamStr = arrayAsString(decoded);
-        const { modifiedContent, count } = replaceTextInStreamString(
-          streamStr,
-          searchText,
-          replaceText,
-          options
-        );
-
-        if (count > 0) {
-          occurrencesReplaced += count;
-          const newStream = pdfDoc.context.flateStream(modifiedContent);
-          const newRef = pdfDoc.context.register(newStream);
-          page.node.set(PDFName.of('Contents'), newRef);
-        }
-      }
-    } else if (contentsRef instanceof PDFArray) {
-      for (let i = 0; i < contentsRef.size(); i++) {
-        const itemRef = contentsRef.get(i);
-        if (itemRef instanceof PDFRef) {
-          const stream = page.node.context.lookup(itemRef) as PDFRawStream;
-          if (stream && typeof (stream as any).getContents === 'function') {
-            const decoded = decodePDFRawStream(stream).decode();
-            const streamStr = arrayAsString(decoded);
-            const { modifiedContent, count } = replaceTextInStreamString(
-              streamStr,
-              searchText,
-              replaceText,
-              options
-            );
-
-            if (count > 0) {
-              occurrencesReplaced += count;
-              const newStream = pdfDoc.context.flateStream(modifiedContent);
-              const newRef = pdfDoc.context.register(newStream);
-              contentsRef.set(i, newRef);
-            }
-          }
-        }
-      }
-    }
+    const occurrencesReplaced = replaceInPageContents(pdfDoc, page, searchText, replaceText, options);
 
     if (occurrencesReplaced === 0) {
       logger.warn(
@@ -723,8 +766,8 @@ export async function replaceTextInPageContentStream(
 
     const savedBytes = await pdfDoc.save({
       useObjectStreams: true,
-      updateInfoDict: false,
-    } as any);
+      objectsPerTick: 500,
+    });
 
     const elapsed = Date.now() - startTime;
     logger.success(
@@ -738,7 +781,7 @@ export async function replaceTextInPageContentStream(
     );
 
     return {
-      updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
+      updatedPdfBytes: toExactArrayBuffer(savedBytes),
       occurrencesReplaced,
       pagesModified: [pageIndex],
     };
@@ -773,6 +816,7 @@ export async function replaceTextInAllPagesContentStream(
     const pdfDoc = await PDFDocument.load(pdfDocBytes, {
       ignoreEncryption: true,
       updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
     });
 
     const pageCount = pdfDoc.getPageCount();
@@ -781,57 +825,9 @@ export async function replaceTextInAllPagesContentStream(
 
     for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
       const page = pdfDoc.getPage(pageIndex);
-      const contentsRef = safeGetPageContents(page.node);
-      let pageModified = false;
-
-      if (contentsRef instanceof PDFRef) {
-        const stream = page.node.context.lookup(contentsRef) as PDFRawStream;
-        if (stream && typeof (stream as any).getContents === 'function') {
-          const decoded = decodePDFRawStream(stream).decode();
-          const streamStr = arrayAsString(decoded);
-          const { modifiedContent, count } = replaceTextInStreamString(
-            streamStr,
-            searchText,
-            replaceText,
-            options
-          );
-
-          if (count > 0) {
-            totalOccurrences += count;
-            pageModified = true;
-            const newStream = pdfDoc.context.flateStream(modifiedContent);
-            const newRef = pdfDoc.context.register(newStream);
-            page.node.set(PDFName.of('Contents'), newRef);
-          }
-        }
-      } else if (contentsRef instanceof PDFArray) {
-        for (let i = 0; i < contentsRef.size(); i++) {
-          const itemRef = contentsRef.get(i);
-          if (itemRef instanceof PDFRef) {
-            const stream = page.node.context.lookup(itemRef) as PDFRawStream;
-            if (stream && typeof (stream as any).getContents === 'function') {
-              const decoded = decodePDFRawStream(stream).decode();
-              const streamStr = arrayAsString(decoded);
-              const { modifiedContent, count } = replaceTextInStreamString(
-                streamStr,
-                searchText,
-                replaceText,
-                options
-              );
-
-              if (count > 0) {
-                totalOccurrences += count;
-                pageModified = true;
-                const newStream = pdfDoc.context.flateStream(modifiedContent);
-                const newRef = pdfDoc.context.register(newStream);
-                contentsRef.set(i, newRef);
-              }
-            }
-          }
-        }
-      }
-
-      if (pageModified) {
+      const count = replaceInPageContents(pdfDoc, page, searchText, replaceText, options);
+      if (count > 0) {
+        totalOccurrences += count;
         pagesModified.push(pageIndex);
       }
     }
@@ -851,8 +847,8 @@ export async function replaceTextInAllPagesContentStream(
 
     const savedBytes = await pdfDoc.save({
       useObjectStreams: true,
-      updateInfoDict: false,
-    } as any);
+      objectsPerTick: 500,
+    });
 
     const elapsed = Date.now() - startTime;
     logger.success(
@@ -867,7 +863,7 @@ export async function replaceTextInAllPagesContentStream(
     );
 
     return {
-      updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
+      updatedPdfBytes: toExactArrayBuffer(savedBytes),
       occurrencesReplaced: totalOccurrences,
       pagesModified,
     };
@@ -1348,11 +1344,10 @@ export function parseStreamTree(streamText: string): StreamTreeNode {
         previewText: seg.previewText,
       });
     } else {
-      const content = seg.rawContent;
-      const tokens = content.split(/\s+/).filter(Boolean);
+      const ops = tokenizeContentStream(seg.rawContent);
 
-      for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i];
+      for (const op of ops) {
+        const token = op.operator;
         if (token === 'q') {
           qCount++;
           const qNode: StreamTreeNode = {
@@ -1372,7 +1367,8 @@ export function parseStreamTree(streamText: string): StreamTreeNode {
           }
         } else if (token === 'BDC' || token === 'BMC') {
           bdcCount++;
-          const tag = i > 0 ? tokens[i - 1] : '/Span';
+          const tagOp = op.operands.find((o) => o.type === 'name');
+          const tag = tagOp ? tagOp.raw : '/Span';
           const bdcNode: StreamTreeNode = {
             id: `node_mc_${bdcCount}`,
             type: 'marked_content',
@@ -1412,73 +1408,43 @@ export function parseStreamTree(streamText: string): StreamTreeNode {
 }
 
 /**
- * Extract human-readable preview text from a BT ... ET text block.
+ * Extract human-readable preview text from a BT ... ET text block using the real PDF tokenizer.
  */
 export function extractPreviewTextFromBlock(rawBlock: string): string {
-  const words: string[] = [];
+  if (!rawBlock) return '';
+  const ops = tokenizeContentStream(rawBlock);
+  const parts: string[] = [];
 
-  // Check for TJ arrays first e.g. [(Sml) 20 (ouva) -250 (o) -250 (d) (\xedlo)] TJ
-  const tjRegex = /\[([\s\S]*?)\]\s*TJ/g;
-  let tjMatch: RegExpExecArray | null;
-  let foundTj = false;
-
-  while ((tjMatch = tjRegex.exec(rawBlock)) !== null) {
-    foundTj = true;
-    const arrayContent = tjMatch[1];
-    let currentWord = '';
-
-    // Tokenize arrayContent into strings (...) or <...> and kerning numbers
-    const tokenRegex = /\((?:[^\\()]+|\\.)*\)|<[0-9a-fA-F\s]+>|[-+]?\d+(?:\.\d+)?/g;
-    let tok: RegExpExecArray | null;
-
-    while ((tok = tokenRegex.exec(arrayContent)) !== null) {
-      const item = tok[0];
-      if (item.startsWith('(') && item.endsWith(')')) {
-        const text = unescapePdfLiteralString(item.substring(1, item.length - 1));
-        currentWord += text;
-      } else if (item.startsWith('<') && item.endsWith('>')) {
-        const text = hexToString(item.substring(1, item.length - 1));
-        currentWord += text;
-      } else {
-        const num = parseFloat(item);
-        // In PDF fonts, a negative kerning < -140 typically indicates a space between words
-        if (!isNaN(num) && num < -140 && currentWord.length > 0) {
-          if (!currentWord.endsWith(' ')) {
+  for (const op of ops) {
+    if (op.operator === 'TJ') {
+      const arrOp = op.operands.find((o) => o.type === 'array');
+      if (!arrOp) continue;
+      const inner = arrOp.raw.slice(1, arrOp.raw.endsWith(']') ? -1 : undefined);
+      const innerOps = tokenizeContentStream(`${inner} TJ`);
+      const items = innerOps.length > 0 ? innerOps[innerOps.length - 1].operands : [];
+      let currentWord = '';
+      for (const item of items) {
+        if (item.type === 'string') {
+          currentWord += unescapePdfLiteralString(item.raw.slice(1, item.raw.endsWith(')') ? -1 : undefined));
+        } else if (item.type === 'hexstring') {
+          currentWord += hexToString(item.raw.slice(1, item.raw.endsWith('>') ? -1 : undefined));
+        } else if (item.type === 'number') {
+          const num = parseFloat(item.raw);
+          if (!isNaN(num) && num < -140 && currentWord.length > 0 && !currentWord.endsWith(' ')) {
             currentWord += ' ';
           }
         }
       }
-    }
-
-    const trimmed = currentWord.replace(/\s+/g, ' ').trim();
-    if (trimmed) {
-      words.push(trimmed);
-    }
-  }
-
-  if (foundTj && words.length > 0) {
-    return words.join(' ').replace(/\s+/g, ' ').trim();
-  }
-
-  // Fallback for standard Tj, ', " operators or raw literal strings
-  const literalStrings = extractLiteralStrings(rawBlock);
-  const parts: string[] = [];
-  for (const item of literalStrings) {
-    const text = unescapePdfLiteralString(item.inner).trim();
-    if (text) {
-      parts.push(text);
-    }
-  }
-
-  const hexRegex = /<([0-9a-fA-F\s]+)>/g;
-  let hexMatch: RegExpExecArray | null;
-  while ((hexMatch = hexRegex.exec(rawBlock)) !== null) {
-    const text = hexToString(hexMatch[1]).trim();
-    if (text) {
-      parts.push(text);
-    }
-    if (hexMatch.index === hexRegex.lastIndex) {
-      hexRegex.lastIndex++;
+      const trimmed = currentWord.replace(/\s+/g, ' ').trim();
+      if (trimmed) parts.push(trimmed);
+    } else if (op.operator === 'Tj' || op.operator === "'" || op.operator === '"') {
+      const strOp = [...op.operands].reverse().find((o) => o.type === 'string' || o.type === 'hexstring');
+      if (!strOp) continue;
+      const text =
+        strOp.type === 'string'
+          ? unescapePdfLiteralString(strOp.raw.slice(1, strOp.raw.endsWith(')') ? -1 : undefined)).trim()
+          : hexToString(strOp.raw.slice(1, strOp.raw.endsWith('>') ? -1 : undefined)).trim();
+      if (text) parts.push(text);
     }
   }
 
@@ -1717,6 +1683,7 @@ export async function updatePageContentStream(
     const pdfDoc = await PDFDocument.load(pdfDocBytes, {
       ignoreEncryption: true,
       updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
     });
 
     const pageCount = pdfDoc.getPageCount();
@@ -1729,7 +1696,7 @@ export async function updatePageContentStream(
     const page = pdfDoc.getPage(pageIndex);
     const updatedStream = writePageStreamText(pdfDoc, page, newStreamContent);
 
-    const savedBytes = await pdfDoc.save();
+    const savedBytes = await pdfDoc.save({ objectsPerTick: 500 });
     const durationMs = Date.now() - startTime;
 
     logger.success('edit', `Content stream strany ${pageIndex + 1} úspěšně zapsán do PDF za ${durationMs} ms (${savedBytes.byteLength} B)`, {
@@ -1739,7 +1706,7 @@ export async function updatePageContentStream(
     });
 
     return {
-      updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
+      updatedPdfBytes: toExactArrayBuffer(savedBytes),
       updatedStream,
     };
   } catch (err: any) {
@@ -1842,10 +1809,9 @@ export async function getPageImages(
     }
 
     const page = pdfDoc.getPage(pageIndex);
-    const { streamText } = await getPageContentStream(pdfDocBytes, pageIndex);
+    const { streamText, layout } = await getPageContentStream(pdfDocBytes, pageIndex);
 
     const images: PageImageInfo[] = [];
-    const { layout } = await getPageContentStream(pdfDocBytes, pageIndex);
     if (!streamText || !layout) return { images };
 
     const context = page.node.context;
@@ -1985,6 +1951,7 @@ export async function replaceImageOnPage(
     const pdfDoc = await PDFDocument.load(pdfDocBytes, {
       ignoreEncryption: true,
       updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
     });
 
     const pageCount = pdfDoc.getPageCount();
@@ -2001,40 +1968,12 @@ export async function replaceImageOnPage(
       ? await pdfDoc.embedJpg(newImageBytes)
       : await pdfDoc.embedPng(newImageBytes);
 
-    // Locate or create the page's /Resources /XObject dictionary
-    let resources = safeGetPageResources(page.node);
-    if (!page.node.get(PDFName.of('Resources'))) {
-      // Create page-local Resources dictionary to avoid mutating parent trees
-      const localResources = page.node.context.obj({});
-      if (resources instanceof PDFDict) {
-        for (const [key, val] of resources.entries()) {
-          localResources.set(key, val);
-        }
-      }
-      page.node.set(PDFName.of('Resources'), localResources);
-      resources = localResources;
-    } else if (resources instanceof PDFRef) {
-      resources = page.node.context.lookup(resources) as any;
-    }
+    // Give this page its own /Resources & /XObject shallow copies so replacing an image on one page
+    // never mutates shared resources inherited or referenced by unedited pages
+    const xObjectDict = getPageLocalResourceDict(pdfDoc, page, 'XObject');
+    xObjectDict.set(PDFName.of(cleanName), embeddedImage.ref);
 
-    if (!resources) {
-      resources = page.node.context.obj({});
-      page.node.set(PDFName.of('Resources'), resources);
-    }
-
-    let xObjectDict = resources.get(PDFName.of('XObject'));
-    if (xObjectDict instanceof PDFRef) {
-      xObjectDict = page.node.context.lookup(xObjectDict);
-    }
-    if (!xObjectDict || !(xObjectDict instanceof PDFDict)) {
-      xObjectDict = page.node.context.obj({});
-      resources.set(PDFName.of('XObject'), xObjectDict);
-    }
-
-    // Set the new image reference for the specified key
-    (xObjectDict as PDFDict).set(PDFName.of(cleanName), embeddedImage.ref);
-
-    const savedBytes = await pdfDoc.save({ useObjectStreams: false });
+    const savedBytes = await pdfDoc.save({ useObjectStreams: false, objectsPerTick: 500 });
     const durationMs = Date.now() - startTime;
     logger.info('edit', `Obrázek /${cleanName} byl úspěšně nahrazen (${durationMs} ms)`, {
       pageIndex: pageIndex + 1,
@@ -2042,7 +1981,7 @@ export async function replaceImageOnPage(
       durationMs,
     });
 
-    return { updatedPdfBytes: savedBytes.buffer as ArrayBuffer };
+    return { updatedPdfBytes: toExactArrayBuffer(savedBytes) };
   } catch (err: any) {
     logger.error('edit', `Chyba při výměně obrázku /${cleanName}: ${err?.message || err}`);
     return { updatedPdfBytes: pdfDocBytes, error: err?.message || String(err) };
@@ -2408,6 +2347,7 @@ export async function removeMultipleElementsFromPage(
     const pdfDoc = await PDFDocument.load(pdfDocBytes, {
       ignoreEncryption: true,
       updateMetadata: false,
+      parseSpeed: ParseSpeeds.Fast,
     });
 
     const pageCount = pdfDoc.getPageCount();
@@ -2521,8 +2461,8 @@ export async function removeMultipleElementsFromPage(
     // 3. Write back modified stream (page contents and any edited Form XObjects)
     const updatedStream = writePageStreamText(pdfDoc, page, modifiedStream);
 
-    const savedBytes = await pdfDoc.save();
-    const updatedBuffer = savedBytes.buffer as ArrayBuffer;
+    const savedBytes = await pdfDoc.save({ objectsPerTick: 500 });
+    const updatedBuffer = toExactArrayBuffer(savedBytes);
     pdfDocCache.set(updatedBuffer, Promise.resolve(pdfDoc));
     const durationMs = Date.now() - startTime;
 
@@ -2538,7 +2478,7 @@ export async function removeMultipleElementsFromPage(
     );
 
     return {
-      updatedPdfBytes: savedBytes.buffer as ArrayBuffer,
+      updatedPdfBytes: updatedBuffer,
       removedCount,
       updatedStream,
     };

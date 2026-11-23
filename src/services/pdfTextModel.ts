@@ -354,14 +354,39 @@ function collectOperatorListEvents(input: PageTextModelInput): ListEvent[] {
         const size = state.fontSize;
         const hScale = state.hScale;
 
+        const rawItems = (args?.[0] ?? []) as any[];
+        // Derive the TJ negative-kerning word-gap threshold from this run's glyph widths so
+        // narrow/condensed subset fonts (e.g. ~380-unit letters with ~190-unit word gaps) keep
+        // their spaces while normal kerning adjustments stay joined.
+        let glyphWidthSum = 0;
+        let glyphWidthCount = 0;
+        let spaceGlyphWidth = 0;
+        for (const it of rawItems) {
+          if (it && typeof it === 'object') {
+            const w = Number(it.width) || 0;
+            if (w > 0) {
+              if (it.isSpace && !spaceGlyphWidth) spaceGlyphWidth = w;
+              else if (!it.isSpace) {
+                glyphWidthSum += w;
+                glyphWidthCount++;
+              }
+            }
+          }
+        }
+        const avgGlyphW = glyphWidthCount > 0 ? glyphWidthSum / glyphWidthCount : 550;
+        const tjSpaceThreshold =
+          spaceGlyphWidth > 0
+            ? Math.max(120, Math.min(200, spaceGlyphWidth * 0.7))
+            : Math.max(130, Math.min(200, avgGlyphW * 0.38));
+
         const glyphs: TextRunGlyph[] = [];
         let text = '';
         let advance = 0;
-        for (const item of (args?.[0] ?? []) as any[]) {
+        for (const item of rawItems) {
           if (typeof item === 'number') {
             advance -= (item / 1000) * size * hScale;
             // Large negative kerning inside TJ is how many producers write word gaps
-            if (item < -200 && text && !text.endsWith(' ')) text += ' ';
+            if (item < -tjSpaceThreshold && text && !text.endsWith(' ')) text += ' ';
             continue;
           }
           if (!item) continue;

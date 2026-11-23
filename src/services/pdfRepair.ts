@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFObject, PDFRawStream } from 'pdf-lib';
+import { ParseSpeeds, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFObject, PDFRawStream } from 'pdf-lib';
 
 /**
  * Repairs PDF defects that other viewers tolerate but that make pdf.js draw blank pages.
@@ -56,7 +56,12 @@ export const repairPdfDefects = async (buffer: ArrayBuffer): Promise<PdfRepairRe
 
   let doc: PDFDocument;
   try {
-    doc = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false });
+    doc = await PDFDocument.load(buffer, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      throwOnInvalidObject: false,
+      parseSpeed: ParseSpeeds.Fast,
+    });
   } catch {
     return unchanged;
   }
@@ -84,7 +89,8 @@ export const repairPdfDefects = async (buffer: ArrayBuffer): Promise<PdfRepairRe
         : undefined;
     if (!parms) continue;
     const rows = numberValue(parms.lookup(PDFName.of('Rows')));
-    if (rows === undefined || (rows > 0 && rows <= height)) continue;
+    // ISO 32000-1 Table 11: /Rows 0 is valid ("decode until EOB"), as is any 1..height value
+    if (rows === undefined || (rows >= 0 && rows <= height)) continue;
 
     // The parameters may be shared by several images: give this image its own corrected copy
     const fixedParms = parms.clone(context);
@@ -101,7 +107,7 @@ export const repairPdfDefects = async (buffer: ArrayBuffer): Promise<PdfRepairRe
 
   if (fixedImages === 0) return unchanged;
   try {
-    const saved = await doc.save({ updateFieldAppearances: false });
+    const saved = await doc.save({ updateFieldAppearances: false, objectsPerTick: 500 });
     return {
       buffer: saved.buffer.slice(saved.byteOffset, saved.byteOffset + saved.byteLength) as ArrayBuffer,
       repairs: [`${fixedImages} CCITT image(s): /DecodeParms /Rows larger than the image height`],

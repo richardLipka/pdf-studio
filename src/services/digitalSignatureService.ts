@@ -8,6 +8,7 @@ import {
   PDFHexString,
   PDFNumber,
   PDFFont,
+  ParseSpeeds,
 } from 'pdf-lib';
 import { logger } from './logger';
 import { PdfFontProvider, prepareTextForFont } from './pdfFonts';
@@ -90,6 +91,15 @@ export function extractCertInfo(cert: forge.pki.Certificate): ParsedCertificateI
   const now = new Date();
   const isExpired = now < validFrom || now > validTo;
 
+  let keyAlgorithm = 'RSA-2048';
+  const pubKey = cert.publicKey as any;
+  if (pubKey && typeof pubKey.n?.bitLength === 'function') {
+    const bits = pubKey.n.bitLength();
+    if (typeof bits === 'number' && bits > 0) {
+      keyAlgorithm = `RSA-${bits}`;
+    }
+  }
+
   return {
     commonName,
     organization,
@@ -102,8 +112,32 @@ export function extractCertInfo(cert: forge.pki.Certificate): ParsedCertificateI
     validTo,
     serialNumber: cert.serialNumber || '00',
     isExpired,
-    keyAlgorithm: 'RSA-2048',
+    keyAlgorithm,
   };
+}
+
+function rsaKeysMatch(cert: forge.pki.Certificate, privateKey: forge.pki.PrivateKey): boolean {
+  try {
+    const pub = cert.publicKey as any;
+    const priv = privateKey as any;
+    if (pub?.n && priv?.n && typeof pub.n.compareTo === 'function') {
+      const sameModulus = pub.n.compareTo(priv.n) === 0;
+      if (!sameModulus) return false;
+      if (pub.e && priv.e && typeof pub.e.compareTo === 'function') {
+        return pub.e.compareTo(priv.e) === 0;
+      }
+      return true;
+    }
+  } catch {
+    // ignore non-RSA keys
+  }
+  return false;
+}
+
+function getLocalKeyId(bag: forge.pkcs12.Bag | undefined): string | undefined {
+  const vals = (bag?.attributes as any)?.localKeyId;
+  if (Array.isArray(vals) && vals.length > 0) return String(vals[0]);
+  return undefined;
 }
 
 /**
@@ -123,34 +157,16 @@ export function parsePkcs12(
     const p12Asn1 = forge.asn1.fromDer(binary);
     const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
 
-    // Extract certificate bags
-    let certBag: forge.pkcs12.Bag | undefined;
-    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
-    const allCerts: forge.pki.Certificate[] = [];
-
-    if (certBags[forge.pki.oids.certBag]) {
-      for (const bag of certBags[forge.pki.oids.certBag]!) {
-        if (bag.cert) {
-          allCerts.push(bag.cert);
-          if (!certBag) certBag = bag;
-        }
-      }
-    }
-
-    if (!certBag || !certBag.cert) {
-      throw new Error('V souboru .p12 nebyl nalezen žádný platný X.509 certifikát.');
-    }
-
-    // Extract private key bag
+    // Extract private key bag first so we can match the exact leaf certificate in a chain
     let keyBag: forge.pkcs12.Bag | undefined;
     const keyBags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
-    if (keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]) {
-      keyBag = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]![0];
+    if (keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]?.length) {
+      keyBag = keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]!.find((b) => Boolean(b.key)) || keyBags[forge.pki.oids.pkcs8ShroudedKeyBag]![0];
     }
-    if (!keyBag) {
+    if (!keyBag?.key) {
       const plainKeyBags = p12.getBags({ bagType: forge.pki.oids.keyBag });
-      if (plainKeyBags[forge.pki.oids.keyBag]) {
-        keyBag = plainKeyBags[forge.pki.oids.keyBag]![0];
+      if (plainKeyBags[forge.pki.oids.keyBag]?.length) {
+        keyBag = plainKeyBags[forge.pki.oids.keyBag]!.find((b) => Boolean(b.key)) || plainKeyBags[forge.pki.oids.keyBag]![0];
       }
     }
 
@@ -158,12 +174,38 @@ export function parsePkcs12(
       throw new Error('V souboru .p12 nebyl nalezen privátní klíč odpovídající certifikátu.');
     }
 
+    // Extract certificate bags and match the certificate corresponding to the private key
+    const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
+    const rawCertBags = (certBags[forge.pki.oids.certBag] || []).filter((b): b is forge.pkcs12.Bag & { cert: forge.pki.Certificate } => Boolean(b.cert));
+
+    if (rawCertBags.length === 0) {
+      throw new Error('V souboru .p12 nebyl nalezen žádný platný X.509 certifikát.');
+    }
+
+    const keyLocalId = getLocalKeyId(keyBag);
+    let certBag =
+      // 1. Authoritative cryptographic match: public key modulus/exponent equals private key
+      rawCertBags.find((b) => rsaKeysMatch(b.cert, keyBag!.key!)) ||
+      // 2. PKCS#12 localKeyId bag attribute match
+      (keyLocalId ? rawCertBags.find((b) => getLocalKeyId(b) === keyLocalId) : undefined) ||
+      // 3. Fallback: first non-CA leaf certificate, or first certificate
+      rawCertBags.find((b) => {
+        const bc = b.cert.getExtension('basicConstraints') as { cA?: boolean } | null;
+        return !bc?.cA;
+      }) ||
+      rawCertBags[0];
+
     const mainCert = certBag.cert;
+    const orderedCerts: forge.pki.Certificate[] = [
+      mainCert,
+      ...rawCertBags.map((b) => b.cert).filter((c) => c !== mainCert),
+    ];
+
     const privateKeyPem = forge.pki.privateKeyToPem(keyBag.key as forge.pki.rsa.PrivateKey);
     const certificatePem = forge.pki.certificateToPem(mainCert);
     const certInfo = extractCertInfo(mainCert);
 
-    const certificateChain = allCerts.map((c) => forge.pki.certificateToPem(c));
+    const certificateChain = orderedCerts.map((c) => forge.pki.certificateToPem(c));
 
     logger.info('crypto', `Úspěšně načten digitální certifikát: ${certInfo.commonName}`, {
       issuer: certInfo.issuerName,
@@ -213,25 +255,31 @@ export async function generateSelfSignedCertificate(
         const days = options.validityDays || 365;
         cert.validity.notAfter = new Date(now.getTime() + 1000 * 60 * 60 * 24 * days);
 
-        const makeAttr = (name: string, value: string): forge.pki.CertificateField => {
+        // RFC 5280 ASN.1 string types: countryName = PrintableString, emailAddress = IA5String, others = UTF8String
+        const makeAttr = (
+          name: string,
+          value: string,
+          tagClass: number = forge.asn1.Type.UTF8
+        ): forge.pki.CertificateField => {
           return {
             name,
             value,
-            valueTagClass: forge.asn1.Type.UTF8 as any,
+            valueTagClass: tagClass as any,
           };
         };
 
+        const countryCode = (options.country || 'CZ').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2) || 'CZ';
         const attrs: forge.pki.CertificateField[] = [
-          makeAttr('commonName', options.commonName),
-          makeAttr('countryName', options.country || 'CZ'),
-          makeAttr('organizationName', options.organization || 'PDF Studio User'),
+          makeAttr('commonName', options.commonName, forge.asn1.Type.UTF8),
+          makeAttr('countryName', countryCode, forge.asn1.Type.PRINTABLESTRING),
+          makeAttr('organizationName', options.organization || 'PDF Studio User', forge.asn1.Type.UTF8),
         ];
 
         if (options.organizationalUnit) {
-          attrs.push(makeAttr('organizationalUnitName', options.organizationalUnit));
+          attrs.push(makeAttr('organizationalUnitName', options.organizationalUnit, forge.asn1.Type.UTF8));
         }
         if (options.email) {
-          attrs.push(makeAttr('emailAddress', options.email));
+          attrs.push(makeAttr('emailAddress', options.email, forge.asn1.Type.IA5STRING));
         }
 
         cert.setSubject(attrs);
@@ -343,9 +391,15 @@ export async function signPdfWithCertificate(
   const certInfo = extractCertInfo(cert);
 
   // 1. Load document with pdf-lib to insert Signature Field & ByteRange placeholder
-  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true, parseSpeed: ParseSpeeds.Fast });
+  if (pdfDoc.isEncrypted) {
+    throw new Error('Šifrovaný PDF dokument nelze přímo kryptograficky podepsat bez předchozího dešifrování.');
+  }
   const pages = pdfDoc.getPages();
-  const pageIdx = Math.min(options.pageIndex || 0, pages.length - 1);
+  if (pages.length === 0) {
+    throw new Error('Dokument neobsahuje žádné stránky k podepsání.');
+  }
+  const pageIdx = Math.max(0, Math.min(options.pageIndex || 0, pages.length - 1));
   const page = pages[pageIdx];
 
   const signerDisplayName = options.signerName || certInfo.commonName;
@@ -385,7 +439,7 @@ export async function signPdfWithCertificate(
     T: PDFString.of(`Signature_${Date.now()}`),
     V: sigDictRef,
     P: page.ref,
-    F: 4, // Print flag
+    F: 132, // Print (4) | Locked (128) per ISO 32000-1 Table 165 / PAdES
   });
 
   // 4. Visual Appearance Stream (if requested). Without an explicit position the badge goes to the
@@ -414,7 +468,7 @@ export async function signPdfWithCertificate(
     const font = await fonts.fontFor('Helvetica', false, false, dateLine + reasonLine);
     const encode = (f: PDFFont, text: string) => f.encodeText(prepareTextForFont(f, text)).toString();
 
-    const apStream = pdfDoc.context.stream(
+    const apStream = pdfDoc.context.flateStream(
       `q
 0.96 0.97 0.99 rg
 0 0 ${width} ${height} re f
@@ -441,6 +495,7 @@ Q
       {
         Type: 'XObject',
         Subtype: 'Form',
+        FormType: 1,
         BBox: [0, 0, width, height],
         Resources: {
           Font: {
@@ -482,7 +537,9 @@ Q
     }) as PDFDict;
     catalog.set(PDFName.of('AcroForm'), acroForm);
   } else {
-    acroForm.set(PDFName.of('SigFlags'), PDFNumber.of(3));
+    const existingSigFlags = acroForm.lookup(PDFName.of('SigFlags'));
+    const currentFlags = existingSigFlags instanceof PDFNumber ? existingSigFlags.asNumber() : 0;
+    acroForm.set(PDFName.of('SigFlags'), PDFNumber.of(currentFlags | 3));
   }
 
   const existingFields = acroForm.lookup(PDFName.of('Fields'));
@@ -494,18 +551,23 @@ Q
   formFields.push(sigFieldRef);
 
   // 5. Save PDF bytes with placeholder
-  const rawBytes = await pdfDoc.save({ useObjectStreams: false });
-  let pdfBuffer = new Uint8Array(rawBytes);
+  const rawBytes = await pdfDoc.save({ useObjectStreams: false, objectsPerTick: 500 });
+  const pdfBuffer = new Uint8Array(rawBytes);
 
   // 6. Find ByteRange and Contents offsets directly on Uint8Array (Zero String Allocation)
-  const contentsOffset = findByteSequence(pdfBuffer, placeholderHex);
+  // Search with `<` and `>` delimiters so an unrelated zero run in an image/font stream is never matched
+  const delimitedPlaceholder = `<${placeholderHex}>`;
+  const delimitedOffset = findByteSequence(pdfBuffer, delimitedPlaceholder);
+  const contentsStart = delimitedOffset !== -1 ? delimitedOffset + 1 : findByteSequence(pdfBuffer, placeholderHex);
 
-  if (contentsOffset === -1) {
+  if (contentsStart <= 0 || contentsStart + SIGNATURE_LENGTH >= pdfBuffer.length) {
     throw new Error('Nepodařilo se nalézt vyhrazený prostor pro digitální podpis v PDF struktuře.');
   }
 
-  const contentsStart = contentsOffset;
   const contentsEnd = contentsStart + SIGNATURE_LENGTH;
+  if (pdfBuffer[contentsStart - 1] !== 0x3c || pdfBuffer[contentsEnd] !== 0x3e) {
+    throw new Error('Vyhrazený prostor /Contents nemá očekávané hex ohraničení <...>.');
+  }
 
   const byteRangeRegex = /\/ByteRange\s*\[\s*0\s+1000000000\s+1000000000\s+1000000000\s*\]/;
   const byteRangeMatch = findBytePattern(pdfBuffer, byteRangeRegex);
@@ -519,11 +581,14 @@ Q
 
   // 7. Replace ByteRange with exact values (0, contentsStart - 1, contentsEnd + 1, totalLength - (contentsEnd + 1))
   const b1 = 0;
-  const b2 = contentsStart - 1; // Includes '<'
-  const b3 = contentsEnd + 1;   // After '>'
+  const b2 = contentsStart - 1; // Excludes '<'
+  const b3 = contentsEnd + 1;   // Immediately after '>'
   const b4 = pdfBuffer.length - b3;
 
   const actualByteRange = `/ByteRange [ ${b1} ${b2} ${b3} ${b4} ]`;
+  if (actualByteRange.length > matchedPlaceholder.length) {
+    throw new Error('Hodnota /ByteRange překročila délku vyhrazeného placeholderu.');
+  }
   const paddedByteRange = actualByteRange.padEnd(matchedPlaceholder.length, ' ');
 
   // Overwrite ByteRange in binary buffer
@@ -592,8 +657,13 @@ Q
     pdfSizeKB: (pdfBuffer.length / 1024).toFixed(1),
   });
 
+  const signedPdfBytes =
+    pdfBuffer.byteOffset === 0 && pdfBuffer.byteLength === pdfBuffer.buffer.byteLength
+      ? pdfBuffer.buffer
+      : pdfBuffer.slice().buffer;
+
   return {
-    signedPdfBytes: pdfBuffer.buffer,
+    signedPdfBytes,
     certInfo,
   };
 }
@@ -617,13 +687,11 @@ export function formatPdfDate(date: Date): string {
 }
 
 function appendUint8ToForge(buffer: forge.util.ByteBuffer, u8: Uint8Array): void {
+  // Note: TextDecoder('latin1') maps 0x80-0x9F per Windows-1252, corrupting raw binary bytes!
+  // String.fromCharCode preserves 0x00-0xFF 1-to-1 and chunked apply avoids per-byte concat overhead.
   const CHUNK_SIZE = 8192;
   for (let i = 0; i < u8.length; i += CHUNK_SIZE) {
-    const end = Math.min(i + CHUNK_SIZE, u8.length);
-    let chunkStr = '';
-    for (let j = i; j < end; j++) {
-      chunkStr += String.fromCharCode(u8[j]);
-    }
-    buffer.putBytes(chunkStr);
+    const chunk = u8.subarray(i, Math.min(i + CHUNK_SIZE, u8.length));
+    buffer.putBytes(String.fromCharCode.apply(null, chunk as unknown as number[]));
   }
 }
